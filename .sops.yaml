@@ -1,0 +1,6 @@
+creation_rules:
+  - path_regex: ^hosts/.*/secrets/.*\.(yaml|yml|json|env)$
+    age: ["age1YOURPUBLICKEYHERE..."]
+
+  - path_regex: ^k8s/.*/secrets/.*\.(yaml|yml|json)$
+    age: ["age1YOURPUBLICKEYHERE..."]
