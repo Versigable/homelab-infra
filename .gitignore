@@ -9,6 +9,12 @@
 **/secrets/*.yaml
 **/secrets/*.yml
 
+hosts/**/secrets/*
+
 # allow encrypted secrets (we’ll use .sops.* or .enc.* names)
 !**/secrets/*.sops.*
 !**/secrets/*.enc.*
+
+!hosts/**/secrets/*.sops
+!hosts/**/secrets/*.sops.*
+!*/*.sops
