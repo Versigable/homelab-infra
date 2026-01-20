@@ -14,7 +14,8 @@ set -euo pipefail
 
 # ---- Config you may tweak ----
 # Where the repo is checked out ON THE TRAEFIK HOST
-REPO_DIR="${REPO_DIR:-/home/metaversig/git/homelab-infra}"
+# REPO_DIR="${REPO_DIR:-/home/metaversig/git/homelab-infra}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Encrypted env file in repo
 SOPS_ENV_REL="hosts/traefik/secrets/compose.env.sops"
@@ -73,7 +74,7 @@ if [ "${DO_GIT_PULL}" = "1" ]; then
   git fetch --all --prune >/dev/null 2>&1 || true
 fi
 
-SOPS_ENV_FILE="${REPO_DIR}/${SOPS_ENV_REL}"
+SOPS_ENV_FILE="${REPO_DIR}/hosts/traefik/secrets/compose.env.sops"
 if [ ! -f "${SOPS_ENV_FILE}" ]; then
   echo "[deploy] ERROR: Encrypted env file not found: ${SOPS_ENV_FILE}" >&2
   exit 1
