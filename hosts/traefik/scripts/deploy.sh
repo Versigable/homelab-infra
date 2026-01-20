@@ -92,7 +92,7 @@ cleanup() { rm -f "${TMP_ENV}"; }
 trap cleanup EXIT
 
 log "Decrypting SOPS env -> temp file"
-sops -d "${SOPS_ENV_FILE}" > "${TMP_ENV}"
+sops -d --input-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV}"
 
 # Basic sanity check: ensure it looks like KEY=VALUE lines (not perfect, but catches empty)
 if ! grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}"; then
