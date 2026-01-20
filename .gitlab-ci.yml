@@ -1,0 +1,11 @@
+stages: [deploy]
+
+deploy-traefik:
+  stage: deploy
+  tags: ["traefik"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/traefik/**/*
+  script:
+    - bash hosts/traefik/scripts/deploy.sh
