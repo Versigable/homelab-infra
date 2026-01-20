@@ -32,6 +32,10 @@ SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
 # If you want the job to git pull before deploying
 DO_GIT_PULL="${DO_GIT_PULL:-1}"
 
+# Validate sudo permissions for exactly what we need
+sudo -n /usr/bin/docker ps >/dev/null
+sudo -n /usr/bin/install --version >/dev/null
+
 # ------------------------------------------------------------
 
 log() { echo "[deploy] $*"; }
