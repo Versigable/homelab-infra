@@ -6,8 +6,4 @@ deploy-traefik:
       changes:
         - hosts/traefik/**/*
   script:
-    - whoami
-    - pwd
-    - ls -la
-    - ls -la hosts/traefik/secrets
     - bash hosts/traefik/scripts/deploy.sh
