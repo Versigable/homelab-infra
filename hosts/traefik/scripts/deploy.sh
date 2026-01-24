@@ -17,6 +17,8 @@ set -euo pipefail
 # REPO_DIR="${REPO_DIR:-/home/metaversig/git/homelab-infra}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
+echo "[deploy] REPO_DIR=${REPO_DIR}"
+
 # Encrypted env file in repo
 SOPS_ENV_REL="hosts/traefik/secrets/compose.env.sops"
 
