@@ -4,78 +4,62 @@ set -euo pipefail
 # ------------------------------------------------------------
 # deploy.sh (Traefik host)
 #
-# Runs on: Traefik VM (runner-per-host)
+# Runs on: Traefik VM (runner-per-host, shell executor)
 # Purpose:
-#   - Optionally update the repo checkout
-#   - Decrypt SOPS secret env file from repo
+#   - Decrypt SOPS secret env file from repo checkout
 #   - Write .env into the live Traefik stack directory
 #   - Deploy (docker compose up -d)
 # ------------------------------------------------------------
 
-# ---- Config you may tweak ----
-# Where the repo is checked out ON THE TRAEFIK HOST
-# REPO_DIR="${REPO_DIR:-/home/metaversig/git/homelab-infra}"
+# Where the repo is checked out (in CI this is the job workspace)
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-
 echo "[deploy] REPO_DIR=${REPO_DIR}"
 
-# Encrypted env file in repo
+# Encrypted env file in repo (relative + absolute)
 SOPS_ENV_REL="hosts/traefik/secrets/compose.env.sops"
+SOPS_ENV_FILE="${REPO_DIR}/${SOPS_ENV_REL}"
 
-# Where your live Traefik compose actually lives ON THE TRAEFIK HOST
-# (adjust if your path differs)
+# Live Traefik stack directory on the Traefik host
 LIVE_STACK_DIR="${LIVE_STACK_DIR:-/home/traefik/traefik-hub/compose}"
 
-# The destination .env used by docker compose in LIVE_STACK_DIR
+# Destination .env used by docker compose in LIVE_STACK_DIR
 LIVE_ENV_FILE="${LIVE_ENV_FILE:-${LIVE_STACK_DIR}/.env}"
 
-# Age key location ON THE TRAEFIK HOST
+# Age key location on the Traefik host
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
 
-# If you want the job to git pull before deploying
-DO_GIT_PULL="${DO_GIT_PULL:-0}"
+log() { echo "[deploy] $*"; }
+require_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "[deploy] ERROR: missing command: $1" >&2; exit 1; }; }
 
-# Validate sudo permissions for exactly what we need
+# Never echo secrets even if job enables xtrace
+set +x
+
+require_cmd sops
+require_cmd docker
+require_cmd sudo
+
+# Validate sudo permissions for exactly what we need (runner should have NOPASSWD for these)
 sudo -n /usr/bin/docker ps >/dev/null
 sudo -n /usr/bin/install --version >/dev/null
 
-# ------------------------------------------------------------
-
-log() { echo "[deploy] $*"; }
-
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || { echo "[deploy] ERROR: missing command: $1" >&2; exit 1; }
-}
-
-# Safety: never echo secrets. Turn off xtrace if it's enabled.
-set +x
-
-require_cmd git
-require_cmd sops
-require_cmd docker
-
-# Ensure age key exists (Traefik host)
+# Ensure age key exists + is readable
 if [ ! -f "${SOPS_AGE_KEY_FILE}" ]; then
   echo "[deploy] ERROR: SOPS age key not found at ${SOPS_AGE_KEY_FILE}" >&2
   exit 1
 fi
-export SOPS_AGE_KEY_FILE
-
-# Ensure repo exists
-if [ ! -d "${REPO_DIR}/.git" ]; then
-  echo "[deploy] ERROR: REPO_DIR not a git repo: ${REPO_DIR}" >&2
+if [ ! -r "${SOPS_AGE_KEY_FILE}" ]; then
+  echo "[deploy] ERROR: SOPS age key exists but is not readable: ${SOPS_AGE_KEY_FILE}" >&2
   exit 1
 fi
+export SOPS_AGE_KEY_FILE
 
-cd "${REPO_DIR}"
-
-SOPS_ENV_FILE="${REPO_DIR}/hosts/traefik/secrets/compose.env.sops"
+# Ensure encrypted env exists in repo checkout
 if [ ! -f "${SOPS_ENV_FILE}" ]; then
   echo "[deploy] ERROR: Encrypted env file not found: ${SOPS_ENV_FILE}" >&2
   exit 1
 fi
 
-# Make sure live stack dir exists
+# Ensure live stack dir exists (runner must be able to traverse it to cd)
 if [ ! -d "${LIVE_STACK_DIR}" ]; then
   echo "[deploy] ERROR: LIVE_STACK_DIR does not exist: ${LIVE_STACK_DIR}" >&2
   exit 1
@@ -88,28 +72,25 @@ cleanup() { rm -f "${TMP_ENV}"; }
 trap cleanup EXIT
 
 log "Decrypting SOPS env -> temp file"
-sops -d --input-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV}"
+# IMPORTANT: force output type, otherwise SOPS may try binary output and fail
+sops -d --input-type dotenv --output-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV}"
 
-# Basic sanity check: ensure it looks like KEY=VALUE lines (not perfect, but catches empty)
+# Sanity check: KEY=VALUE lines exist
 if ! grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}"; then
   echo "[deploy] ERROR: Decrypted env does not look like KEY=VALUE content (or is empty)." >&2
-  echo "[deploy] Refusing to deploy to avoid writing a bad .env." >&2
   exit 1
 fi
 
-# Install to destination with root-only perms
+# Install to destination with root-only perms (secrets live on host, not in repo)
 log "Writing live env: ${LIVE_ENV_FILE}"
-sudo install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
+sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
 
 # Deploy Traefik stack
 log "Deploying Traefik stack in ${LIVE_STACK_DIR}"
 cd "${LIVE_STACK_DIR}"
 
-# Pull + up (you can remove pull if you prefer)
-sudo docker compose pull
-sudo docker compose up -d
-
-log "Deploy complete. Current status:"
-sudo docker compose ps
+sudo /usr/bin/docker compose pull
+sudo /usr/bin/docker compose up -d
+sudo /usr/bin/docker compose ps
 
 log "Done."
