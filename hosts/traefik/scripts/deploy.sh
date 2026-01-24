@@ -31,7 +31,7 @@ LIVE_ENV_FILE="${LIVE_ENV_FILE:-${LIVE_STACK_DIR}/.env}"
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
 
 # If you want the job to git pull before deploying
-DO_GIT_PULL="${DO_GIT_PULL:-1}"
+DO_GIT_PULL="${DO_GIT_PULL:-0}"
 
 # Validate sudo permissions for exactly what we need
 sudo -n /usr/bin/docker ps >/dev/null
@@ -66,13 +66,6 @@ if [ ! -d "${REPO_DIR}/.git" ]; then
 fi
 
 cd "${REPO_DIR}"
-
-if [ "${DO_GIT_PULL}" = "1" ]; then
-  # In CI, repo is already at the commit being built; but if you run manually, this helps.
-  # We do a safe "fetch" and ensure we're on the expected ref if desired.
-  log "Fetching latest (non-destructive)..."
-  git fetch --all --prune >/dev/null 2>&1 || true
-fi
 
 SOPS_ENV_FILE="${REPO_DIR}/hosts/traefik/secrets/compose.env.sops"
 if [ ! -f "${SOPS_ENV_FILE}" ]; then
