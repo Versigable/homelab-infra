@@ -15,7 +15,7 @@ set -euo pipefail
 # ---- Config you may tweak ----
 # Where the repo is checked out ON THE TRAEFIK HOST
 # REPO_DIR="${REPO_DIR:-/home/metaversig/git/homelab-infra}"
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 # Encrypted env file in repo
 SOPS_ENV_REL="hosts/traefik/secrets/compose.env.sops"
