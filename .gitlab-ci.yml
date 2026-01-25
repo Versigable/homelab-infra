@@ -20,6 +20,8 @@ deploy-servicehub:
     - echo "SHELL=$SHELL"
     - command -v bash || true
     - bash --version || true
+    - file hosts/servicehub/scripts/deploy.sh
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
     - echo "== show first lines with hidden chars =="
     - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
     - echo "== file info =="
@@ -41,6 +43,8 @@ deploy-authentik:
     - echo "SHELL=$SHELL"
     - command -v bash || true
     - bash --version || true
+    - file hosts/servicehub/scripts/deploy.sh
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
     - echo "== show first lines with hidden chars =="
     - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
     - echo "== file info =="
@@ -62,6 +66,8 @@ deploy-gaminghub:
     - echo "SHELL=$SHELL"
     - command -v bash || true
     - bash --version || true
+    - file hosts/servicehub/scripts/deploy.sh
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
     - echo "== show first lines with hidden chars =="
     - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
     - echo "== file info =="
