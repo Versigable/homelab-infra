@@ -1,14 +1,31 @@
 creation_rules:
-  # ---- Docker / Compose secrets (preferred convention) ----
-  # Example: hosts/traefik/secrets/compose.env.sops
-  - path_regex: ^hosts/[^/]+/secrets/.*\.env\.sops$
+  # ---- Docker / Compose host secrets (per-host keys) ----
+  # Convention: hosts/<host>/secrets/<name>.<ext>.sops
+  # Examples:
+  #   hosts/traefik/secrets/compose.env.sops
+  #   hosts/servicehub/secrets/compose.env.sops
+  #   hosts/authentik/secrets/compose.env.sops
+  #   hosts/gaminghub/secrets/compose.env.sops
+
+  - path_regex: ^hosts/traefik/secrets/.*\.(env|yaml|yml|json)\.sops$
     age: ["age1L53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
 
+  - path_regex: ^hosts/servicehub/secrets/.*\.(env|yaml|yml|json)\.sops$
+    age: ["age1sxssf0cce0ccuf2ym77m8q66mgzhdcdede5l7cqqpv6z0nf9cymsd3u260"]
+
+  - path_regex: ^hosts/authentik/secrets/.*\.(env|yaml|yml|json)\.sops$
+    age: ["age1lcaqm5xr2wa66slg5jtxhk6gyjmxf79gfm7nkanarnmrp5dsvakqgry8uj"]
+
+  - path_regex: ^hosts/gaminghub/secrets/.*\.(env|yaml|yml|json)\.sops$
+    age: ["age1j8s7twwpfzw8c67cc4nw85tr0h4cnm33ne8su8uefkvmsdq423fqsfadsm"]
+
   # ---- Kubernetes / Argo secrets (future) ----
-  # Example: k8s/prod/secrets/gitlab-secret.yaml.sops
+  # For now, encrypt K8s secrets to Traefik key (your current "control plane"/ops host)
+  # Later you can replace with cluster-specific keys (recommended).
   - path_regex: ^k8s/.*/secrets/.*\.(yaml|yml|json)\.sops$
     age: ["age1L53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
 
-  # Example: clusters/rogue/secrets/argocd-secret.yaml.sops
+  # ---- Clusters (future) ----
+  # Same story: safe default is Traefik key until you mint cluster keys.
   - path_regex: ^clusters/.*/secrets/.*\.(yaml|yml|json)\.sops$
     age: ["age1L53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
