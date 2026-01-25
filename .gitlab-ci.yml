@@ -16,6 +16,10 @@ deploy-servicehub:
       changes:
         - hosts/servicehub/**/*
   script:
+    - whoami
+    - echo "SHELL=$SHELL"
+    - command -v bash || true
+    - bash --version || true
     - bash hosts/servicehub/scripts/deploy.sh
 
 deploy-authentik:
@@ -26,6 +30,10 @@ deploy-authentik:
       changes:
         - hosts/authentik/**/*
   script:
+    - whoami
+    - echo "SHELL=$SHELL"
+    - command -v bash || true
+    - bash --version || true
     - bash hosts/authentik/scripts/deploy.sh
 
 deploy-gaminghub:
@@ -36,4 +44,8 @@ deploy-gaminghub:
       changes:
         - hosts/gaminghub/**/*
   script:
+    - whoami
+    - echo "SHELL=$SHELL"
+    - command -v bash || true
+    - bash --version || true
     - bash hosts/gaminghub/scripts/deploy.sh
