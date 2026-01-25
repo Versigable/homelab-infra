@@ -7,3 +7,33 @@ deploy-traefik:
         - hosts/traefik/**/*
   script:
     - bash hosts/traefik/scripts/deploy.sh
+
+deploy-servicehub:
+  stage: deploy
+  tags: ["servicehub"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/**/*
+  script:
+    - bash hosts/servicehub/scripts/deploy.sh
+
+deploy-authentik:
+  stage: deploy
+  tags: ["authentik"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/authentik/**/*
+  script:
+    - bash hosts/authentik/scripts/deploy.sh
+
+deploy-gaminghub:
+  stage: deploy
+  tags: ["gaminghub"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/**/*
+  script:
+    - bash hosts/gaminghub/scripts/deploy.sh
