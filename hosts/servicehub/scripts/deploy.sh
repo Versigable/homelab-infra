@@ -6,7 +6,6 @@ set -euo pipefail
 #
 # Deploys all services on ServiceHub host:
 #   - Wiki.js
-#   - Forgejo
 #   - N8N
 #
 # Each service has:
@@ -132,7 +131,7 @@ deploy_service() {
 # ============================================================
 # Main: Deploy all services on this host
 # ============================================================
-SERVICES=("wiki" "forgejo" "n8n")
+SERVICES=("wiki" "n8n")
 FAILED_SERVICES=()
 
 log_info "========================================"
