@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set +x
+PS4='+ [${BASH_SOURCE}:${LINENO}] '
+set -x
+trap 'echo "[deploy] FAIL line=$LINENO cmd=$BASH_COMMAND" >&2' ERR
+
 
 log() { echo "[deploy] $*"; }
 warn() { echo "[deploy] WARN: $*" >&2; }
