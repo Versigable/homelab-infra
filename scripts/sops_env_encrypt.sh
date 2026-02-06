@@ -77,3 +77,7 @@ EOF
 
   echo "✓ Encrypted: $target"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  sops_env_encrypt "$@"
+fi
