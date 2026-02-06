@@ -1,5 +1,9 @@
-.sops.yaml text eol=lf
+# Always use LF in repo for scripts
 *.sh text eol=lf
+*.bash text eol=lf
+*.env text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
-*.env  text eol=lf
+
+# Optional: docs too
+*.md text eol=lf
