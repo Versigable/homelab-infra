@@ -1,0 +1,17 @@
+http:
+  routers:
+    wikijs-router:
+      rule: "Host(`wiki.ninjaprivacy.org`)"
+      service: wikijs-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+
+  services:
+    wikijs-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.5:3001
+        passHostHeader: true

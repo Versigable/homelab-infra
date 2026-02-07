@@ -1,0 +1,16 @@
+http:
+  routers:
+    bitwarden-router:
+      rule: "Host(`bitwarden.ninjaprivacy.org`)"
+      service: bitwarden-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+  services:
+    bitwarden-svc:
+      loadbalancer:
+        servers:
+          - url: https://10.0.1.3:1443
+        passHostHeader: true

@@ -1,0 +1,16 @@
+http:
+  routers:
+    gitlab-router:
+      rule: "Host(`gitlab.ninjaprivacy.org`)"
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      service: gitlab-svc
+      # no forwardAuth here; GitLab handles OIDC itself
+
+  services:
+    gitlab-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://10.0.1.13:8081

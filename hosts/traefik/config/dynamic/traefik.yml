@@ -1,0 +1,32 @@
+http:
+  routers:
+    traefik-router:
+      rule: Host(`traefik.ninjaprivacy.org`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+      service: api@internal
+      entrypoints: [websecure]
+      middlewares:
+        - authentik-forward
+      tls: {}
+
+    # Redirect so https://traefik.ninjaprivacy.org reaches the dashboard at https://traefik.ninjaprivacy.org/dashboard/
+    traefik-redirect:
+      rule: Host(`traefik.ninjaprivacy.org`) && Path(`/`)
+      service: dummy
+      entrypoints: [websecure]
+      middlewares:
+        - redirect-to-dashboard
+      tls: {}
+
+  # Middleware that modifies the URL to https://traefik.ninjaprivacy.org/dashboard/
+  middlewares:
+    redirect-to-dashboard:
+      redirectRegex:
+        regex: "^(https?://[^/]+/?)$"  # Added /? to match optional trailing slash
+        replacement: "${1}/dashboard/"
+        permanent: false
+
+  services:
+    dummy:  # Harmless placeholder; won't be hit even if redirect doesn't work
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1"

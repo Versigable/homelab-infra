@@ -1,0 +1,100 @@
+udp:
+  routers:
+    bedrock19132:   { entryPoints: [bedrock19132],   service: bedrock19132_svc }
+    bedrock19142:   { entryPoints: [bedrock19142],   service: bedrock19142_svc }
+
+    valheim2456:    { entryPoints: [valheim2456],    service: valheim2456_svc }
+    valheim2457:    { entryPoints: [valheim2457],    service: valheim2457_svc }
+    valheim2458:    { entryPoints: [valheim2458],    service: valheim2458_svc }
+
+    sotf8766:       { entryPoints: [sotf8766],       service: sotf8766_svc }
+    sotf9700:       { entryPoints: [sotf9700],       service: sotf9700_svc }
+
+    satisfact7776:  { entryPoints: [satisfact7776],  service: satisfact7776_svc }
+
+    astro8777:      { entryPoints: [astro8777],      service: astro8777_svc }
+
+    pal8211:        { entryPoints: [pal8211],        service: pal8211_svc }
+
+    # Ark: The Island
+    ark7777:        { entryPoints: [ark7777],        service: ark7777_svc }
+    ark7778:        { entryPoints: [ark7778],        service: ark7778_svc }
+
+    # Ark: Ragnarok
+    ark7781:        { entryPoints: [ark7781],        service: ark7781_svc }
+    ark7782:        { entryPoints: [ark7782],        service: ark7782_svc }
+
+    # Ark: Map 3 (future)
+    ark7783:        { entryPoints: [ark7783],        service: ark7783_svc }
+    ark7784:        { entryPoints: [ark7784],        service: ark7784_svc }
+
+    # Ark: Fjordur
+    ark7785:        { entryPoints: [ark7785],        service: ark7785_svc }
+    ark7786:        { entryPoints: [ark7786],        service: ark7786_svc }
+
+    # Ark: Map 5 (future)
+    ark7787:        { entryPoints: [ark7787],        service: ark7787_svc }
+    ark7788:        { entryPoints: [ark7788],        service: ark7788_svc }
+
+      # === Steam Query Port Routers ===
+    steam27015:     { entryPoints: [steam27015], service: steam27015_svc }
+    steam27016:     { entryPoints: [steam27016], service: steam27016_svc }
+    steam27017:     { entryPoints: [steam27017], service: steam27017_svc }
+    steam27018:     { entryPoints: [steam27018], service: steam27018_svc }
+    steam27019:     { entryPoints: [steam27019], service: steam27019_svc }
+
+    # New Ark SE map query routers
+    steam27021:     { entryPoints: [steam27021], service: steam27021_svc } # Rag
+    steam27023:     { entryPoints: [steam27023], service: steam27023_svc } # Map3
+    steam27025:     { entryPoints: [steam27025], service: steam27025_svc } # Fjordur
+    steam27027:     { entryPoints: [steam27027], service: steam27027_svc } # Map5
+
+  services:
+    bedrock19132_svc:   { loadBalancer: { servers: [ { address: "10.0.1.9:19132" } ] } }
+    bedrock19142_svc:   { loadBalancer: { servers: [ { address: "10.0.1.9:19142" } ] } }
+
+    valheim2456_svc:    { loadBalancer: { servers: [ { address: "10.0.1.9:2456"  } ] } }
+    valheim2457_svc:    { loadBalancer: { servers: [ { address: "10.0.1.9:2457"  } ] } }
+    valheim2458_svc:    { loadBalancer: { servers: [ { address: "10.0.1.9:2458"  } ] } }
+
+    sotf8766_svc:       { loadBalancer: { servers: [ { address: "10.0.1.9:8766"  } ] } }
+    sotf9700_svc:       { loadBalancer: { servers: [ { address: "10.0.1.9:9700"  } ] } }
+
+    satisfact7776_svc:  { loadBalancer: { servers: [ { address: "10.0.1.9:7776"  } ] } }
+
+    astro8777_svc:      { loadBalancer: { servers: [ { address: "10.0.1.9:8777"  } ] } }
+
+    pal8211_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:8211"  } ] } }
+
+    # Ark: The Island
+    ark7777_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7777"  } ] } }
+    ark7778_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7778"  } ] } }
+
+    # Ark: Ragnarok
+    ark7781_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7781"  } ] } }
+    ark7782_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7782"  } ] } }
+
+    # Ark: Map 3
+    ark7783_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7783"  } ] } }
+    ark7784_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7784"  } ] } }
+
+    # Ark: Fjordur
+    ark7785_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7785"  } ] } }
+    ark7786_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7786"  } ] } }
+
+    # Ark: Map 5
+    ark7787_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7787"  } ] } }
+    ark7788_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7788"  } ] } }
+
+      # === Steam Query Port Services ===
+    steam27015_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27015" } ] } } # SotF
+    steam27016_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27016" } ] } } # SotF
+    steam27017_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27017" } ] } } # Astroneer
+    steam27018_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27018" } ] } } # Palworld
+    steam27019_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27019" } ] } } # Ark Island
+
+    # New Ark query services
+    steam27021_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27021" } ] } } # Ark Ragnarok
+    steam27023_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27023" } ] } } # Ark Map3
+    steam27025_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27025" } ] } } # Ark Fjordur
+    steam27027_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27027" } ] } } # Ark Map5

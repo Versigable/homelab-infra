@@ -1,0 +1,10 @@
+# config/dynamic/ue5-udp.yml
+# Points to JellyFin at 10.0.1.8
+udp:
+  routers:
+    ue5_6666:   { entryPoints: [ue5_6666],   service: ue5_6666 }
+    ue5_7000:   { entryPoints: [ue5_7000],   service: ue5_7000 }
+
+  services:
+    ue5_6666:   { loadBalancer: { servers: [ { address: "10.0.1.8:6666" } ] } }
+    ue5_7000:   { loadBalancer: { servers: [ { address: "10.0.1.8:7000" } ] } }

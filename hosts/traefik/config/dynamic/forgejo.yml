@@ -1,0 +1,26 @@
+http:
+  routers:
+    forgejo:
+      rule: Host(`git.ninjaprivacy.org`)
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      service: forgejo
+      # no forwardAuth here; Forgejo handles OIDC itself
+
+  services:
+    forgejo:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://10.0.1.5:3000"
+
+  # optional hardening
+  middlewares:
+    sec-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        referrerPolicy: "no-referrer"

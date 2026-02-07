@@ -1,0 +1,16 @@
+http:
+  routers:
+    git-registry-router:
+      rule: "Host(`registry.ninjaprivacy.org`)"
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      service: git-registry-svc
+      # no forwardAuth here; GitLab handles OIDC itself
+
+  services:
+    git-registry-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://10.0.1.13:8081

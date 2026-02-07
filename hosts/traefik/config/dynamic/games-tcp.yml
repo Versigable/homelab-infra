@@ -1,0 +1,12 @@
+tcp:
+  routers:
+    satisfact7777tcp:
+      entryPoints: [satisfact7777tcp]
+      rule: "HostSNI(`*`)"          # plain TCP
+      service: satapi7777_svc
+
+  services:
+    satapi7777_svc:
+      loadBalancer:
+        servers:
+          - address: "10.0.1.9:7777"  # Satisfactory Server API (TCP)

@@ -1,0 +1,16 @@
+http:
+  routers:
+    proxmox-router:
+      rule: "Host(`proxmox.ninjaprivacy.org`)"
+      service: proxmox-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+  services:
+    proxmox-svc:
+      loadbalancer:
+        servers:
+          - url: https://10.0.1.2:8006
+        passHostHeader: true

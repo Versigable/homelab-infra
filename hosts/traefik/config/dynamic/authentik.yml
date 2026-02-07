@@ -1,0 +1,21 @@
+http:
+  routers:
+    authentik-router:
+      rule: "Host(`auth.ninjaprivacy.org`)"
+      service: authentik-svc
+      entrypoints: [websecure]
+      tls: {}
+
+    authentik-outpost-router:
+      rule: "PathPrefix(`/outpost.goauthentik.io/`)"
+      service: authentik-svc
+      entrypoints: [websecure]
+      tls: {}
+      priority: 10000
+
+  services:
+    authentik-svc:
+      loadbalancer:
+        servers:
+          - url: https://10.0.1.3:9443
+        passHostHeader: true

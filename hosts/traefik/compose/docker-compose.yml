@@ -1,0 +1,85 @@
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik1
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+
+      # UDP publishes (must match entryPoints)
+      # --- Game ports (UDP) ---
+      - "8766:8766/udp"     # SotF
+      - "9700:9700/udp"     # SotF
+      - "8211:8211/udp"     # Palworld
+      - "8777:8777/udp"     # Astroneer
+      - "7776:7776/udp"     # Satisfactory
+      - "7777:7777/udp"     # Ark Island game
+      - "7778:7778/udp"     # Ark Island raw
+      - "19132:19132/udp"   # MC Bedrock
+      - "19142:19142/udp"   # MC Bedrock
+      - "2456:2456/udp"     # Valheim
+      - "2457:2457/udp"     # Valheim
+      - "2458:2458/udp"     # Valheim
+
+      # New Ark SE map game/raw ports
+      - "7781:7781/udp"     # Ark Ragnarok game
+      - "7782:7782/udp"     # Ark Ragnarok raw
+      - "7783:7783/udp"     # Ark Map3 game
+      - "7784:7784/udp"     # Ark Map3 raw
+      - "7785:7785/udp"     # Ark Fjordur game
+      - "7786:7786/udp"     # Ark Fjordur raw
+      - "7787:7787/udp"     # Ark Map5 game
+      - "7788:7788/udp"     # Ark Map5 raw
+
+      # --- Steam query (UDP) ---
+      - "27015:27015/udp"   # SotF
+      - "27016:27016/udp"   # SotF
+      - "27017:27017/udp"   # Astroneer
+      - "27018:27018/udp"   # Palworld
+      - "27019:27019/udp"   # Ark Island
+
+      # New Ark SE map query ports
+      - "27021:27021/udp"   # Ark Ragnarok
+      - "27023:27023/udp"   # Ark Map3
+      - "27025:27025/udp"   # Ark Fjordur
+      - "27027:27027/udp"   # Ark Map5
+
+      # --- UE5 Concert (MUE) & Stuff
+      - "6666:6666/udp"
+      - "7000:7000/udp"
+
+      # TCP publishes (must match entryPoints)
+      # --- Game ports (TCP) ---
+      - "7777:7777/tcp"     # Satisfactory TCP
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../config/dynamic:/etc/traefik/dynamic:ro
+      - ../config/static/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../data/acme:/etc/traefik/acme
+    env_file:
+      - ./.env
+    networks:
+      - traefik-net1
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    container_name: ninjaprivacy_org
+    restart: unless-stopped
+    command: ["tunnel","--no-autoupdate","--config","/etc/cloudflared/config.yml","run"]
+    volumes:
+      - ../data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ../data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
+      - ../data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/root/.cloudflared/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
+      - ../data/cloudflared/creds/cert.pem:/etc/cloudflared/cert.pem:ro
+      - ../data/cloudflared/creds/cert.pem:/root/.cloudflared/cert.pem:ro
+    networks:
+      - traefik-net1
+
+networks:
+  traefik-net1:
+    external: true
+
+volumes:
+  traefik-data:

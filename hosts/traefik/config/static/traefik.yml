@@ -1,0 +1,71 @@
+entryPoints:
+  web:
+    address: :80
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+
+  websecure:
+    address: :443
+
+    # === UDP game entryPoints ===
+  bedrock19132:   { address: ":19132/udp" }
+  bedrock19142:   { address: ":19142/udp" }
+  valheim2456:    { address: ":2456/udp" }
+  valheim2457:    { address: ":2457/udp" }
+  valheim2458:    { address: ":2458/udp" }
+  sotf8766:       { address: ":8766/udp" }
+  sotf9700:       { address: ":9700/udp" }
+  satisfact7776:  { address: ":7776/udp" }
+  astro8777:      { address: ":8777/udp" }
+  pal8211:        { address: ":8211/udp" }
+  ark7777:        { address: ":7777/udp" }   # Ark Island game
+  ark7778:        { address: ":7778/udp" }   # Ark Island raw
+
+  # New Ark SE maps (UDP)
+  ark7781:        { address: ":7781/udp" }   # Ark Ragnarok game
+  ark7782:        { address: ":7782/udp" }   # Ark Ragnarok raw
+  ark7783:        { address: ":7783/udp" }   # Ark Map3 game
+  ark7784:        { address: ":7784/udp" }   # Ark Map3 raw
+  ark7785:        { address: ":7785/udp" }   # Ark Fjordur game
+  ark7786:        { address: ":7786/udp" }   # Ark Fjordur raw
+  ark7787:        { address: ":7787/udp" }   # Ark Map5 game
+  ark7788:        { address: ":7788/udp" }   # Ark Map5 raw
+
+    # === TCP game entryPoints ===
+  satisfact7777tcp: { address: ":7777/tcp" }
+
+    # === Steam Query entryPoints cuz Multiple GAmes ===
+  steam27015:     { address: ":27015/udp" }   # SotF
+  steam27016:     { address: ":27016/udp" }   # SotF
+  steam27017:     { address: ":27017/udp" }   # Astroneer
+  steam27018:     { address: ":27018/udp" }   # Palworld
+  steam27019:     { address: ":27019/udp" }   # Ark Island
+
+  # New Steam query entryPoints for extra Ark maps
+  steam27021:     { address: ":27021/udp" }   # Ark Ragnarok
+  steam27023:     { address: ":27023/udp" }   # Ark Map3
+  steam27025:     { address: ":27025/udp" }   # Ark Fjordur
+  steam27027:     { address: ":27027/udp" }   # Ark Map5
+
+    # --- UE5 Concert (MUE) entryPoints
+  ue5_6666:     { address: ":6666/udp" }
+  ue5_7000:     { address: ":7000/udp" }
+
+providers:
+  docker:
+    exposedByDefault: false
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+serversTransport:
+  insecureSkipVerify: true
+
+log:
+  level: ERROR
+
+api:
+  dashboard: true

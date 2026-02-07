@@ -1,0 +1,17 @@
+http:
+  routers:
+    truenas:
+      rule: Host(`truenas.ninjaprivacy.org`)
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+      service: truenas
+
+  services:
+    truenas:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://10.0.1.7"
