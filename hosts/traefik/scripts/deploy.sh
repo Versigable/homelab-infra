@@ -38,7 +38,7 @@ log "Syncing compose -> live"
 sudo /usr/bin/install -m 0644 -o root -g root "$REPO_COMPOSE" "$LIVE_COMPOSE"
 
 log "Syncing config/ -> live (static+dynamic)"
-sudo rsync -a --delete "$REPO_CFG_DIR/" "$LIVE_CFG_DIR/"
+sudo /usr/local/sbin/gitops-sync-traefik "$REPO_CFG_DIR" "$LIVE_CFG_DIR"
 
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "age key not readable: ${SOPS_AGE_KEY_FILE}"
 [[ -f "${SOPS_ENV_FILE}" ]] || die "missing encrypted env: ${SOPS_ENV_FILE}"
