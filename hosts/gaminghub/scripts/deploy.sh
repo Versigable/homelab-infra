@@ -2,12 +2,16 @@
 set -euo pipefail
 
 # ============================================================
-# deploy.sh (GamingHub - Multi-Service)
+# deploy.sh (GamingHub - Multi-Service) — Model B GitOps
 #
-# Deploys all game servers on GamingHub host:
+# GitOps manages:
+#   - compose files: hosts/gaminghub/compose/*.yml  -> /home/*/*-hub/compose/docker-compose.yml
+#   - env secrets:   hosts/gaminghub/secrets/*.env.sops -> /home/*/*-hub/compose/.env (root:root 0600)
+#
+# Deploys:
 #   - Minecraft (2 servers) → /home/minecraft/minecraft-hub/compose
 #   - Valheim → /home/valheim/valheim-hub/compose
-#   - Astroneer  ^f^r /home/astroneer/astroneer-hub/compose
+#   - Astroneer → /home/astroneer/astroneer-hub/compose
 #   - Ark SE (3 maps):
 #       - Island → /home/arkse/arkse-hub/compose
 #       - Ragnarok → /home/arkse/arkse-hub-rag/compose
@@ -16,40 +20,66 @@ set -euo pipefail
 #   - Palworld → /home/palworld/palworld-hub/compose
 #   - Satisfactory → /home/satisfactory/satisfactory-hub/compose
 #
-# All services use the same SOPS key (host-level encryption)
-# Each service has its own secret file: hosts/gaminghub/secrets/<game>.env.sops
+# Notes:
+#   - One host-level Age key at /etc/sops/age/keys.txt by default
+#   - docker compose is executed inside each stack dir
 # ============================================================
 
-# Colors for output
+# -------- Colors / logging --------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-log_info() { echo -e "${BLUE}[deploy]${NC} $*"; }
+log_info()    { echo -e "${BLUE}[deploy]${NC} $*"; }
 log_success() { echo -e "${GREEN}[deploy]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[deploy]${NC} $*"; }
-log_error() { echo -e "${RED}[deploy]${NC} $*"; }
+log_warn()    { echo -e "${YELLOW}[deploy]${NC} $*"; }
+log_error()   { echo -e "${RED}[deploy]${NC} $*"; }
 
-# Repo root (where CI checks out the repo)
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+die() { log_error "ERROR: $*"; exit 1; }
+
+# -------- Helpers --------
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+# Repo root: CI uses CI_PROJECT_DIR; local uses script-relative
+REPO_DIR="${CI_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 log_info "REPO_DIR=${REPO_DIR}"
 
+# Age key location on the host (ONE key for all services)
+SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
+export SOPS_AGE_KEY_FILE
+
+# -------- Pre-flight checks --------
+require_cmd sops
+require_cmd docker
+require_cmd sudo
+
+# Validate sudo permissions required by this script
+sudo -n /usr/bin/docker ps >/dev/null 2>&1 || die "gitlab-runner needs NOPASSWD sudo for /usr/bin/docker"
+sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "gitlab-runner needs NOPASSWD sudo for /usr/bin/install"
+
+# Ensure age key exists and is readable
+[[ -f "${SOPS_AGE_KEY_FILE}" ]] || die "SOPS age key not found: ${SOPS_AGE_KEY_FILE}"
+[[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "SOPS age key not readable: ${SOPS_AGE_KEY_FILE}"
+
+# -------- GitOps sync: compose file -> live --------
 sync_compose_map() {
-  local repo_yml="$1"  # e.g. minecraft.yml
-  local live_dir="$2"  # e.g. /home/minecraft/minecraft-hub/compose
+  local repo_yml="$1"   # e.g. minecraft.yml
+  local live_dir="$2"   # e.g. /home/minecraft/minecraft-hub/compose
   local src="${REPO_DIR}/hosts/gaminghub/compose/${repo_yml}"
   local dst="${live_dir}/docker-compose.yml"
 
   [[ -f "$src" ]] || die "missing repo compose: $src"
   [[ -d "$live_dir" ]] || die "missing live dir: $live_dir"
 
-  log "Syncing ${repo_yml} -> ${dst}"
+  log_info "Syncing compose: ${repo_yml} -> ${dst}"
   sudo /usr/bin/install -m 0644 -o root -g root "$src" "$dst"
 }
 
-# Map repo file -> live directory
+# Map repo file -> live directory (compose sync happens once per run)
 sync_compose_map "minecraft.yml"    "/home/minecraft/minecraft-hub/compose"
 sync_compose_map "valheim.yml"      "/home/valheim/valheim-hub/compose"
 sync_compose_map "sotf.yml"         "/home/sotf/sotf-hub/compose"
@@ -60,111 +90,76 @@ sync_compose_map "ark-island.yml"   "/home/arkse/arkse-hub/compose"
 sync_compose_map "ark-ragnarok.yml" "/home/arkse/arkse-hub-rag/compose"
 sync_compose_map "ark-fjordur.yml"  "/home/arkse/arkse-hub-fjor/compose"
 
-# Age key location on the host (ONE key for all services)
-SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
-export SOPS_AGE_KEY_FILE
-
-# Pre-flight checks
-require_cmd() { 
-    command -v "$1" >/dev/null 2>&1 || { 
-        log_error "Missing command: $1" 
-        exit 1
-    }
-}
-
-require_cmd sops
-require_cmd docker
-require_cmd sudo
-
-# Validate sudo permissions
-sudo -n /usr/bin/docker ps >/dev/null || {
-    log_error "gitlab-runner needs NOPASSWD sudo for docker"
-    exit 1
-}
-sudo -n /usr/bin/install --version >/dev/null || {
-    log_error "gitlab-runner needs NOPASSWD sudo for install"
-    exit 1
-}
-
-# Ensure age key exists and is readable
-if [ ! -f "${SOPS_AGE_KEY_FILE}" ]; then
-    log_error "SOPS age key not found at ${SOPS_AGE_KEY_FILE}"
-    exit 1
-fi
-if [ ! -r "${SOPS_AGE_KEY_FILE}" ]; then
-    log_error "SOPS age key exists but is not readable: ${SOPS_AGE_KEY_FILE}"
-    exit 1
-fi
+log_info "Git changes (latest commit):"
+git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
+log_info ""
 
 # ============================================================
 # Deploy a single game server
 # ============================================================
 deploy_game() {
-    local GAME_NAME="$1"      # Display name (e.g., "Minecraft", "Ark Island")
-    local SECRET_NAME="$2"    # Secret file name (e.g., "minecraft", "ark-island")
-    local STACK_DIR="$3"      # Full path to compose directory
-    
-    log_info "========================================"
-    log_info "Deploying: ${GAME_NAME}"
-    log_info "========================================"
-    
-    local SOPS_ENV_FILE="${REPO_DIR}/hosts/gaminghub/secrets/${SECRET_NAME}.env.sops"
-    local LIVE_ENV_FILE="${STACK_DIR}/.env"
-    
-    # Check if encrypted secret exists
-    if [ ! -f "${SOPS_ENV_FILE}" ]; then
-        log_warn "⚠️  Encrypted env file not found: ${SOPS_ENV_FILE}"
-        log_warn "⚠️  Skipping ${GAME_NAME} (may not have secrets configured yet)"
-        return 0  # Not a failure - some games may not need secrets
-    fi
-    
-    # Check if stack directory exists
-    if [ ! -d "${STACK_DIR}" ]; then
-        log_error "Stack directory does not exist: ${STACK_DIR}"
-        return 1
-    fi
-    
-    # Decrypt to temp file with strict perms
-    umask 077
-    local TMP_ENV
-    TMP_ENV="$(mktemp)"
-    trap "rm -f ${TMP_ENV}" RETURN
-    
-    log_info "Decrypting secrets for ${GAME_NAME}..."
-    set +x  # Never echo secrets
-    if ! sops -d --input-type dotenv --output-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV}"; then
-        log_error "Failed to decrypt ${SOPS_ENV_FILE}"
-        return 1
-    fi
-    
-    # Sanity check: ensure it looks like KEY=VALUE content
-    if ! grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}"; then
-        log_warn "⚠️  Decrypted env is empty or invalid for ${GAME_NAME}"
-        log_warn "⚠️  Continuing anyway (game may not need env vars)"
-    fi
-    
-    # Install decrypted .env to live location as root:root 0600
-    log_info "Writing .env to ${LIVE_ENV_FILE}"
-    sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
-    
-    # Deploy the game server
-    log_info "Deploying ${GAME_NAME} server..."
+  local GAME_NAME="$1"     # Display name (e.g., "Minecraft Servers")
+  local SECRET_NAME="$2"   # Secret file stem (e.g., "minecraft", "ark-island")
+  local STACK_DIR="$3"     # Full path to compose directory
+
+  log_info "========================================"
+  log_info "Deploying: ${GAME_NAME}"
+  log_info "Stack:     ${STACK_DIR}"
+  log_info "========================================"
+
+  local SOPS_ENV_FILE="${REPO_DIR}/hosts/gaminghub/secrets/${SECRET_NAME}.env.sops"
+  local LIVE_ENV_FILE="${STACK_DIR}/.env"
+
+  [[ -d "${STACK_DIR}" ]] || { log_error "Stack dir missing: ${STACK_DIR}"; return 1; }
+
+  # Secret file missing? Not fatal — you might not be using env vars yet.
+  if [[ ! -f "${SOPS_ENV_FILE}" ]]; then
+    log_warn "Encrypted env file not found: ${SOPS_ENV_FILE}"
+    log_warn "Skipping secrets for ${GAME_NAME} (continuing deploy)"
+    # Still deploy compose; game might not need env vars.
+    ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose pull && sudo /usr/bin/docker compose up -d && sudo /usr/bin/docker compose ps )
+    log_success "✅ ${GAME_NAME} deployed (no secrets applied)"
+    echo ""
+    return 0
+  fi
+
+  # Decrypt to temp file with strict perms
+  umask 077
+  local TMP_ENV
+  TMP_ENV="$(mktemp)"
+  trap 'rm -f "${TMP_ENV}"' EXIT
+
+  log_info "Decrypting secrets..."
+  set +x  # Never echo secrets
+  if ! sops -d --input-type dotenv --output-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV}"; then
+    log_error "Failed to decrypt: ${SOPS_ENV_FILE}"
+    return 1
+  fi
+
+  # Sanity check: ensure KEY=VALUE exists (warn only)
+  if ! grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}"; then
+    log_warn "Decrypted env appears empty/invalid (expected KEY=VALUE). Continuing anyway."
+  fi
+
+  log_info "Installing .env -> ${LIVE_ENV_FILE}"
+  sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
+
+  log_info "Deploying containers..."
+  (
     cd "${STACK_DIR}"
-    
     sudo /usr/bin/docker compose pull
     sudo /usr/bin/docker compose up -d
     sudo /usr/bin/docker compose ps
-    
-    log_success "✅ ${GAME_NAME} deployed successfully"
-    echo ""
-    
-    return 0
+  )
+
+  log_success "✅ ${GAME_NAME} deployed successfully"
+  echo ""
+  return 0
 }
 
 # ============================================================
 # Main: Deploy all game servers on this host
 # ============================================================
-
 log_info "========================================"
 log_info "GamingHub Multi-Service Deployment"
 log_info "========================================"
@@ -172,61 +167,36 @@ log_info ""
 
 FAILED_GAMES=()
 
+run_deploy() {
+  local label="$1" secret="$2" dir="$3"
+  if ! deploy_game "$label" "$secret" "$dir"; then
+    FAILED_GAMES+=("$secret")
+  fi
+}
+
 # Minecraft (2 servers in one hub)
-if ! deploy_game "Minecraft Servers" "minecraft" "/home/minecraft/minecraft-hub/compose"; then
-    FAILED_GAMES+=("minecraft")
-fi
+run_deploy "Minecraft Servers"       "minecraft"    "/home/minecraft/minecraft-hub/compose"
+run_deploy "Valheim"                 "valheim"      "/home/valheim/valheim-hub/compose"
+run_deploy "Astroneer"               "astroneer"    "/home/astroneer/astroneer-hub/compose"
 
-# Valheim
-if ! deploy_game "Valheim" "valheim" "/home/valheim/valheim-hub/compose"; then
-    FAILED_GAMES+=("valheim")
-fi
+run_deploy "Ark SE - The Island"     "ark-island"   "/home/arkse/arkse-hub/compose"
+run_deploy "Ark SE - Ragnarok"       "ark-ragnarok" "/home/arkse/arkse-hub-rag/compose"
+run_deploy "Ark SE - Fjordur"        "ark-fjordur"  "/home/arkse/arkse-hub-fjor/compose"
 
-# Astroneer
-if ! deploy_game "Astroneer" "astroneer" "/home/astroneer/astroneer-hub/compose"; then
-    FAILED_GAMES+=("astroneer")
-fi
-
-# Ark SE - Island
-if ! deploy_game "Ark SE - The Island" "ark-island" "/home/arkse/arkse-hub/compose"; then
-    FAILED_GAMES+=("ark-island")
-fi
-
-# Ark SE - Ragnarok
-if ! deploy_game "Ark SE - Ragnarok" "ark-ragnarok" "/home/arkse/arkse-hub-rag/compose"; then
-    FAILED_GAMES+=("ark-ragnarok")
-fi
-
-# Ark SE - Fjordur
-if ! deploy_game "Ark SE - Fjordur" "ark-fjordur" "/home/arkse/arkse-hub-fjor/compose"; then
-    FAILED_GAMES+=("ark-fjordur")
-fi
-
-# Sons of the Forest
-if ! deploy_game "Sons of the Forest" "sotf" "/home/sotf/sotf-hub/compose"; then
-    FAILED_GAMES+=("sotf")
-fi
-
-# Palworld
-if ! deploy_game "Palworld" "palworld" "/home/palworld/palworld-hub/compose"; then
-    FAILED_GAMES+=("palworld")
-fi
-
-# Satisfactory
-if ! deploy_game "Satisfactory" "satisfactory" "/home/satisfactory/satisfactory-hub/compose"; then
-    FAILED_GAMES+=("satisfactory")
-fi
+run_deploy "Sons of the Forest"      "sotf"         "/home/sotf/sotf-hub/compose"
+run_deploy "Palworld"                "palworld"     "/home/palworld/palworld-hub/compose"
+run_deploy "Satisfactory"            "satisfactory" "/home/satisfactory/satisfactory-hub/compose"
 
 # Summary
 log_info "========================================"
 log_info "Deployment Summary"
 log_info "========================================"
 
-if [ ${#FAILED_GAMES[@]} -eq 0 ]; then
-    log_success "🎉 All game servers deployed successfully!"
-    exit 0
+if [[ ${#FAILED_GAMES[@]} -eq 0 ]]; then
+  log_success "🎉 All game servers deployed successfully!"
+  exit 0
 else
-    log_error "❌ Failed games: ${FAILED_GAMES[*]}"
-    log_error "Check logs above for details"
-    exit 1
+  log_error "❌ Failed games: ${FAILED_GAMES[*]}"
+  log_error "Scroll up for the first error in each failed section."
+  exit 1
 fi
