@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wikijs
+      POSTGRES_PASSWORD: ${DB_PASS}
+    volumes:
+      - ../data/db/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks: [wiki-net1]
+
+  wiki:
+    image: ghcr.io/requarks/wiki:2
+    depends_on: [db]
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: wikijs
+      DB_PASS: ${DB_PASS}
+      DB_NAME: wiki
+    ports:
+      - "3001:3000"
+      # expose 3443 only if you actually use internal TLS in the container
+      # - "3443:3443"
+    restart: unless-stopped
+    networks: [wiki-net1]
+
+networks:
+  wiki-net1:
+    external: true
