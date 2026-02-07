@@ -152,7 +152,7 @@ At a high level:
   - bugs
   - improvements
   - “runbook gaps” (missing operational docs)
-- For urgent ops: follow `docs/DEVOPS_OPERATIONS_RUNBOOK.md` (triage + rollback patterns)
+- For urgent ops: follow `docs/devops/DEVOPS_OPERATIONS_RUNBOOK.md` (triage + rollback patterns)
 
 ---
 
