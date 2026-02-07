@@ -2,6 +2,7 @@ name: satisfactory
 
 services:
   satisfactory:
+    # Kannis Test!
     image: wolveix/satisfactory-server:latest
     container_name: satisfactory
     hostname: satisfactory
