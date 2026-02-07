@@ -7,6 +7,7 @@ set -euo pipefail
 # Deploys all game servers on GamingHub host:
 #   - Minecraft (2 servers) → /home/minecraft/minecraft-hub/compose
 #   - Valheim → /home/valheim/valheim-hub/compose
+#   - Astroneer  ^f^r /home/astroneer/astroneer-hub/compose
 #   - Ark SE (3 maps):
 #       - Island → /home/arkse/arkse-hub/compose
 #       - Ragnarok → /home/arkse/arkse-hub-rag/compose
@@ -155,6 +156,11 @@ fi
 # Valheim
 if ! deploy_game "Valheim" "valheim" "/home/valheim/valheim-hub/compose"; then
     FAILED_GAMES+=("valheim")
+fi
+
+# Astroneer
+if ! deploy_game "Astroneer" "astroneer" "/home/astroneer/astroneer-hub/compose"; then
+    FAILED_GAMES+=("astroneer")
 fi
 
 # Ark SE - Island
