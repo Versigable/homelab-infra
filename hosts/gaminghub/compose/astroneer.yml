@@ -1,5 +1,6 @@
 name: astroneer
 services:
+  #Kannis test! On the moon!
   astroneer:
     image: whalybird/astroneer-server:latest
     container_name: astroneer
