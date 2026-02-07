@@ -23,6 +23,23 @@ export SOPS_AGE_KEY_FILE
 sudo -n /usr/bin/docker ps >/dev/null || die "runner needs NOPASSWD sudo for /usr/bin/docker"
 sudo -n /usr/bin/install --version >/dev/null || die "runner needs NOPASSWD sudo for /usr/bin/install"
 
+# --- GitOps sync (Traefik) ---
+require_cmd rsync
+
+REPO_COMPOSE="${REPO_DIR}/hosts/traefik/compose/docker-compose.yml"
+LIVE_COMPOSE="${LIVE_STACK_DIR}/docker-compose.yml"
+
+REPO_CFG_DIR="${REPO_DIR}/hosts/traefik/config"
+LIVE_CFG_DIR="/home/traefik/traefik-hub/config"
+
+[[ -f "$REPO_COMPOSE" ]] || di:contentReference[oaicite:8]{index=8}s:contentReference[oaicite:9]{index=9}-d "$REPO_CFG_DIR"  ]] || die "missing repo config dir: $REPO_CFG_DIR"
+
+log "Syncing compose -> live"
+sudo /usr/bin/install -m 0644 -o root -g root "$REPO_COMPOSE" "$LIVE_COMPOSE"
+
+log "Syncing config/ -> live (static+dynamic)"
+sudo rsync -a --delete "$REPO_CFG_DIR/" "$LIVE_CFG_DIR/"
+
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "age key not readable: ${SOPS_AGE_KEY_FILE}"
 [[ -f "${SOPS_ENV_FILE}" ]] || die "missing encrypted env: ${SOPS_ENV_FILE}"
 [[ -d "${LIVE_STACK_DIR}" ]] || die "LIVE_STACK_DIR missing: ${LIVE_STACK_DIR}"
