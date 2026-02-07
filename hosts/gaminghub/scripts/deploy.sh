@@ -36,6 +36,30 @@ log_error() { echo -e "${RED}[deploy]${NC} $*"; }
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 log_info "REPO_DIR=${REPO_DIR}"
 
+sync_compose_map() {
+  local repo_yml="$1"  # e.g. minecraft.yml
+  local live_dir="$2"  # e.g. /home/minecraft/minecraft-hub/compose
+  local src="${REPO_DIR}/hosts/gaminghub/compose/${repo_yml}"
+  local dst="${live_dir}/docker-compose.yml"
+
+  [[ -f "$src" ]] || die "missing repo compose: $src"
+  [[ -d "$live_dir" ]] || die "missing live dir: $live_dir"
+
+  log "Syncing ${repo_yml} -> ${dst}"
+  sudo /usr/bin/install -m 0644 -o root -g root "$src" "$dst"
+}
+
+# Map repo file -> live directory
+sync_compose_map "minecraft.yml"    "/home/minecraft/minecraft-hub/compose"
+sync_compose_map "valheim.yml"      "/home/valheim/valheim-hub/compose"
+sync_compose_map "sotf.yml"         "/home/sotf/sotf-hub/compose"
+sync_compose_map "palworld.yml"     "/home/palworld/palworld-hub/compose"
+sync_compose_map "satisfactory.yml" "/home/satisfactory/satisfactory-hub/compose"
+sync_compose_map "astroneer.yml"    "/home/astroneer/astroneer-hub/compose"
+sync_compose_map "ark-island.yml"   "/home/arkse/arkse-hub/compose"
+sync_compose_map "ark-ragnarok.yml" "/home/arkse/arkse-hub-rag/compose"
+sync_compose_map "ark-fjordur.yml"  "/home/arkse/arkse-hub-fjor/compose"
+
 # Age key location on the host (ONE key for all services)
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
 export SOPS_AGE_KEY_FILE
