@@ -52,7 +52,7 @@ export SOPS_AGE_KEY_FILE
 # Live paths
 AUTH_LIVE_STACK_DIR="/home/authentik/authentik-hub/compose"
 AUTH_LIVE_ENV_FILE="${AUTH_LIVE_STACK_DIR}/.env"
-AUTH_REPO_COMPOSE="${REPO_DIR}/hosts/authentik/compose/docker-compose.yml"
+AUTH_REPO_COMPOSE="${REPO_DIR}/hosts/authentik/compose/authentik.yml"
 AUTH_REPO_SECRETS="${REPO_DIR}/hosts/authentik/secrets/authentik.env.sops"
 
 BW_LIVE_STACK_DIR="/opt/bitwarden/bwdata/docker"
