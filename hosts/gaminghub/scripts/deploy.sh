@@ -124,25 +124,27 @@ deploy_game() {
   fi
 
   # Decrypt to temp file with strict perms
+ (
+  # subshell so trap doesn't leak across games
   umask 077
-  local TMP_ENV
   TMP_ENV="$(mktemp)"
   trap 'rm -f "${TMP_ENV}"' EXIT
 
-  log_info "Decrypting secrets..."
-  set +x  # Never echo secrets
+  log_info "Decrypting secrets for ${GAME_NAME}..."
+  set +x  # never echo secrets
   if ! sops -d --input-type dotenv --output-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV}"; then
-    log_error "Failed to decrypt: ${SOPS_ENV_FILE}"
-    return 1
+    log_error "Failed to decrypt ${SOPS_ENV_FILE}"
+    exit 1
   fi
 
-  # Sanity check: ensure KEY=VALUE exists (warn only)
   if ! grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}"; then
-    log_warn "Decrypted env appears empty/invalid (expected KEY=VALUE). Continuing anyway."
+    log_warn "⚠️  Decrypted env is empty/invalid for ${GAME_NAME} (expected KEY=VALUE)"
+    log_warn "⚠️  Continuing anyway"
   fi
 
-  log_info "Installing .env -> ${LIVE_ENV_FILE}"
+  log_info "Writing .env to ${LIVE_ENV_FILE}"
   sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
+ )
 
   log_info "Deploying containers..."
   (
