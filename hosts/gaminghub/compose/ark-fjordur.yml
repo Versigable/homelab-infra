@@ -1,0 +1,44 @@
+services:
+  ark-fjordur:
+    image: ich777/steamcmd:arkse
+    container_name: ark-fjordur
+    restart: unless-stopped
+    network_mode: "host"
+
+    environment:
+      - GAME_ID=376030
+      - MAP=Fjordur
+      - SERVER_NAME=NinjARK-Fjordur
+
+      # --- CLUSTER SETTINGS ---
+      # Mostly for consistency; real cluster magic is in GAME_PARAMS_EXTRA
+      - ARKCLUSTERID=VersoCluster
+      # -------------------------
+
+      # Same passwords as Island / Ragnarok (change if you want)
+      - SRV_PWD=${SERVER_PASSWORD}
+      - SRV_ADMIN_PWD=${SERVER_ADMIN_PASSWORD}
+
+      # Use ports that don't collide with Island / Ragnarok / other games
+      # Fjordur: game 7785, raw 7786 (Port+1), query 27025
+      - GAME_PARAMS=?MaxPlayers=10?QueryPort=27025?Port=7785?RCONEnabled=False?SessionName=NinjARK-Fjordur?AltSaveDirectoryName=SavedArksFjordur
+
+      # Extra raw command-line flags
+      # - cluster id for transfers
+      # - NoTransferFromFiltering so uploads are allowed
+      - GAME_PARAMS_EXTRA=-server -log -NoBattlEye -NoTransferFromFiltering -clusterid=VersoCluster
+
+    volumes:
+      # Main ARK files for Fjordur
+      - ../data/Fjordur/serverdata/serverfiles:/serverdata/serverfiles
+      - ../logs/Fjordur/serverdata/logs:/serverdata/logs
+      - ../backups/Fjordur:/backups
+
+      # Shared cluster directory (same as Island / Ragnarok)
+      - /home/arkse/cluster-shared:/serverdata/serverfiles/ShooterGame/Saved/clusters
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f ShooterGameServer >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 30

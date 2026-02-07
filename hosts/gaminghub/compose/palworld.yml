@@ -1,0 +1,53 @@
+name: palworld
+services:
+  palworld:
+    image: thijsvanloef/palworld-server-docker:latest
+    container_name: palworld
+    restart: unless-stopped
+    environment:
+      - PUID=995
+      - PGID=1003
+      - SERVER_NAME=NinjaPrivacy_Palworld
+      - SERVER_PORT=8211
+      - QUERY_PORT=27018
+      - RCON_ENABLED=true           # toggle per preference
+      - RCON_PORT=25575             # enable only if you intend to manage remotely
+      - DIFFICULTY=0
+      - PLAYERS=10
+      - MULTITHREAD=true            # uses perf threads (effective up to ~4 threads)
+      - PUBLIC_LOBBY=false          # set true to list publicly
+    volumes:
+      - ../data:/palworld
+      - ../logs:/palworld/Pal/Saved/Logs
+      - ../backups:/backups
+    ports:
+      - "8211:8211/udp"
+      - "27018:27015/udp"
+      # - "25575:25575/tcp"         # only if RCON enabled & needed externally
+    healthcheck:
+      test: ["CMD-SHELL", "ss -lunp | grep -q ':8211 '"]
+      interval: 30s
+      timeout: 5s
+      retries: 30
+
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"      # hard cap (container sees up to 3 cores worth of time)
+          memory: 12g      # hard cap; triggers OOM kill if exceeded
+        reservations:
+          cpus: "1.0"      # soft reservation (good hygiene)
+          memory: 4g
+    ulimits:               # (optional) protect against too many files
+      nofile: 262144
+    oom_kill_disable: false
+    stop_grace_period: 30s
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  default:
+    name: net_palworld
+    external: true

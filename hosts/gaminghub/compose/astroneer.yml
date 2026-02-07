@@ -1,0 +1,48 @@
+name: astroneer
+services:
+  astroneer:
+    image: whalybird/astroneer-server:latest
+    container_name: astroneer
+    restart: unless-stopped
+    # user: "996:1003"                 # <- use your real UID:GID for 'astroneer' and devops
+    # environment:
+    #  - PUID=996
+    #  - PGID=1003
+    #  - TZ=America/Denver
+      # If the image supports them, you can set branch/auto-update flags here.
+    volumes:
+      - ../data:/astroneer-data
+      - ../config:/astroneer-config:ro   # place ini files here (optional)
+      - ../logs:/astroneer-logs
+      - ../backups:/backups
+    ports:
+      - "8777:8777/udp"                  # game
+      # - "27015:27015/udp"                # steam query
+  
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+        reservations:
+          cpus: "0.5"
+          memory: 1g
+    ulimits:               # (optional) protect against too many files
+      nofile: 262144
+    oom_kill_disable: false
+    stop_grace_period: 30s
+
+    healthcheck:
+      test: ["CMD-SHELL", "ss -lunp | egrep -q ':(8777|27015)\\b'"]
+      interval: 30s
+      timeout: 5s
+      retries: 30
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  default:
+    name: net_astroneer
+    external: true

@@ -1,0 +1,35 @@
+name: valheim
+services:
+  valheim-vulfkube:
+    image: lloesche/valheim-server:latest
+    container_name: valheim-vulfkube
+    restart: unless-stopped
+
+    # run the container *as* the service user + devops group
+    # user: "1001:1003"     # <-- replace with numbers below
+
+    environment:
+      - SERVER_NAME=Vulfkube
+      - WORLD_NAME=Vulfkube           # must match your .db/.fwl name (case sensitive)
+      - SERVER_PORT=2456              # container listens 2456; we publish 2456-2458/udp
+      - SERVER_PUBLIC=0               # list on server browser (set 0 if you want private)
+      - TZ=America/Denver
+      # optional: set a password (required for public)
+      - SERVER_PASS=${SERVER_PASSWORD}
+
+    # lloesche expects /config; worlds go under /config/worlds_local
+    volumes:
+      - ../data:/config
+
+    # Valheim uses 2456-2458/udp
+    ports:
+      - "2456-2458:2456-2458/udp"
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  default:
+    name: net_valheim
+    external: true

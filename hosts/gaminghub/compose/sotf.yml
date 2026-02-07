@@ -1,0 +1,42 @@
+name: sotf
+services:
+  sotf:
+    image: jammsen/sons-of-the-forest-dedicated-server:latest
+    container_name: sotf
+    restart: unless-stopped
+    stop_grace_period: 90s
+
+    environment:
+      - PUID=1002            # sotf user
+      - PGID=1003            # devops group
+      - ALWAYS_UPDATE_ON_START=false
+      - SKIP_NETWORK_ACCESSIBILITY_TEST=true
+      # - DISCORD_WEBHOOK=https://discord.com/api/webhooks/XXXX   # optional
+
+    ports:
+      - "8766:8766/udp"
+      - "9700:9700/udp"
+      - "27015:27015/udp"
+      - "27016:27016/udp"
+
+    # Map the whole tree so the server finds:
+    #   /sonsoftheforest/userdata/dedicatedserver.cfg
+    volumes:
+      - ../data:/sonsoftheforest
+
+    healthcheck:
+      test: ["CMD-SHELL", "ss -lunp | grep -qE ':(8766|9700|27016)\\b'"]
+      interval: 30s
+      timeout: 3s
+      retries: 10
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    name: net_sotf
+    external: true

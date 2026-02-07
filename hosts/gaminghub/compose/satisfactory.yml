@@ -1,0 +1,48 @@
+name: satisfactory
+
+services:
+  satisfactory:
+    image: wolveix/satisfactory-server:latest
+    container_name: satisfactory
+    hostname: satisfactory
+    restart: unless-stopped
+    stop_grace_period: 90s
+
+    ports:
+      # UDP: Traefik sends 7776 -> Host 7776 -> Container 7776
+      - "7777:7777/udp"
+      # TCP: Traefik sends 7777 -> Host 7777 -> Container 7776
+      # (We map Host 7777 to Container 7776 because Traefik expects TCP on 7777)
+      - "7777:7777/tcp"
+      
+      # Shift Beacon/Query ports slightly to avoid ANY risk of Ark overlap
+      - "15001:15001/udp"
+      - "27027:27027/udp"
+      - "8888:8888/tcp"
+
+    environment:
+      - PUID=999
+      - PGID=1003
+      - MAXPLAYERS=8
+      - STEAMBETA=false
+      
+      # FORCE the server to run on 7776 internally
+      - SERVERGAMEPORT=7777
+      - SERVERQUERYPORT=27027
+      - SERVERBEACONPORT=15001
+
+    volumes:
+      - ../data:/config
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    healthcheck:
+      # Update healthcheck to look for the NEW port 7776
+      test: ["CMD-SHELL", "ss -lntup | grep -qE ':(7777|8888)\b'"]
+      interval: 30s
+      timeout: 3s
+      retries: 10

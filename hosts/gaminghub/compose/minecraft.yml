@@ -1,0 +1,40 @@
+name: minecraft
+services:
+  minecraft-firekube:
+    image: itzg/minecraft-bedrock-server:latest
+    container_name: minecraft-firekube
+    restart: unless-stopped
+    environment:
+      - EULA=TRUE
+      - LEVEL_NAME=firekube-world     # must match /data/worlds/firekube-world
+      # - VERSION=1.21.111.1            # 1.21.101 is 404 at Mojang
+      - UID=1000                      # <-- set to: id -u minecraft
+      - GID=1003                      # <-- set to: id -g minecraft
+      - UMASK=002                     # group-write for devops
+      - TZ=America/Denver
+    volumes:
+      - ../data/firekube-world:/data
+    ports:
+      - "19132:19132/udp"
+
+  minecraft-og:
+    image: itzg/minecraft-bedrock-server:latest
+    container_name: minecraft-og
+    restart: unless-stopped
+    environment:
+      - EULA=TRUE
+      - LEVEL_NAME=og-world           # fix the dash here
+      # - VERSION=1.21.102.1
+      - UID=1000                      # same idea here
+      - GID=1003
+      - UMASK=002
+      - TZ=America/Denver
+    volumes:
+      - ../data/og-world:/data
+    ports:
+      - "19142:19132/udp"             # 19142 externally -> 19132 in container
+
+networks:
+  default:
+    name: net_minecraft
+    external: true
