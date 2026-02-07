@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  postgresql:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    volumes:
+      - ../data/postgresql:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASS}
+      POSTGRES_USER: authentik
+      POSTGRES_DB: authentik
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - ../data/redis:/data
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:latest
+    restart: unless-stopped
+    command: server
+    volumes:
+      - ../data/media:/media
+    environment: &authentik-env  # Define anchor here
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET}
+      AUTHENTIK_PORT_HTTP: 9000  # Internal HTTP
+      AUTHENTIK_PORT_HTTPS: 9443  # Internal HTTPS (self-signed by default)
+    ports:
+      - "9443:9443"  # HTTPS (primary for GUI)
+      - "9000:9000"  # HTTP (fallback)
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:latest
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      - redis
+      - postgresql
+      - authentik-server
+    environment: *authentik-env
+    volumes:
+      - ../data/media:/media
+
+volumes:
+  postgresql:
+  redis:
+  media:
