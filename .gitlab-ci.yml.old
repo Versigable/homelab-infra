@@ -1,0 +1,78 @@
+deploy-traefik:
+  stage: deploy
+  tags: ["traefik"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/traefik/**/*
+  script:
+    - bash hosts/traefik/scripts/deploy.sh
+
+deploy-servicehub:
+  stage: deploy
+  tags: ["servicehub"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/**/*
+  script:
+    - whoami
+    - echo "SHELL=$SHELL"
+    - command -v bash || true
+    - bash --version || true
+    - file hosts/servicehub/scripts/deploy.sh
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
+    - echo "== show first lines with hidden chars =="
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
+    - echo "== file info =="
+    - file -b hosts/servicehub/scripts/deploy.sh || true
+    - echo "== hex peek =="
+    - head -n 2 hosts/servicehub/scripts/deploy.sh | od -An -tx1
+    - bash -x hosts/servicehub/scripts/deploy.sh
+    - bash hosts/servicehub/scripts/deploy.sh
+
+deploy-authentik:
+  stage: deploy
+  tags: ["authentik"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/authentik/**/*
+  script:
+    - whoami
+    - echo "SHELL=$SHELL"
+    - command -v bash || true
+    - bash --version || true
+    - file hosts/servicehub/scripts/deploy.sh
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
+    - echo "== show first lines with hidden chars =="
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
+    - echo "== file info =="
+    - file -b hosts/servicehub/scripts/deploy.sh || true
+    - echo "== hex peek =="
+    - head -n 2 hosts/servicehub/scripts/deploy.sh | od -An -tx1
+    - bash -x hosts/servicehub/scripts/deploy.sh
+    - bash hosts/authentik/scripts/deploy.sh
+
+deploy-gaminghub:
+  stage: deploy
+  tags: ["gaminghub"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/**/*
+  script:
+    - whoami
+    - echo "SHELL=$SHELL"
+    - command -v bash || true
+    - bash --version || true
+    - file hosts/servicehub/scripts/deploy.sh
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
+    - echo "== show first lines with hidden chars =="
+    - sed -n '1,5p' hosts/servicehub/scripts/deploy.sh | cat -A
+    - echo "== file info =="
+    - file -b hosts/servicehub/scripts/deploy.sh || true
+    - echo "== hex peek =="
+    - head -n 2 hosts/servicehub/scripts/deploy.sh | od -An -tx1
+    - bash -x hosts/servicehub/scripts/deploy.sh
+    - bash hosts/gaminghub/scripts/deploy.sh
