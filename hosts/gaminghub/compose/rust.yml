@@ -4,17 +4,14 @@ services:
     container_name: rust
     restart: unless-stopped
     
-    # RESOURCE POLICING: Protect the Hub (32GB Total) from OOM events
     deploy:
       resources:
         limits:
           memory: 12G
 
-    # Primary secret source
     env_file:
       - ./.env
 
-    # OPTION B: Explicit pass-through manifest for visibility
     environment:
       TZ: "America/Denver"
       RUST_SERVER_NAME: "NinjaRust"
@@ -27,7 +24,6 @@ services:
       RUST_SERVER_WORLDSIZE: "3500"
       RUST_SERVER_MAXPLAYERS: "20"
       RUST_SERVER_SAVE_INTERVAL: "300"
-      # Pass-through secrets from .env
       RUST_RCON_PASSWORD: "${RUST_RCON_PASSWORD}"
       RUST_SERVER_PASSWORD: "${RUST_SERVER_PASSWORD}"
 
@@ -37,36 +33,38 @@ services:
     ports:
       - "8777:8777/udp"
       - "27017:27017/udp"
-      # RCON (8779/tcp) remains internal-only per security baseline
 
     stop_grace_period: 90s
 
     command: >
-      bash -lc '
+      bash -c '
         set -euo pipefail
         export DEBIAN_FRONTEND=noninteractive
 
-        # Optimized Boot: Install dependencies only if missing
+        # 1. Dependency Check
         if ! command -v tmux &> /dev/null; then
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl wget lib32gcc-s1 lib32stdc++6 libc6-i386 libcurl4 libssl3 tmux locales
+          apt-get update && apt-get install -y --no-install-recommends \
+          ca-certificates curl wget lib32gcc-s1 lib32stdc++6 libc6-i386 libcurl4 libssl3 tmux locales
           rm -rf /var/lib/apt/lists/*
         fi
 
-        # SteamCMD and Directory Setup
+        # 2. SteamCMD Setup
         mkdir -p /srv/rust/steamcmd /srv/rust/server /srv/rust/servercfg /srv/rust/logs
         cd /srv/rust/steamcmd
         if [ ! -f steamcmd.sh ]; then
           wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
-          tar -xzf steamcmd_linux.tar.gz
-          rm -f steamcmd_linux.tar.gz
+          tar -xzf steamcmd_linux.tar.gz && rm -f steamcmd_linux.tar.gz
         fi
 
-        # Update/Validate Rust (App ID 258550)
+        # 3. Update/Validate App
         ./steamcmd.sh +force_install_dir /srv/rust/server +login anonymous +app_update 258550 validate +quit
 
+        # 4. CRITICAL FIX: Link the missing Steam library
+        mkdir -p /root/.steam/sdk64/
+        ln -sf /srv/rust/server/Linux64/steamclient.so /root/.steam/sdk64/steamclient.so
+
+        # 5. Launch with explicit variables
         cd /srv/rust/server
-        # EXEC with explicit environment variables and console logging
         exec ./RustDedicated -batchmode -nographics \
           +server.port "$RUST_SERVER_PORT" \
           +server.queryport "$RUST_SERVER_QUERYPORT" \
