@@ -1,26 +1,28 @@
 services:
   rust:
-    image: didstopia/rust-server:latest
+    image: pfeiffermax/rust-game-server:latest-oxide
     container_name: rust
     restart: unless-stopped
-    environment:
-      - RUST_SERVER_NAME=${SERVER_HOSTNAME}
-      - RUST_SERVER_IDENTITY=${SERVER_IDENTITY}
-      - RUST_SERVER_SEED=${SERVER_SEED}
-      - RUST_SERVER_WORLDSIZE=${WORLD_SIZE}
-      - RUST_SERVER_MAXPLAYERS=${MAX_PLAYERS}
-      - RUST_SERVER_SAVE_INTERVAL=${SAVE_INTERVAL}
-      - RUST_SERVER_PORT=${SERVER_PORT}
-      - RUST_SERVER_QUERYPORT=${QUERY_PORT}
-      - RUST_RCON_PORT=${RCON_PORT}
-      - RUST_RCON_PASSWORD=${RCON_PASSWORD}
-      - RUST_RCON_WEB=1
-      - RUST_OXIDE_ENABLED=1
-      - RUST_SERVER_PASSWORD=${SERVER_PASSWORD}
-      - STEAM_UPDATE_ON_START=1
+    command: >
+      +server.ip 0.0.0.0
+      +server.port ${SERVER_PORT}
+      +server.queryport ${QUERY_PORT}
+      +rcon.ip 0.0.0.0
+      +rcon.port ${RCON_PORT}
+      +rcon.password "${RCON_PASSWORD}"
+      +rcon.web 1
+      +server.hostname "${SERVER_HOSTNAME}"
+      +server.description "${SERVER_DESCRIPTION}"
+      +server.url "${SERVER_URL}"
+      +server.identity "${SERVER_IDENTITY}"
+      +server.seed ${SERVER_SEED}
+      +server.worldsize ${WORLD_SIZE}
+      +server.maxplayers ${MAX_PLAYERS}
+      +server.saveinterval ${SAVE_INTERVAL}
+      +server.secure 1
+      +server.password "${SERVER_PASSWORD}"
     volumes:
-      - /srv/rust/server:/steamcmd/rust
-      - /srv/rust/backup:/steamcmd/rust/backup
+      - /srv/rust/server:/persistance
     ports:
       - "${SERVER_PORT}:${SERVER_PORT}/udp"
       - "${SERVER_PORT}:${SERVER_PORT}/tcp"
