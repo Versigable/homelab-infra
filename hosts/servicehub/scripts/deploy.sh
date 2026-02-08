@@ -8,10 +8,6 @@ set -euo pipefail
 #   deploy.sh          — Deploy ALL services (manual full redeploy)
 #   deploy.sh wiki     — Deploy only Wiki.js
 #   deploy.sh n8n      — Deploy only N8N
-#
-# GitOps manages:
-#   - compose files: hosts/servicehub/compose/*.yml -> /home/*/compose/docker-compose.yml
-#   - env secrets:   hosts/servicehub/secrets/*.env.sops -> /home/*/compose/.env
 # ============================================================
 
 # -------- Colors / logging --------
@@ -47,6 +43,8 @@ log_info "TARGET=${TARGET}"
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
 export SOPS_AGE_KEY_FILE
 
+DEVOPS_GRANT="/home/metaversig/git/homelab-infra/scripts/devops-grant.sh"
+
 # -------- Pre-flight checks --------
 require_cmd sops
 require_cmd docker
@@ -75,11 +73,26 @@ sync_compose() {
   sudo /usr/bin/install -m 0644 -o root -g root "$src" "$dst"
 }
 
+# -------- Fix perms for devops group --------
+fix_perms() {
+  local hub_dir="$1"
+  local home_dir="$2"
+
+  if [[ -x "${DEVOPS_GRANT}" ]]; then
+    log_info "Fixing devops perms: ${hub_dir}"
+    sudo "${DEVOPS_GRANT}" "${hub_dir}" "${home_dir}"
+  else
+    log_warn "devops-grant.sh not found at ${DEVOPS_GRANT} — skipping perm fix"
+  fi
+}
+
 # -------- Deploy a single service --------
 deploy_stack() {
   local name="$1"
   local sops_env_rel="$2"
   local live_stack_dir="$3"
+  local hub_dir="$4"
+  local home_dir="$5"
 
   local sops_env_file="${REPO_DIR}/${sops_env_rel}"
   local live_env_file="${live_stack_dir}/.env"
@@ -113,6 +126,8 @@ deploy_stack() {
     sudo /usr/bin/docker compose ps
   )
 
+  fix_perms "${hub_dir}" "${home_dir}"
+
   log_success "✅ ${name} deployed successfully"
   echo ""
 }
@@ -121,11 +136,11 @@ deploy_stack() {
 FAILED=()
 
 deploy_if_target() {
-  local key="$1" label="$2" compose_repo="$3" secrets_repo="$4" live_dir="$5"
+  local key="$1" label="$2" compose_repo="$3" secrets_repo="$4" live_dir="$5" hub_dir="$6" home_dir="$7"
 
   if [[ "$TARGET" == "all" || "$TARGET" == "$key" ]]; then
     sync_compose "$compose_repo" "$live_dir"
-    if ! deploy_stack "$label" "$secrets_repo" "$live_dir"; then
+    if ! deploy_stack "$label" "$secrets_repo" "$live_dir" "$hub_dir" "$home_dir"; then
       FAILED+=("$key")
     fi
   fi
@@ -143,12 +158,16 @@ log_info ""
 deploy_if_target "wiki" "Wiki.js" \
   "hosts/servicehub/compose/wiki.yml" \
   "hosts/servicehub/secrets/wiki.env.sops" \
-  "/home/wiki/wiki-hub/compose"
+  "/home/wiki/wiki-hub/compose" \
+  "/home/wiki/wiki-hub" \
+  "/home/wiki"
 
 deploy_if_target "n8n" "N8N" \
   "hosts/servicehub/compose/n8n.yml" \
   "hosts/servicehub/secrets/n8n.env.sops" \
-  "/home/n8n/n8n-hub/compose"
+  "/home/n8n/n8n-hub/compose" \
+  "/home/n8n/n8n-hub" \
+  "/home/n8n"
 
 # ============================================================
 # Summary
