@@ -1,6 +1,9 @@
 stages:
   - deploy
 
+# ============================================================
+# Traefik (single service — no split needed)
+# ============================================================
 deploy-traefik:
   stage: deploy
   tags: ["traefik"]
@@ -11,32 +14,182 @@ deploy-traefik:
   script:
     - bash hosts/traefik/scripts/deploy.sh
 
-deploy-servicehub:
+# ============================================================
+# ServiceHub — Per-Service Deploy Jobs
+# ============================================================
+.servicehub-deploy:
   stage: deploy
   tags: ["servicehub"]
+  script:
+    - bash hosts/servicehub/scripts/deploy.sh ${SERVICE_KEY}
+
+deploy-wiki:
+  extends: .servicehub-deploy
+  variables:
+    SERVICE_KEY: wiki
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
-        - hosts/servicehub/**/*
-  script:
-    - bash hosts/servicehub/scripts/deploy.sh
+        - hosts/servicehub/compose/wiki.yml
+        - hosts/servicehub/secrets/wiki.env.sops
+        - hosts/servicehub/scripts/deploy.sh
 
-deploy-authentik:
+deploy-n8n:
+  extends: .servicehub-deploy
+  variables:
+    SERVICE_KEY: n8n
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/compose/n8n.yml
+        - hosts/servicehub/secrets/n8n.env.sops
+        - hosts/servicehub/scripts/deploy.sh
+
+# ============================================================
+# Authentik Host — Per-Service Deploy Jobs
+# ============================================================
+.authentik-deploy:
   stage: deploy
   tags: ["authentik"]
+  script:
+    - bash hosts/authentik/scripts/deploy.sh ${SERVICE_KEY}
+
+deploy-authentik:
+  extends: .authentik-deploy
+  variables:
+    SERVICE_KEY: authentik
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
-        - hosts/authentik/**/*
-  script:
-    - bash hosts/authentik/scripts/deploy.sh
+        - hosts/authentik/compose/authentik.yml
+        - hosts/authentik/secrets/authentik.env.sops
+        - hosts/authentik/scripts/deploy.sh
 
-deploy-gaminghub:
+deploy-bitwarden:
+  extends: .authentik-deploy
+  variables:
+    SERVICE_KEY: bitwarden
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/authentik/secrets/bitwarden.env.sops
+        - hosts/authentik/scripts/deploy.sh
+
+# ============================================================
+# GamingHub — Per-Game Deploy Jobs
+# ============================================================
+.gaminghub-deploy:
   stage: deploy
   tags: ["gaminghub"]
+  script:
+    - bash hosts/gaminghub/scripts/deploy.sh ${GAME_KEY}
+
+deploy-minecraft:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: minecraft
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
-        - hosts/gaminghub/**/*
-  script:
-    - bash hosts/gaminghub/scripts/deploy.sh
+        - hosts/gaminghub/compose/minecraft.yml
+        - hosts/gaminghub/secrets/minecraft.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-valheim:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: valheim
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/valheim.yml
+        - hosts/gaminghub/secrets/valheim.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-rust:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: rust
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/rust.yml
+        - hosts/gaminghub/secrets/rust.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-astroneer:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: astroneer
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/astroneer.yml
+        - hosts/gaminghub/secrets/astroneer.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-ark-island:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: ark-island
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/ark-island.yml
+        - hosts/gaminghub/secrets/ark-island.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-ark-ragnarok:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: ark-ragnarok
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/ark-ragnarok.yml
+        - hosts/gaminghub/secrets/ark-ragnarok.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-ark-fjordur:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: ark-fjordur
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/ark-fjordur.yml
+        - hosts/gaminghub/secrets/ark-fjordur.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-sotf:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: sotf
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/sotf.yml
+        - hosts/gaminghub/secrets/sotf.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-palworld:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: palworld
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/palworld.yml
+        - hosts/gaminghub/secrets/palworld.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
+deploy-satisfactory:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: satisfactory
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/satisfactory.yml
+        - hosts/gaminghub/secrets/satisfactory.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
