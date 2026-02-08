@@ -4,7 +4,6 @@ services:
     container_name: rust
     restart: unless-stopped
     environment:
-      # --- Entrypoint Variables (Satisfies start_rust.sh) ---
       - RUST_SERVER_NAME=${SERVER_HOSTNAME}
       - RUST_SERVER_IDENTITY=${SERVER_IDENTITY}
       - RUST_SERVER_SEED=${SERVER_SEED}
@@ -16,17 +15,12 @@ services:
       - RUST_RCON_PORT=${RCON_PORT}
       - RUST_RCON_PASSWORD=${RCON_PASSWORD}
       - RUST_RCON_WEB=1
-      
-      # --- Security & Plugins ---
-      - RUST_OXIDE_ENABLED=1  # Set to 1 to allow the password plugin to work
+      - RUST_OXIDE_ENABLED=1
       - RUST_SERVER_PASSWORD=${SERVER_PASSWORD}
-      
-      # --- Logic Fixes ---
       - STEAM_UPDATE_ON_START=1
     volumes:
       - /srv/rust/server:/steamcmd/rust
       - /srv/rust/backup:/steamcmd/rust/backup
-      - /srv/rust/server/RustDedicated_Data/Plugins/x86_64/steamclient.so:/root/.steam/sdk64/steamclient.so
     ports:
       - "${SERVER_PORT}:${SERVER_PORT}/udp"
       - "${SERVER_PORT}:${SERVER_PORT}/tcp"
@@ -35,4 +29,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 20G # Essential for GamingHub LXC (109) stability
+          memory: 20G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
