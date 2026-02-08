@@ -4,23 +4,28 @@ services:
     container_name: rust
     restart: unless-stopped
     environment:
-      # Explicit Visibility Mapping
-      - RUST_SERVER_STARTUP_ARGUMENTS=-batchmode -nographics +server.port ${SERVER_PORT} +server.queryport ${QUERY_PORT} +rcon.port ${RCON_PORT} +rcon.password "${RCON_PASSWORD}" +server.password "${SERVER_PASSWORD}" +server.hostname "${SERVER_HOSTNAME}" +server.seed ${SERVER_SEED} +server.worldsize ${WORLD_SIZE} +server.maxplayers ${MAX_PLAYERS} +server.identity "${SERVER_IDENTITY}" +server.saveinterval ${SAVE_INTERVAL}
+      # --- Entrypoint Variables (Satisfies start_rust.sh) ---
+      - RUST_SERVER_NAME=${SERVER_HOSTNAME}
       - RUST_SERVER_IDENTITY=${SERVER_IDENTITY}
       - RUST_SERVER_SEED=${SERVER_SEED}
-      - RUST_SERVER_WORLD_SIZE=${WORLD_SIZE}
-      - RUST_SERVER_MAX_PLAYERS=${MAX_PLAYERS}
+      - RUST_SERVER_WORLDSIZE=${WORLD_SIZE}
+      - RUST_SERVER_MAXPLAYERS=${MAX_PLAYERS}
       - RUST_SERVER_SAVE_INTERVAL=${SAVE_INTERVAL}
-      - RUST_RCON_PASSWORD=${RCON_PASSWORD}
-      - RUST_SERVER_PASSWORD=${SERVER_PASSWORD}
-      - RUST_RCON_PORT=${RCON_PORT}
       - RUST_SERVER_PORT=${SERVER_PORT}
-      - RUST_QUERY_PORT=${QUERY_PORT}
+      - RUST_SERVER_QUERYPORT=${QUERY_PORT}
+      - RUST_RCON_PORT=${RCON_PORT}
+      - RUST_RCON_PASSWORD=${RCON_PASSWORD}
+      - RUST_RCON_WEB=1
+      
+      # --- Security & Plugins ---
+      - RUST_OXIDE_ENABLED=1  # Set to 1 to allow the password plugin to work
+      - RUST_SERVER_PASSWORD=${SERVER_PASSWORD}
+      
+      # --- Logic Fixes ---
       - STEAM_UPDATE_ON_START=1
     volumes:
       - /srv/rust/server:/steamcmd/rust
       - /srv/rust/backup:/steamcmd/rust/backup
-      # Automated fix for the missing steamclient.so detected in previous logs
       - /srv/rust/server/RustDedicated_Data/Plugins/x86_64/steamclient.so:/root/.steam/sdk64/steamclient.so
     ports:
       - "${SERVER_PORT}:${SERVER_PORT}/udp"
@@ -30,4 +35,4 @@ services:
     deploy:
       resources:
         limits:
-          memory: 24G # Hard limit to protect the 32GB GamingHub LXC
+          memory: 20G # Essential for GamingHub LXC (109) stability
