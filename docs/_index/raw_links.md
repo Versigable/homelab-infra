@@ -11,6 +11,8 @@ Purpose: central place to click raw GitHub URLs so we can quickly fetch exact fi
 
 - README  
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/README.md
+- RAW_LINKS.MD in GitHub mirror
+  https://github.com/Versigable/homelab-infra/blob/main/docs/_index/raw_links.md 
 
 ---
 
