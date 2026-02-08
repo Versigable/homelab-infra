@@ -1,5 +1,5 @@
 name: valheim
-# Kannis test!
+# Kannis test 2!
 services:
   valheim-vulfkube:
     image: lloesche/valheim-server:latest
