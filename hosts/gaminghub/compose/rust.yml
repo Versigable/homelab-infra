@@ -1,4 +1,5 @@
 services:
+  # Kannis test 3!
   rust:
     image: ubuntu:22.04
     container_name: rust
@@ -43,14 +44,9 @@ services:
         export DEBIAN_FRONTEND=noninteractive
 
         apt-get update
-        apt-get install -y --no-install-recommends
-          ca-certificates curl wget
-          lib32gcc-s1 lib32stdc++6 libc6-i386
-          libcurl4 libssl3
-          tmux locales
+        apt-get install -y --no-install-recommends ca-certificates curl wget lib32gcc-s1 lib32stdc++6 libc6-i386 libcurl4 libssl3 tmux locales
         rm -rf /var/lib/apt/lists/*
 
-        # SteamCMD install (official method)
         mkdir -p /srv/rust/steamcmd
         cd /srv/rust/steamcmd
         if [ ! -f steamcmd.sh ]; then
@@ -59,14 +55,11 @@ services:
           rm -f steamcmd_linux.tar.gz
         fi
 
-        # Install/Update Rust Dedicated (app 258550)
         mkdir -p /srv/rust/server
         ./steamcmd.sh +force_install_dir /srv/rust/server +login anonymous +app_update 258550 validate +quit
 
-        # Ensure directories exist
         mkdir -p /srv/rust/servercfg /srv/rust/logs
 
-        # Launch RustDedicated
         cd /srv/rust/server
         exec ./RustDedicated -batchmode -nographics \
           +server.port ${RUST_SERVER_PORT} \
