@@ -1,60 +1,52 @@
 services:
-  # Kannis test!
+  # Kannis test 2!
   rust:
     image: didstopia/rust-server:latest
     container_name: rust
     restart: unless-stopped
 
-    # Only secrets in here (server/admin passwords)
+    # Secrets only (passwords)
     env_file:
       - ./.env
 
-    # Non-secret config lives here in the YAML
     environment:
-      # Identity / name
+      # Match host rust service account
+      PUID: "1005"
+      PGID: "1006"
+
+      # Identity / branding
       RUST_SERVER_IDENTITY: "rust1"
       RUST_SERVER_NAME: "NinjaRust"
-      RUST_SERVER_DESCRIPTION: "Rust on NinjaPrivacy.org"
-      RUST_SERVER_URL: "https://rust.ninjaprivacy.org"
+      RUST_SERVER_DESCRIPTION: "Rust on Ninjaprivacy"
+      RUST_SERVER_URL: "https://ninjaprivacy.org"
 
-      # World config
-      RUST_SERVER_SEED: "NinJ@Pr1v@cy"
+      # World configuration
+      RUST_SERVER_SEED: "N1nJ@rUsT"
       RUST_SERVER_WORLDSIZE: "3500"
-      RUST_SERVER_MAXPLAYERS: "50"
+      RUST_SERVER_MAXPLAYERS: "20"
       RUST_SERVER_SAVE_INTERVAL: "300"
 
-      # --- Ports (NOT secrets; keep out of .env as requested) ---
-      # Gameplay port (we are exposing ONLY this port)
+      # Ports (non-secrets)
       RUST_SERVER_PORT: "8777"
-
-      # Query port (optional; not exposed right now, but set for correctness)
-      # If later you want public listing, we can open 8778/udp and set this to 8778.
       RUST_SERVER_QUERYPORT: "27017"
 
-      # RCON (not exposed publicly; keep LAN-only)
+      # RCON configured but NOT exposed publicly
       RUST_RCON_PORT: "8779"
 
-      # Optional Rust+ (not exposed publicly)
-      RUST_APP_PORT: "28082"
-
-      # If you want a strict vanilla baseline:
-      # RUST_SERVER_WIPE_ON_RESTART: "0"
-
-    # Persist server data/config
     volumes:
-      # Game/server files + saves
-      - ../data:/steamcmd/rust
-      # Server cfg directory
+      # SteamCMD + Rust binaries (exec-safe)
+      - rust-data:/steamcmd/rust
+
+      # Host-managed, human-editable data
       - ../config:/steamcmd/rust/servercfg
-      # Optional: container logs (most of the time `docker logs` is enough)
       - ../logs:/steamcmd/rust/logs
 
-    # ONLY expose gameplay UDP port
     ports:
+      # Gameplay
       - "8777:8777/udp"
-      - "27017:27017/udp"   # query port
+      # Steam query / server browser
+      - "27017:27017/udp"
 
-    # Rust can take a bit to stop cleanly during saves
     stop_grace_period: 90s
 
     logging:
@@ -62,3 +54,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  rust-data:
