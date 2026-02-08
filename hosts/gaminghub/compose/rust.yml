@@ -1,40 +1,43 @@
 services:
-  # Kannis test 3!
+  # Kannis test 4!
   rust:
     image: ubuntu:22.04
     container_name: rust
     restart: unless-stopped
+    
+    # PROTECT THE HUB: Limit RAM to 12GB to stay within LXC 109's 32GB total
+    deploy:
+      resources:
+        limits:
+          memory: 12G
 
-    # Secrets only
     env_file:
       - ./.env
 
     environment:
       TZ: "America/Denver"
-
-      # Non-secrets
-      RUST_SERVER_NAME: "NinjaRust"
-      RUST_SERVER_DESCRIPTION: "Rust on Ninjaprivacy"
-      RUST_SERVER_URL: "https://ninjaprivacy.org"
-
+      # Canonical Rust Ports
       RUST_SERVER_PORT: "8777"
       RUST_SERVER_QUERYPORT: "27017"
       RUST_RCON_PORT: "8779"
-
+      # Server Identity
+      RUST_SERVER_NAME: "NinjaRust"
+      RUST_SERVER_DESCRIPTION: "Rust on Ninjaprivacy"
+      RUST_SERVER_URL: "https://ninjaprivacy.org"
+      # World Settings
       RUST_SERVER_SEED: "123456"
       RUST_SERVER_WORLDSIZE: "3500"
       RUST_SERVER_MAXPLAYERS: "20"
       RUST_SERVER_SAVE_INTERVAL: "300"
 
     volumes:
-      # Named volume holds the full Rust install + saves + config
+      # Named volume for persistence
       - rust-data:/srv/rust
 
     ports:
       - "8777:8777/udp"
       - "27017:27017/udp"
-      # NOT exposing RCON publicly (leave this commented)
-      # - "8779:8779/tcp"
+      # RCON (8779/tcp) is internal-only; not exposed to Traefik
 
     stop_grace_period: 90s
 
@@ -43,11 +46,15 @@ services:
         set -euo pipefail
         export DEBIAN_FRONTEND=noninteractive
 
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl wget lib32gcc-s1 lib32stdc++6 libc6-i386 libcurl4 libssl3 tmux locales
-        rm -rf /var/lib/apt/lists/*
+        # 1. OPTIMIZED BOOT: Only install deps if missing to save SSD wear
+        if ! command -v tmux &> /dev/null; then
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl wget lib32gcc-s1 lib32stdc++6 libc6-i386 libcurl4 libssl3 tmux locales
+          rm -rf /var/lib/apt/lists/*
+        fi
 
-        mkdir -p /srv/rust/steamcmd
+        # 2. SteamCMD Setup
+        mkdir -p /srv/rust/steamcmd /srv/rust/server /srv/rust/servercfg /srv/rust/logs
         cd /srv/rust/steamcmd
         if [ ! -f steamcmd.sh ]; then
           wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
@@ -55,26 +62,24 @@ services:
           rm -f steamcmd_linux.tar.gz
         fi
 
-        mkdir -p /srv/rust/server
+        # 3. Update/Install (App ID 258550)
         ./steamcmd.sh +force_install_dir /srv/rust/server +login anonymous +app_update 258550 validate +quit
 
-        mkdir -p /srv/rust/servercfg /srv/rust/logs
-
+        # 4. EXEC: Redirect logfile to /dev/stdout for 'docker logs -f'
         cd /srv/rust/server
         exec ./RustDedicated -batchmode -nographics \
           +server.port 8777 \
           +server.queryport 27017 \
           +rcon.port 8779 \
           +rcon.password "chodegarglingmonkey" \
-          +server.hostname "NinjaRust" \
-          +server.description "Rust on NinjaPrivacy" \
-          +server.url "https://rust.ninjaprivacy.org" \
-          +server.seed 123456 \
-          +server.worldsize 3500 \
-          +server.maxplayers 20 \
-          +server.saveinterval 300 \
-          ${RUST_SERVER_PASSWORD:+ +server.password "chodegargler"} \
-          -logfile /srv/rust/logs/server.log
+          +server.hostname "$RUST_SERVER_NAME" \
+          +server.description "$RUST_SERVER_DESCRIPTION" \
+          +server.url "$RUST_SERVER_URL" \
+          +server.seed "$RUST_SERVER_SEED" \
+          +server.worldsize "$RUST_SERVER_WORLDSIZE" \
+          +server.maxplayers "$RUST_SERVER_MAXPLAYERS" \
+          +server.saveinterval "$RUST_SERVER_SAVE_INTERVAL" \
+          -logfile /dev/stdout
       '
 
 volumes:
