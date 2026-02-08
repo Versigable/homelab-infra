@@ -119,6 +119,8 @@ Compose:
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/hosts/gaminghub/compose/minecraft.yml
 - palworld.yml  
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/hosts/gaminghub/compose/palworld.yml
+- rust.yml
+  https://raw.githubusercontent.com/Versigable/homelab-infra/refs/heads/main/hosts/gaminghub/compose/rust.yml
 - satisfactory.yml  
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/hosts/gaminghub/compose/satisfactory.yml
 - sotf.yml  
@@ -139,6 +141,8 @@ Secrets:
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/hosts/gaminghub/secrets/minecraft.env.sops
 - palworld.env.sops  
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/hosts/gaminghub/secrets/palworld.env.sops
+- rust.env.sops
+  https://raw.githubusercontent.com/Versigable/homelab-infra/refs/heads/main/hosts/gaminghub/secrets/rust.env.sops
 - satisfactory.env.sops  
   https://raw.githubusercontent.com/Versigable/homelab-infra/main/hosts/gaminghub/secrets/satisfactory.env.sops
 - sotf.env.sops  
