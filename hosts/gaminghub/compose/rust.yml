@@ -1,4 +1,5 @@
 services:
+  # Kannis test!
   rust:
     image: didstopia/rust-server:latest
     container_name: rust
