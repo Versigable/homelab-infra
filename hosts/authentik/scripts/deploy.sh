@@ -4,23 +4,14 @@ set -euo pipefail
 # ============================================================
 # deploy.sh (Authentik host - Multi-Service) — Model B GitOps
 #
-# GitOps manages (on this host):
-#   - Authentik compose:
-#       repo:  hosts/authentik/compose/docker-compose.yml
-#       live:  /home/authentik/authentik-hub/compose/docker-compose.yml
-#   - Authentik secrets:
-#       repo:  hosts/authentik/secrets/authentik.env.sops
-#       live:  /home/authentik/authentik-hub/compose/.env (root:root 0600)
+# Usage:
+#   deploy.sh              — Deploy ALL services (Authentik + Bitwarden)
+#   deploy.sh authentik    — Deploy only Authentik
+#   deploy.sh bitwarden    — Deploy only Bitwarden
 #
-# Bitwarden:
-#   - By default we DO NOT GitOps-sync Bitwarden compose (installer-managed often).
-#   - We optionally decrypt secrets to /opt/bitwarden/bwdata/docker/.env if present.
-#   - We will restart the Bitwarden compose stack if the directory exists.
-#
-# Requirements:
-#   - host age key: /etc/sops/age/keys.txt readable by sops (via runner perms)
-#   - gitlab-runner has NOPASSWD sudo for:
-#       /usr/bin/docker, /usr/bin/install  (and optionally wrapper if you add it later)
+# GitOps manages:
+#   - Authentik compose + secrets
+#   - Bitwarden secrets only (compose is installer-managed)
 # ============================================================
 
 # -------- Colors / logging --------
@@ -41,9 +32,18 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+# -------- Target selection --------
+TARGET="${1:-all}"
+
+VALID_TARGETS="all authentik bitwarden"
+if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
+  die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
+fi
+
 # Repo root: CI uses CI_PROJECT_DIR; local uses script-relative
 REPO_DIR="${CI_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 log_info "REPO_DIR=${REPO_DIR}"
+log_info "TARGET=${TARGET}"
 
 # Age key location on the host
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
@@ -73,18 +73,6 @@ sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "gitlab-runner needs N
 log_info "Git changes (latest commit):"
 git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
 log_info ""
-
-# ============================================================
-# GitOps sync: Authentik compose -> live
-# ============================================================
-sync_authentik_compose() {
-  log_info "Syncing Authentik compose -> live"
-  [[ -f "${AUTH_REPO_COMPOSE}" ]] || die "missing repo compose: ${AUTH_REPO_COMPOSE}"
-  [[ -d "${AUTH_LIVE_STACK_DIR}" ]] || die "missing live dir: ${AUTH_LIVE_STACK_DIR}"
-
-  sudo /usr/bin/install -m 0644 -o root -g root "${AUTH_REPO_COMPOSE}" \
-    "${AUTH_LIVE_STACK_DIR}/docker-compose.yml"
-}
 
 # ============================================================
 # Decrypt a dotenv secret to a live .env (safe temp + cleanup)
@@ -123,13 +111,19 @@ deploy_authentik() {
   log_info "Stack:     ${AUTH_LIVE_STACK_DIR}"
   log_info "========================================"
 
-  sync_authentik_compose
-
-  [[ -f "${AUTH_REPO_SECRETS}" ]] || die "missing secrets file: ${AUTH_REPO_SECRETS}"
+  # Sync compose
+  [[ -f "${AUTH_REPO_COMPOSE}" ]] || die "missing repo compose: ${AUTH_REPO_COMPOSE}"
   [[ -d "${AUTH_LIVE_STACK_DIR}" ]] || die "missing live dir: ${AUTH_LIVE_STACK_DIR}"
 
+  log_info "Syncing Authentik compose -> live"
+  sudo /usr/bin/install -m 0644 -o root -g root "${AUTH_REPO_COMPOSE}" \
+    "${AUTH_LIVE_STACK_DIR}/docker-compose.yml"
+
+  # Decrypt secrets
+  [[ -f "${AUTH_REPO_SECRETS}" ]] || die "missing secrets file: ${AUTH_REPO_SECRETS}"
   decrypt_env_to_live "${AUTH_REPO_SECRETS}" "${AUTH_LIVE_ENV_FILE}" "Authentik"
 
+  # Deploy
   log_info "Deploying Authentik containers..."
   (
     cd "${AUTH_LIVE_STACK_DIR}"
@@ -184,26 +178,33 @@ FAILED=()
 
 log_info "========================================"
 log_info "Authentik Host Multi-Service Deployment"
+log_info "Target: ${TARGET}"
 log_info "========================================"
-log_info "Services: Authentik, Bitwarden"
 log_info ""
 
-if ! deploy_authentik; then
-  log_error "❌ Failed: Authentik"
-  FAILED+=("authentik")
+if [[ "$TARGET" == "all" || "$TARGET" == "authentik" ]]; then
+  if ! deploy_authentik; then
+    log_error "❌ Failed: Authentik"
+    FAILED+=("authentik")
+  fi
 fi
 
-if ! deploy_bitwarden; then
-  log_error "❌ Failed: Bitwarden"
-  FAILED+=("bitwarden")
+if [[ "$TARGET" == "all" || "$TARGET" == "bitwarden" ]]; then
+  if ! deploy_bitwarden; then
+    log_error "❌ Failed: Bitwarden"
+    FAILED+=("bitwarden")
+  fi
 fi
 
+# ============================================================
+# Summary
+# ============================================================
 log_info "========================================"
-log_info "Deployment Summary"
+log_info "Deployment Summary (target: ${TARGET})"
 log_info "========================================"
 
 if [[ ${#FAILED[@]} -eq 0 ]]; then
-  log_success "🎉 All services deployed successfully!"
+  log_success "🎉 All targeted services deployed successfully!"
   exit 0
 else
   log_error "❌ Failed services: ${FAILED[*]}"
