@@ -13,7 +13,7 @@ services:
       - "8766:8766/udp"     # SotF
       - "9700:9700/udp"     # SotF
       - "8211:8211/udp"     # Palworld
-      - "8777:8777/udp"     # Astroneer
+      - "8777:8777/udp"     # Rust
       - "7776:7776/udp"     # Satisfactory
       - "7777:7777/udp"     # Ark Island game
       - "7778:7778/udp"     # Ark Island raw
@@ -36,7 +36,7 @@ services:
       # --- Steam query (UDP) ---
       - "27015:27015/udp"   # SotF
       - "27016:27016/udp"   # SotF
-      - "27017:27017/udp"   # Astroneer
+      - "27017:27017/udp"   # Rust
       - "27018:27018/udp"   # Palworld
       - "27019:27019/udp"   # Ark Island
 

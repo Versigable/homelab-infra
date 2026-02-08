@@ -12,7 +12,7 @@ udp:
 
     satisfact7776:  { entryPoints: [satisfact7776],  service: satisfact7776_svc }
 
-    astro8777:      { entryPoints: [astro8777],      service: astro8777_svc }
+    rust8777:      { entryPoints: [rust8777],      service: rust8777_svc }
 
     pal8211:        { entryPoints: [pal8211],        service: pal8211_svc }
 
@@ -62,7 +62,7 @@ udp:
 
     satisfact7776_svc:  { loadBalancer: { servers: [ { address: "10.0.1.9:7776"  } ] } }
 
-    astro8777_svc:      { loadBalancer: { servers: [ { address: "10.0.1.9:8777"  } ] } }
+    rust8777_svc:      { loadBalancer: { servers: [ { address: "10.0.1.9:8777"  } ] } }
 
     pal8211_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:8211"  } ] } }
 
@@ -89,7 +89,7 @@ udp:
       # === Steam Query Port Services ===
     steam27015_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27015" } ] } } # SotF
     steam27016_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27016" } ] } } # SotF
-    steam27017_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27017" } ] } } # Astroneer
+    steam27017_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27017" } ] } } # Rust
     steam27018_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27018" } ] } } # Palworld
     steam27019_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27019" } ] } } # Ark Island
 

@@ -19,7 +19,7 @@ entryPoints:
   sotf8766:       { address: ":8766/udp" }
   sotf9700:       { address: ":9700/udp" }
   satisfact7776:  { address: ":7776/udp" }
-  astro8777:      { address: ":8777/udp" }
+  rust8777:       { address: ":8777/udp" }
   pal8211:        { address: ":8211/udp" }
   ark7777:        { address: ":7777/udp" }   # Ark Island game
   ark7778:        { address: ":7778/udp" }   # Ark Island raw
@@ -40,7 +40,7 @@ entryPoints:
     # === Steam Query entryPoints cuz Multiple GAmes ===
   steam27015:     { address: ":27015/udp" }   # SotF
   steam27016:     { address: ":27016/udp" }   # SotF
-  steam27017:     { address: ":27017/udp" }   # Astroneer
+  steam27017:     { address: ":27017/udp" }   # Rust
   steam27018:     { address: ":27018/udp" }   # Palworld
   steam27019:     { address: ":27019/udp" }   # Ark Island
 
