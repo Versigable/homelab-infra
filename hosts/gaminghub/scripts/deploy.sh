@@ -11,6 +11,7 @@ set -euo pipefail
 # Deploys:
 #   - Minecraft (2 servers) → /home/minecraft/minecraft-hub/compose
 #   - Valheim → /home/valheim/valheim-hub/compose
+#   - Rust → /home/rust/rust-hub/compose
 #   - Astroneer → /home/astroneer/astroneer-hub/compose
 #   - Ark SE (3 maps):
 #       - Island → /home/arkse/arkse-hub/compose
@@ -82,6 +83,7 @@ sync_compose_map() {
 # Map repo file -> live directory (compose sync happens once per run)
 sync_compose_map "minecraft.yml"    "/home/minecraft/minecraft-hub/compose"
 sync_compose_map "valheim.yml"      "/home/valheim/valheim-hub/compose"
+sync_compose_map "rust.yml"      "/home/rust/rust-hub/compose"
 sync_compose_map "sotf.yml"         "/home/sotf/sotf-hub/compose"
 sync_compose_map "palworld.yml"     "/home/palworld/palworld-hub/compose"
 sync_compose_map "satisfactory.yml" "/home/satisfactory/satisfactory-hub/compose"
@@ -179,6 +181,7 @@ run_deploy() {
 # Minecraft (2 servers in one hub)
 run_deploy "Minecraft Servers"       "minecraft"    "/home/minecraft/minecraft-hub/compose"
 run_deploy "Valheim"                 "valheim"      "/home/valheim/valheim-hub/compose"
+run_deploy "Rust"                    "rust"         "/home/rust/rust-hub/compose"
 run_deploy "Astroneer"               "astroneer"    "/home/astroneer/astroneer-hub/compose"
 
 run_deploy "Ark SE - The Island"     "ark-island"   "/home/arkse/arkse-hub/compose"
