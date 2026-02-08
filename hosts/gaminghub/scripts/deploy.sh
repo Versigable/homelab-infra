@@ -4,26 +4,27 @@ set -euo pipefail
 # ============================================================
 # deploy.sh (GamingHub - Multi-Service) — Model B GitOps
 #
+# Usage:
+#   deploy.sh              — Deploy ALL game servers (manual full redeploy)
+#   deploy.sh minecraft    — Deploy only Minecraft
+#   deploy.sh rust         — Deploy only Rust
+#   deploy.sh ark-island   — Deploy only Ark Island
+#   (etc.)
+#
 # GitOps manages:
 #   - compose files: hosts/gaminghub/compose/*.yml  -> /home/*/*-hub/compose/docker-compose.yml
 #   - env secrets:   hosts/gaminghub/secrets/*.env.sops -> /home/*/*-hub/compose/.env (root:root 0600)
 #
-# Deploys:
-#   - Minecraft (2 servers) → /home/minecraft/minecraft-hub/compose
-#   - Valheim → /home/valheim/valheim-hub/compose
-#   - Rust → /home/rust/rust-hub/compose
-#   - Astroneer → /home/astroneer/astroneer-hub/compose
-#   - Ark SE (3 maps):
-#       - Island → /home/arkse/arkse-hub/compose
-#       - Ragnarok → /home/arkse/arkse-hub-rag/compose
-#       - Fjordur → /home/arkse/arkse-hub-fjor/compose
-#   - Sons of the Forest → /home/sotf/sotf-hub/compose
-#   - Palworld → /home/palworld/palworld-hub/compose
-#   - Satisfactory → /home/satisfactory/satisfactory-hub/compose
+# Valid targets:
+#   minecraft, valheim, rust, astroneer,
+#   ark-island, ark-ragnarok, ark-fjordur,
+#   sotf, palworld, satisfactory
 #
 # Notes:
 #   - One host-level Age key at /etc/sops/age/keys.txt by default
 #   - docker compose is executed inside each stack dir
+#   - When called with a target, ONLY that game is synced + deployed
+#   - When called without args, ALL games are synced + deployed
 # ============================================================
 
 # -------- Colors / logging --------
@@ -45,9 +46,19 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+# -------- Target selection --------
+TARGET="${1:-all}"
+
+# Validate target
+VALID_TARGETS="all minecraft valheim rust astroneer ark-island ark-ragnarok ark-fjordur sotf palworld satisfactory"
+if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
+  die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
+fi
+
 # Repo root: CI uses CI_PROJECT_DIR; local uses script-relative
 REPO_DIR="${CI_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 log_info "REPO_DIR=${REPO_DIR}"
+log_info "TARGET=${TARGET}"
 
 # Age key location on the host (ONE key for all services)
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
@@ -67,7 +78,7 @@ sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "gitlab-runner needs N
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "SOPS age key not readable: ${SOPS_AGE_KEY_FILE}"
 
 # -------- GitOps sync: compose file -> live --------
-sync_compose_map() {
+sync_compose() {
   local repo_yml="$1"   # e.g. minecraft.yml
   local live_dir="$2"   # e.g. /home/minecraft/minecraft-hub/compose
   local src="${REPO_DIR}/hosts/gaminghub/compose/${repo_yml}"
@@ -79,18 +90,6 @@ sync_compose_map() {
   log_info "Syncing compose: ${repo_yml} -> ${dst}"
   sudo /usr/bin/install -m 0644 -o root -g root "$src" "$dst"
 }
-
-# Map repo file -> live directory (compose sync happens once per run)
-sync_compose_map "minecraft.yml"    "/home/minecraft/minecraft-hub/compose"
-sync_compose_map "valheim.yml"      "/home/valheim/valheim-hub/compose"
-sync_compose_map "rust.yml"      "/home/rust/rust-hub/compose"
-sync_compose_map "sotf.yml"         "/home/sotf/sotf-hub/compose"
-sync_compose_map "palworld.yml"     "/home/palworld/palworld-hub/compose"
-sync_compose_map "satisfactory.yml" "/home/satisfactory/satisfactory-hub/compose"
-sync_compose_map "astroneer.yml"    "/home/astroneer/astroneer-hub/compose"
-sync_compose_map "ark-island.yml"   "/home/arkse/arkse-hub/compose"
-sync_compose_map "ark-ragnarok.yml" "/home/arkse/arkse-hub-rag/compose"
-sync_compose_map "ark-fjordur.yml"  "/home/arkse/arkse-hub-fjor/compose"
 
 log_info "Git changes (latest commit):"
 git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
@@ -162,12 +161,16 @@ deploy_game() {
 }
 
 # ============================================================
-# Main: Deploy all game servers on this host
+# Game registry: key -> label, secret name, stack dir
 # ============================================================
-log_info "========================================"
-log_info "GamingHub Multi-Service Deployment"
-log_info "========================================"
-log_info ""
+deploy_if_target() {
+  local key="$1" label="$2" secret="$3" compose_file="$4" dir="$5"
+
+  if [[ "$TARGET" == "all" || "$TARGET" == "$key" ]]; then
+    sync_compose "$compose_file" "$dir"
+    run_deploy "$label" "$secret" "$dir"
+  fi
+}
 
 FAILED_GAMES=()
 
@@ -178,27 +181,35 @@ run_deploy() {
   fi
 }
 
-# Minecraft (2 servers in one hub)
-run_deploy "Minecraft Servers"       "minecraft"    "/home/minecraft/minecraft-hub/compose"
-run_deploy "Valheim"                 "valheim"      "/home/valheim/valheim-hub/compose"
-run_deploy "Rust"                    "rust"         "/home/rust/rust-hub/compose"
-run_deploy "Astroneer"               "astroneer"    "/home/astroneer/astroneer-hub/compose"
-
-run_deploy "Ark SE - The Island"     "ark-island"   "/home/arkse/arkse-hub/compose"
-run_deploy "Ark SE - Ragnarok"       "ark-ragnarok" "/home/arkse/arkse-hub-rag/compose"
-run_deploy "Ark SE - Fjordur"        "ark-fjordur"  "/home/arkse/arkse-hub-fjor/compose"
-
-run_deploy "Sons of the Forest"      "sotf"         "/home/sotf/sotf-hub/compose"
-run_deploy "Palworld"                "palworld"     "/home/palworld/palworld-hub/compose"
-run_deploy "Satisfactory"            "satisfactory" "/home/satisfactory/satisfactory-hub/compose"
-
-# Summary
+# ============================================================
+# Main: Deploy targeted (or all) game servers
+# ============================================================
 log_info "========================================"
-log_info "Deployment Summary"
+log_info "GamingHub Multi-Service Deployment"
+log_info "Target: ${TARGET}"
+log_info "========================================"
+log_info ""
+
+deploy_if_target "minecraft"    "Minecraft Servers"    "minecraft"    "minecraft.yml"    "/home/minecraft/minecraft-hub/compose"
+deploy_if_target "valheim"      "Valheim"              "valheim"      "valheim.yml"      "/home/valheim/valheim-hub/compose"
+deploy_if_target "rust"         "Rust"                 "rust"         "rust.yml"         "/home/rust/rust-hub/compose"
+deploy_if_target "astroneer"    "Astroneer"            "astroneer"    "astroneer.yml"    "/home/astroneer/astroneer-hub/compose"
+deploy_if_target "ark-island"   "Ark SE - The Island"  "ark-island"   "ark-island.yml"   "/home/arkse/arkse-hub/compose"
+deploy_if_target "ark-ragnarok" "Ark SE - Ragnarok"    "ark-ragnarok" "ark-ragnarok.yml" "/home/arkse/arkse-hub-rag/compose"
+deploy_if_target "ark-fjordur"  "Ark SE - Fjordur"     "ark-fjordur"  "ark-fjordur.yml"  "/home/arkse/arkse-hub-fjor/compose"
+deploy_if_target "sotf"         "Sons of the Forest"   "sotf"         "sotf.yml"         "/home/sotf/sotf-hub/compose"
+deploy_if_target "palworld"     "Palworld"             "palworld"     "palworld.yml"     "/home/palworld/palworld-hub/compose"
+deploy_if_target "satisfactory" "Satisfactory"         "satisfactory" "satisfactory.yml" "/home/satisfactory/satisfactory-hub/compose"
+
+# ============================================================
+# Summary
+# ============================================================
+log_info "========================================"
+log_info "Deployment Summary (target: ${TARGET})"
 log_info "========================================"
 
 if [[ ${#FAILED_GAMES[@]} -eq 0 ]]; then
-  log_success "🎉 All game servers deployed successfully!"
+  log_success "🎉 All targeted game servers deployed successfully!"
   exit 0
 else
   log_error "❌ Failed games: ${FAILED_GAMES[*]}"
