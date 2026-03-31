@@ -1,26 +1,26 @@
-  http:
-    routers:
-      couchdb-fauxton-router:
-        rule: "Host(`brain.ninjaprivacy.org`) && PathPrefix(`/_utils`)"
-        service: couchdb-svc
-        entrypoints:
-          - websecure
-        tls: {}
-        middlewares:
-          - authentik-forward
-        priority: 100
+http:
+  routers:
+    couchdb-fauxton-router:
+      rule: "Host(`brain.ninjaprivacy.org`) && PathPrefix(`/_utils`)"
+      service: couchdb-svc
+      entrypoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - authentik-forward
+      priority: 100
 
-      couchdb-api-router:
-        rule: "Host(`brain.ninjaprivacy.org`)"
-        service: couchdb-svc
-        entrypoints:
-          - websecure
-        tls: {}
-        priority: 1
+    couchdb-api-router:
+      rule: "Host(`brain.ninjaprivacy.org`)"
+      service: couchdb-svc
+      entrypoints:
+        - websecure
+      tls: {}
+      priority: 1
 
-    services:
-      couchdb-svc:
-        loadbalancer:
-          servers:
-            - url: http://10.0.1.5:5984
-          passHostHeader: true
+  services:
+    couchdb-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.5:5984
+        passHostHeader: true
