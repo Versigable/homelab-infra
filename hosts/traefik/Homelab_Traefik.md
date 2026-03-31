@@ -1,5 +1,5 @@
 # Traefik + Cloudflared — 10.0.2.5
-**Generated:** 2025-08-26 00:12:54
+**Updated:** 2026-03-30
 
 ## Overview
 - **Project path:** `/home/traefik/traefik-hub/`
@@ -20,10 +20,11 @@
 ```
 
 ## Mounts (expected)
-- `config/static/traefik.yml` → `/traefik.yml` (ro)
+- `config/static/traefik.yml` → `/etc/traefik/traefik.yml` (ro)
 - `config/dynamic/` → `/etc/traefik/dynamic` (ro)
 - `data/acme` → `/etc/traefik/acme`
-- `data/cloudflared` → container home (e.g., `/home/nonroot/.cloudflared`)
+- `data/cloudflared/config.yml` → `/etc/cloudflared/config.yml` (ro)
+- `data/cloudflared/creds/` → `/etc/cloudflared/creds/` + `/root/.cloudflared/` (ro)
 
 ## Ownership & Permissions
 - Tree owned by **traefik:traefik**.
@@ -60,233 +61,29 @@ ingress:
 5) Apply: `docker compose up -d traefik && docker compose restart cloudflared`.
 **Rollback:** revert wiki to `http://traefik:80` and remove the `tls:` block.
 
+## Routing Notes
+- **CouchDB (`brain.ninjaprivacy.org`)** uses a split-router pattern:
+  - `couchdb-api-router` (priority 1) — open, no auth middleware. Exposes the CouchDB HTTP API directly.
+  - `couchdb-fauxton-router` (priority 100) — matches `/_utils` prefix, gated behind `authentik-forward`. Protects the Fauxton admin UI.
+- All other HTTP services use a single router with `authentik-forward` middleware (except the Authentik outpost itself).
+
 ## Quirks
 - If tunnel restarts repeatedly, it's almost always perms on `data/cloudflared` (use 65532 ownership).
 
-## Current-State Snapshot (from node)
-```
-Traefik VM (10.0.2.5)
-
-
-
-root@traefik:/home/traefik/traefik-hub# pwd
-/home/traefik/traefik-hub
-root@traefik:/home/traefik/traefik-hub# ls -R
-.:
-cloudflared  docker-compose.yml  traefik
-
-./cloudflared:
-config.yml  creds
-
-./cloudflared/creds:
-37111c6c-064b-4381-9065-9313b50dffb3.json
-
-./traefik:
-acme  dynamic  traefik.yml
-
-./traefik/acme:
-acme.json
-
-./traefik/dynamic:
-authentik.yml  bitwarden.yml  mw-authentik.yml  proxmox.yml  traefik.yml  wikijs.yml
-root@traefik:/home/traefik/traefik-hub# cat docker-compose.yml
-version: '3.8'
-
-services:
-  traefik:
-    image: traefik:latest
-    container_name: traefik1
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      - ./traefik/acme:/etc/traefik/acme
-      - ./traefik/traefik.yml:/traefik.yml:ro
-    networks:
-      - traefik-net1
-
-  cloudflared:
-    image: cloudflare/cloudflared:2025.8.1
-    container_name: ninjaprivacy_org
-    restart: unless-stopped
-    command: ["tunnel","--no-autoupdate","--config","/etc/cloudflared/config.yml","run"]
-    volumes:
-      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
-      - ./cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
-      - ./cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/root/.cloudflared/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
-    networks:
-      - traefik-net1
-
-networks:
-  traefik-net1:
-    external: true
-
-volumes:
-  traefik-data:
-root@traefik:/home/traefik/traefik-hub# cat ./cloudflared/config.yml 
-# Use UUID for clarity
-tunnel: 37111c6c-064b-4381-9065-9313b50dffb3
-credentials-file: /etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json
-
-ingress:
-  - hostname: "*.ninjaprivacy.org"
-    service: https://traefik1
-    originRequest:
-      noTLSVerify: true
-  - service: http_status:404
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/traefik.yml 
-entryPoints:
-  web:
-    address: :80
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: :443
-
-providers:
-  docker:
-    exposedByDefault: false
-  file:
-    directory: /etc/traefik/dynamic
-    watch: true
-
-serversTransport:
-  insecureSkipVerify: true
-
-log:
-  level: ERROR
-
-api:
-  dashboard: true
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/
-authentik.yml     bitwarden.yml     mw-authentik.yml  proxmox.yml       traefik.yml       wikijs.yml        
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/authentik.yml 
-http:
-  routers:
-    authentik-router:
-      rule: "Host(`auth.ninjaprivacy.org`)"
-      service: authentik-svc
-      entrypoints: [websecure]
-      tls: {}
-
-    authentik-outpost-router:
-      rule: "PathPrefix(`/outpost.goauthentik.io/`)"
-      service: authentik-svc
-      entrypoints: [websecure]
-      tls: {}
-      priority: 10000
-
-  services:
-    authentik-svc:
-      loadbalancer:
-        servers:
-          - url: https://10.0.1.3:9443
-        passHostHeader: true
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/bitwarden.yml 
-http:
-  routers:
-    bitwarden-router:
-      rule: "Host(`bitwarden.ninjaprivacy.org`)"
-      service: bitwarden-svc
-      entrypoints: [websecure]
-      tls: {}
-      middlewares:
-        - authentik-forward
-
-  services:
-    bitwarden-svc:
-      loadbalancer:
-        servers:
-          - url: https://10.0.1.3:1443
-        passHostHeader: true
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/proxmox.yml 
-http:
-  routers:
-    proxmox-router:
-      rule: "Host(`proxmox.ninjaprivacy.org`)"
-      service: proxmox-svc
-      entrypoints: [websecure]
-      tls: {}
-      middlewares:
-        - authentik-forward
-
-  services:
-    proxmox-svc:
-      loadbalancer:
-        servers:
-          - url: https://10.0.1.2:8006
-        passHostHeader: true
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/traefik.yml 
-http:
-  routers:
-    traefik-router:
-      rule: Host(`traefik.ninjaprivacy.org`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
-      service: api@internal
-      entrypoints: [websecure]
-      middlewares:
-        - authentik-forward
-      tls: {}
-
-    # Redirect so https://traefik.ninjaprivacy.org reaches the dashboard at https://traefik.ninjaprivacy.org/dashboard/
-    traefik-redirect:
-      rule: Host(`traefik.ninjaprivacy.org`) && Path(`/`)
-      service: dummy
-      entrypoints: [websecure]
-      middlewares:
-        - redirect-to-dashboard
-      tls: {}
-
-  # Middleware that modifies the URL to https://traefik.ninjaprivacy.org/dashboard/
-  middlewares:
-    redirect-to-dashboard:
-      redirectRegex:
-        regex: "^(https?://[^/]+/?)$"  # Added /? to match optional trailing slash
-        replacement: "${1}/dashboard/"
-        permanent: false
-
-  services:
-    dummy:  # Harmless placeholder; won't be hit even if redirect doesn't work
-      loadBalancer:
-        servers:
-          - url: "http://127.0.0.1"
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/
-authentik.yml     bitwarden.yml     mw-authentik.yml  proxmox.yml       traefik.yml       wikijs.yml        
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/wikijs.yml 
-http:
-  routers:
-    wikijs-router:
-      rule: "Host(`wiki.ninjaprivacy.org`)"
-      service: wikijs-svc
-      entrypoints: [websecure]
-      tls: {}
-      middlewares:
-        - authentik-forward
-
-  services:
-    wikijs-svc:
-      loadbalancer:
-        servers:
-          - url: http://10.0.1.5:3000
-        passHostHeader: true
-root@traefik:/home/traefik/traefik-hub# cat ./traefik/dynamic/mw-authentik.yml
-http:
-  middlewares:
-    authentik-forward:
-      forwardAuth:
-        address: "https://10.0.1.3:9443/outpost.goauthentik.io/auth/traefik"
-        trustForwardHeader: true
-        authResponseHeaders:
-          - X-authentik-username
-          - X-authentik-groups
-          - X-authentik-email
-          - X-authentik-name
-          - X-authentik-uid
-        tls:
-          insecureSkipVerify: true
-```
+## Dynamic Configs (current)
+| File | Hostname / Purpose | Backend | Auth |
+|---|---|---|---|
+| `authentik.yml` | `auth.ninjaprivacy.org` | `10.0.1.3:9443` | none (is the auth provider) |
+| `bitwarden.yml` | `bitwarden.ninjaprivacy.org` | `10.0.1.3:1443` | authentik |
+| `couchdb.yml` | `brain.ninjaprivacy.org` | `10.0.1.5:5984` | API open / Fauxton (`/_utils`) behind authentik |
+| `gitlab.yml` | `gitlab.ninjaprivacy.org` | — | authentik |
+| `gitlab-registry.yml` | `registry.ninjaprivacy.org` | — | authentik |
+| `n8n.yml` | `n8n.ninjaprivacy.org` | — | authentik |
+| `proxmox.yml` | `proxmox.ninjaprivacy.org` | `10.0.1.2:8006` | authentik |
+| `traefik.yml` | `traefik.ninjaprivacy.org` | `api@internal` | authentik |
+| `truenas.yml` | `truenas.ninjaprivacy.org` | — | authentik |
+| `wikijs.yml` | `wiki.ninjaprivacy.org` | `10.0.1.5:3000` | authentik |
+| `mw-authentik.yml` | ForwardAuth middleware definition | `10.0.1.3:9443` | — |
+| `games-tcp.yml` | TCP game entrypoints (Satisfactory) | — | — |
+| `games-udp.yml` | UDP game entrypoints (Ark, Valheim, etc.) | — | — |
+| `ue5-udp.yml` | UE5 Concert UDP | — | — |
