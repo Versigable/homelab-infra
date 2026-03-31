@@ -1,0 +1,18 @@
+# Use UUID for clarity
+tunnel: 37111c6c-064b-4381-9065-9313b50dffb3
+credentials-file: /etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json
+
+ingress:
+  - hostname: proxmox.ninjaprivacy.org
+    service: https://traefik1
+    originRequest:
+      noTLSVerify: true
+      noChunkedEncoding: true    # only for proxmox
+  - hostname: "*.ninjaprivacy.org"
+    service: https://traefik1
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+
+warp-routing:
+  enabled: true
