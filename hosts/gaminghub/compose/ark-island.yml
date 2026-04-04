@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     network_mode: "host"
 
+    ulimits:
+      core: 0
+
     environment:
       - GAME_ID=376030
       - MAP=TheIsland
