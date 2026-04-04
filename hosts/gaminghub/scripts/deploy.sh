@@ -90,10 +90,6 @@ sync_compose() {
   log_info "Syncing compose: ${repo_yml} -> ${dst}"
   sudo /usr/bin/install -m 0644 -o root -g root "$src" "$dst"
 
-  if [[ -f "${live_dir}/docker-compose.override.yml" ]]; then
-    log_info "Removing stale compose override: ${live_dir}/docker-compose.override.yml"
-    sudo /usr/bin/rm -f "${live_dir}/docker-compose.override.yml"
-  fi
 }
 
 log_info "Git changes (latest commit):"
