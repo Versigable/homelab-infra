@@ -1,0 +1,55 @@
+name: windrose
+# Windrose dedicated server (Early Access, released 2026-04-14).
+# Upstream image: indifferentbroccoli/windrose-server-docker (GPL-3.0)
+# Server binary is Windows-only; image runs it under Wine + Xvfb.
+# Networking: NAT punch-through P2P via Kraken Express proxy — no fixed
+# listen ports. Players join via INVITE_CODE.
+services:
+  windrose:
+    image: indifferentbroccoli/windrose-server-docker:latest
+    platform: linux/amd64
+    container_name: windrose
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    environment:
+      - PUID=992
+      - PGID=1003
+      - UPDATE_ON_START=true
+      - GENERATE_SETTINGS=true
+      # Player-facing values come from .env (SOPS-managed):
+      # INVITE_CODE, SERVER_NAME, SERVER_PASSWORD, MAX_PLAYERS, P2P_PROXY_ADDRESS
+
+    volumes:
+      - ../data:/home/steam/server-files
+
+    ulimits:
+      core: 0                       # ARK incident lesson (2026-04-04)
+      nofile: 262144
+
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 12g                # 16 needed for 10 players; raise after baseline
+        reservations:
+          cpus: "1.0"
+          memory: 4g
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep wine > /dev/null || exit 1"]
+      start_period: 5m
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    name: net_windrose
+    external: true

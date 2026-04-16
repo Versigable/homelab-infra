@@ -18,7 +18,7 @@ set -euo pipefail
 # Valid targets:
 #   minecraft, valheim, rust, astroneer,
 #   ark-island, ark-ragnarok, ark-fjordur,
-#   sotf, palworld, satisfactory
+#   sotf, palworld, satisfactory, windrose
 #
 # Notes:
 #   - One host-level Age key at /etc/sops/age/keys.txt by default
@@ -50,7 +50,7 @@ require_cmd() {
 TARGET="${1:-all}"
 
 # Validate target
-VALID_TARGETS="all minecraft valheim rust astroneer ark-island ark-ragnarok ark-fjordur sotf palworld satisfactory"
+VALID_TARGETS="all minecraft valheim rust astroneer ark-island ark-ragnarok ark-fjordur sotf palworld satisfactory windrose"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -201,6 +201,7 @@ deploy_if_target "ark-fjordur"  "Ark SE - Fjordur"     "ark-fjordur"  "ark-fjord
 deploy_if_target "sotf"         "Sons of the Forest"   "sotf"         "sotf.yml"         "/home/sotf/sotf-hub/compose"
 deploy_if_target "palworld"     "Palworld"             "palworld"     "palworld.yml"     "/home/palworld/palworld-hub/compose"
 deploy_if_target "satisfactory" "Satisfactory"         "satisfactory" "satisfactory.yml" "/home/satisfactory/satisfactory-hub/compose"
+deploy_if_target "windrose"     "Windrose"             "windrose"     "windrose.yml"     "/home/windrose/windrose-hub/compose"
 
 # ============================================================
 # Summary
