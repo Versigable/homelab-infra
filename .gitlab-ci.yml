@@ -193,3 +193,14 @@ deploy-satisfactory:
         - hosts/gaminghub/compose/satisfactory.yml
         - hosts/gaminghub/secrets/satisfactory.env.sops
         - hosts/gaminghub/scripts/deploy.sh
+
+deploy-windrose:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: windrose
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/windrose.yml
+        - hosts/gaminghub/secrets/windrose.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
