@@ -12,13 +12,14 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
 
+    env_file:
+      - .env                        # INVITE_CODE, SERVER_NAME, SERVER_PASSWORD, MAX_PLAYERS, P2P_PROXY_ADDRESS
+
     environment:
       - PUID=992
       - PGID=1003
       - UPDATE_ON_START=true
       - GENERATE_SETTINGS=true
-      # Player-facing values come from .env (SOPS-managed):
-      # INVITE_CODE, SERVER_NAME, SERVER_PASSWORD, MAX_PLAYERS, P2P_PROXY_ADDRESS
 
     volumes:
       - ../data:/home/steam/server-files
