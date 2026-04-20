@@ -100,6 +100,15 @@ services:
     networks: [net_arr]
     restart: unless-stopped
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=America/Denver
+    networks: [net_arr]
+    restart: unless-stopped
+
 networks:
   net_arr:
     name: net_arr
