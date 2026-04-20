@@ -38,6 +38,8 @@ services:
       DB_USER: romm
       DB_PASSWD: ${MYSQL_PASSWORD}
       ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY}
+      IGDB_CLIENT_ID: ${IGDB_CLIENT_ID}
+      IGDB_CLIENT_SECRET: ${IGDB_CLIENT_SECRET}
     volumes:
       - ../data/resources:/romm/resources
       - ../data/redis:/romm/redis-data
