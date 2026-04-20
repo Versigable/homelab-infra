@@ -45,7 +45,7 @@ services:
       - ../data/redis:/romm/redis-data
       - ../data/assets:/romm/assets
       - ../config/app:/romm/config
-      - /mnt/gameroom/roms/arcade:/romm/library:ro
+      - /mnt/gameroom:/romm/library:ro
     ports:
       - "10.0.1.5:8080:8080"
     networks: [romm-net1]
