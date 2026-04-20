@@ -75,6 +75,18 @@ deploy-bitwarden:
         - hosts/authentik/secrets/bitwarden.env.sops
         - hosts/authentik/scripts/deploy.sh
 
+deploy-romm:
+  extends: .servicehub-deploy
+  variables:
+    SERVICE_KEY: romm
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/compose/romm.yml
+        - hosts/servicehub/secrets/romm.env.sops
+        - hosts/servicehub/scripts/deploy.sh
+
+
 # ============================================================
 # GamingHub — Per-Game Deploy Jobs
 # ============================================================

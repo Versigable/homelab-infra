@@ -31,7 +31,7 @@ require_cmd() {
 # -------- Target selection --------
 TARGET="${1:-all}"
 
-VALID_TARGETS="all wiki n8n"
+VALID_TARGETS="all wiki n8n romm"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -168,6 +168,14 @@ deploy_if_target "n8n" "N8N" \
   "/home/n8n/n8n-hub/compose" \
   "/home/n8n/n8n-hub" \
   "/home/n8n"
+
+
+deploy_if_target "romm" "RomM" \
+  "hosts/servicehub/compose/romm.yml" \
+  "hosts/servicehub/secrets/romm.env.sops" \
+  "/home/romm/romm-hub/compose" \
+  "/home/romm/romm-hub" \
+  "/home/romm"
 
 # ============================================================
 # Summary
