@@ -1,0 +1,17 @@
+http:
+  routers:
+    romm-router:
+      rule: "Host(`arcade.ninjaprivacy.org`)"
+      service: romm-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+
+  services:
+    romm-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.5:8080
+        passHostHeader: true
