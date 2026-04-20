@@ -24,6 +24,10 @@ creation_rules:
   - path_regex: ^hosts/gaminghub/secrets/.*\.env\.sops$
     age: ["age1j8s7twwpfzw8c67cc4nw85tr0h4cnm33ne8su8uefkvmsdq423fqsfadsm"]
 
+
+  # Jellyfin host (10.0.1.8)
+  - path_regex: ^hosts/jellyfin/secrets/.*\.env\.sops$
+    age: ["age12hnehmn3swcw97med3jvjrh82qkgdfgnnt9t9kwj37ctt32ae46s8a30yn"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================

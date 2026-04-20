@@ -1,0 +1,16 @@
+http:
+  routers:
+    sonarr-router:
+      rule: "Host(`sonarr.ninjaprivacy.org`)"
+      service: sonarr-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+  services:
+    sonarr-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:8989
+        passHostHeader: true

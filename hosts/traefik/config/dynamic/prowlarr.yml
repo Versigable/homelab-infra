@@ -1,0 +1,16 @@
+http:
+  routers:
+    prowlarr-router:
+      rule: "Host(`prowlarr.ninjaprivacy.org`)"
+      service: prowlarr-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+  services:
+    prowlarr-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:9696
+        passHostHeader: true

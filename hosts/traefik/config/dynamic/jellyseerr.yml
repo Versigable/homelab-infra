@@ -1,0 +1,16 @@
+http:
+  routers:
+    jellyseerr-router:
+      rule: "Host(`requests.ninjaprivacy.org`)"
+      service: jellyseerr-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+  services:
+    jellyseerr-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:5055
+        passHostHeader: true

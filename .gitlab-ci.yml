@@ -216,3 +216,24 @@ deploy-windrose:
         - hosts/gaminghub/compose/windrose.yml
         - hosts/gaminghub/secrets/windrose.env.sops
         - hosts/gaminghub/scripts/deploy.sh
+
+
+# ============================================================
+# Jellyfin Host — arr stack
+# ============================================================
+.jellyfin-deploy:
+  stage: deploy
+  tags: ["jellyfin"]
+  script:
+    - bash hosts/jellyfin/scripts/deploy.sh ${STACK_KEY}
+
+deploy-arr:
+  extends: .jellyfin-deploy
+  variables:
+    STACK_KEY: arr
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/jellyfin/compose/arr.yml
+        - hosts/jellyfin/secrets/arr.env.sops
+        - hosts/jellyfin/scripts/deploy.sh
