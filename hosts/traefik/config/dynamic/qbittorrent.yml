@@ -1,0 +1,16 @@
+http:
+  routers:
+    qbit-router:
+      rule: "Host(`qbit.ninjaprivacy.org`)"
+      service: qbit-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+  services:
+    qbit-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:8080
+        passHostHeader: true

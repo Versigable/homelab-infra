@@ -1,0 +1,16 @@
+http:
+  routers:
+    radarr-router:
+      rule: "Host(`radarr.ninjaprivacy.org`)"
+      service: radarr-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+  services:
+    radarr-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:7878
+        passHostHeader: true
