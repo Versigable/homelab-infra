@@ -21,6 +21,8 @@ services:
       - VPN_PORT_FORWARDING_PROVIDER=protonvpn
     networks: [net_arr]
     restart: unless-stopped
+    volumes:
+      - gluetun_data:/tmp/gluetun
     healthcheck:
       test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
       interval: 30s
@@ -43,6 +45,21 @@ services:
     volumes:
       - ../config/qbittorrent:/config
       - /home/jf/media:/media
+    restart: unless-stopped
+
+  qbit-port-sync:
+    image: alpine:3.20
+    container_name: qbit-port-sync
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      qbittorrent:
+        condition: service_started
+    volumes:
+      - gluetun_data:/gluetun:ro
+      - ../scripts/port-sync.sh:/port-sync.sh:ro
+    command: ["sh", "/port-sync.sh"]
     restart: unless-stopped
 
   prowlarr:
@@ -114,3 +131,6 @@ networks:
   net_arr:
     name: net_arr
     driver: bridge
+
+volumes:
+  gluetun_data:
