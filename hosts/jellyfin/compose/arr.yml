@@ -58,8 +58,27 @@ services:
         condition: service_started
     volumes:
       - gluetun_data:/gluetun:ro
-      - ../scripts/port-sync.sh:/port-sync.sh:ro
-    command: ["sh", "/port-sync.sh"]
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache curl >/dev/null 2>&1 || true
+        last=""
+        while true; do
+          if [ -f /gluetun/forwarded_port ]; then
+            port=$$(cat /gluetun/forwarded_port 2>/dev/null || echo "")
+            if [ -n "$$port" ] && [ "$$port" != "$$last" ]; then
+              echo "[port-sync] gluetun forwarded port: $$port"
+              if curl -fsS -X POST --data-urlencode "json={\"listen_port\":$$port}" http://localhost:8080/api/v2/app/setPreferences >/dev/null; then
+                echo "[port-sync] qbit listening port updated to $$port"
+                last="$$port"
+              else
+                echo "[port-sync] qbit API call failed (auth-bypass not enabled?)"
+              fi
+            fi
+          fi
+          sleep 60
+        done
     restart: unless-stopped
 
   prowlarr:
