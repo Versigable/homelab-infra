@@ -1,3 +1,5 @@
+name: jellyfin-hub
+
 services:
   jellyfin:
     image: jellyfin/jellyfin:latest
