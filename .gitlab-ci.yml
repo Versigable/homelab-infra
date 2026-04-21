@@ -237,3 +237,13 @@ deploy-arr:
         - hosts/jellyfin/compose/arr.yml
         - hosts/jellyfin/secrets/arr.env.sops
         - hosts/jellyfin/scripts/deploy.sh
+
+deploy-jellyfin:
+  extends: .jellyfin-deploy
+  variables:
+    STACK_KEY: jellyfin
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/jellyfin/compose/jellyfin.yml
+        - hosts/jellyfin/scripts/deploy.sh
