@@ -6,8 +6,6 @@ http:
       entrypoints: [websecure]
       tls:
         certResolver: letsencrypt
-      middlewares:
-        - authentik-forward
   services:
     jellyseerr-svc:
       loadbalancer:
