@@ -6,7 +6,6 @@ http:
       entrypoints: [websecure]
       tls:
         certResolver: letsencrypt
-      middlewares:
   services:
     jellyfin-svc:
       loadbalancer:
