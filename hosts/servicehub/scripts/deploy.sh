@@ -8,6 +8,8 @@ set -euo pipefail
 #   deploy.sh          — Deploy ALL services (manual full redeploy)
 #   deploy.sh wiki     — Deploy only Wiki.js
 #   deploy.sh n8n      — Deploy only N8N
+#   deploy.sh romm     — Deploy only RomM
+#   deploy.sh games    — Deploy only Browser Games
 # ============================================================
 
 # -------- Colors / logging --------
@@ -31,7 +33,7 @@ require_cmd() {
 # -------- Target selection --------
 TARGET="${1:-all}"
 
-VALID_TARGETS="all wiki n8n romm"
+VALID_TARGETS="all wiki n8n romm games"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -94,7 +96,6 @@ deploy_stack() {
   local hub_dir="$4"
   local home_dir="$5"
 
-  local sops_env_file="${REPO_DIR}/${sops_env_rel}"
   local live_env_file="${live_stack_dir}/.env"
 
   log_info "========================================"
@@ -102,22 +103,28 @@ deploy_stack() {
   log_info "Stack:     ${live_stack_dir}"
   log_info "========================================"
 
-  [[ -f "${sops_env_file}" ]] || die "missing encrypted env: ${sops_env_file}"
   [[ -d "${live_stack_dir}" ]] || die "missing stack dir: ${live_stack_dir}"
 
-  (
-    umask 077
-    local tmp_env
-    tmp_env="$(mktemp)"
-    trap 'rm -f "${tmp_env}"' EXIT
+  if [[ "${sops_env_rel}" == "-" ]]; then
+    log_info "No encrypted env configured for ${name}; skipping SOPS decrypt"
+  else
+    local sops_env_file="${REPO_DIR}/${sops_env_rel}"
+    [[ -f "${sops_env_file}" ]] || die "missing encrypted env: ${sops_env_file}"
 
-    log_info "Decrypting secrets for ${name}..."
-    set +x
-    sops -d --input-type dotenv --output-type dotenv "${sops_env_file}" > "${tmp_env}"
-    grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${tmp_env}" || die "decrypted env empty/invalid for ${name}"
+    (
+      umask 077
+      local tmp_env
+      tmp_env="$(mktemp)"
+      trap 'rm -f "${tmp_env}"' EXIT
 
-    sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}" "${live_env_file}"
-  )
+      log_info "Decrypting secrets for ${name}..."
+      set +x
+      sops -d --input-type dotenv --output-type dotenv "${sops_env_file}" > "${tmp_env}"
+      grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${tmp_env}" || die "decrypted env empty/invalid for ${name}"
+
+      sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}" "${live_env_file}"
+    )
+  fi
 
   (
     cd "${live_stack_dir}"
@@ -176,6 +183,13 @@ deploy_if_target "romm" "RomM" \
   "/home/romm/romm-hub/compose" \
   "/home/romm/romm-hub" \
   "/home/romm"
+
+deploy_if_target "games" "Browser Games" \
+  "hosts/servicehub/compose/games.yml" \
+  "-" \
+  "/home/games/games-hub/compose" \
+  "/home/games/games-hub" \
+  "/home/games"
 
 # ============================================================
 # Summary
