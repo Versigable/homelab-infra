@@ -2,7 +2,7 @@ name: browsergames-hub
 
 services:
   browsergames:
-    image: lscr.io/linuxserver/emulatorjs:latest
+    image: lscr.io/linuxserver/emulatorjs:1.9.2
     container_name: browsergames
     restart: unless-stopped
     environment:
