@@ -1,0 +1,17 @@
+http:
+  routers:
+    games-router:
+      rule: "Host(`games.ninjaprivacy.org`)"
+      service: games-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+
+  services:
+    games-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.5:8090
+        passHostHeader: true
