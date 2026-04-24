@@ -1,3 +1,5 @@
+name: n8n
+
 services:
   db:
     image: postgres:16-alpine
@@ -10,7 +12,12 @@ services:
     volumes:
       - ../data/postgres:/var/lib/postgresql/data
     networks:
-      - n8n-net1
+      - n8n-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     logging:
       driver: json-file
       options:
@@ -18,38 +25,36 @@ services:
         max-file: "3"
 
   n8n:
-    image: n8nio/n8n
+    image: n8nio/n8n:latest
     container_name: n8n
     restart: unless-stopped
+    user: "108:111"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      # --- DB ---
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: db
-      DB_POSTGRESDB_PORT: 5442
+      DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: n8n
       DB_POSTGRESDB_USER: n8n
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
 
-      # --- URLs / TLS behind Traefik ---
       N8N_HOST: n8n.ninjaprivacy.org
       N8N_PORT: 5678
       N8N_PROTOCOL: https
       N8N_EDITOR_BASE_URL: https://n8n.ninjaprivacy.org/
       WEBHOOK_URL: https://n8n.ninjaprivacy.org/
 
-      # --- Misc ---
       GENERIC_TIMEZONE: America/Denver
       N8N_SECURE_COOKIE: "true"
-
+      N8N_USER_FOLDER: /n8n-data
     volumes:
-      - ../data/n8n:/home/node/.n8n
+      - ../data/n8n:/n8n-data
     ports:
-      # Expose only on ServiceHub IP, for Traefik to reach
       - "10.0.1.5:5678:5678"
     networks:
-      - n8n-net1
+      - n8n-net
     logging:
       driver: json-file
       options:
@@ -57,5 +62,5 @@ services:
         max-file: "3"
 
 networks:
-  n8n-net1:
-    driver: bridge
+  n8n-net:
+    name: n8n-net
