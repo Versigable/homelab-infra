@@ -1,0 +1,26 @@
+services:
+  emulatorjs:
+    # MVP browser-emulation candidate. LinuxServer marks this image deprecated;
+    # keep it as a validation scaffold before committing to the long-term stack.
+    image: lscr.io/linuxserver/emulatorjs:latest
+    container_name: browser-games
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=America/Denver
+      - SUBFOLDER=/
+    volumes:
+      - ../config:/config
+      - ../data:/data
+      - /mnt/gameroom:/mnt/gameroom:ro
+    ports:
+      # Browser-playable frontend, routed by Traefik at games.ninjaprivacy.org.
+      - "10.0.1.5:8090:80"
+      # Management/scanning backend. Keep this internal; do not add a public route.
+      - "10.0.1.5:8091:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
