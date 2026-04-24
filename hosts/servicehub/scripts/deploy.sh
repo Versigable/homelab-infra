@@ -43,7 +43,10 @@ log_info "TARGET=${TARGET}"
 SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-/etc/sops/age/keys.txt}"
 export SOPS_AGE_KEY_FILE
 
-DEVOPS_GRANT="/home/metaversig/git/homelab-infra/scripts/devops-grant.sh"
+# Stable on-host install path for repo scripts the deploy needs to run as root.
+# Synced from ${REPO_DIR}/scripts/ on every CI run by sync_scripts() below.
+SCRIPTS_INSTALL_DIR="${SCRIPTS_INSTALL_DIR:-/opt/homelab-infra/scripts}"
+DEVOPS_GRANT="${SCRIPTS_INSTALL_DIR}/devops-grant.sh"
 
 # -------- Pre-flight checks --------
 require_cmd sops
@@ -58,6 +61,44 @@ sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD
 log_info "Git changes (latest commit):"
 git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
 log_info ""
+
+# -------- Sync repo scripts/ to a stable on-host install path --------
+# Lets sudoers grant a fixed path (no wildcards), and removes the dependency
+# on /home/metaversig/git/... which gitlab-runner can't traverse.
+sync_scripts() {
+  local src_dir="${REPO_DIR}/scripts"
+  local dst_dir="${SCRIPTS_INSTALL_DIR}"
+
+  if [[ ! -d "$src_dir" ]]; then
+    log_warn "no scripts/ dir in repo at ${src_dir} — skipping script sync"
+    return 0
+  fi
+
+  log_info "Syncing scripts/ -> ${dst_dir}"
+  sudo /bin/mkdir -p "${dst_dir}"
+
+  shopt -s nullglob
+  for script in "${src_dir}"/*.sh; do
+    sudo /usr/bin/install -m 0755 -o root -g root "$script" "${dst_dir}/$(basename "$script")"
+  done
+  shopt -u nullglob
+}
+
+# -------- Self-heal runner ACLs on a stack's home/hub/live dirs --------
+# Idempotent. Replaces the manual scripts/runner-perms.sh step on first deploy
+# of a new ServiceHub service, as long as the service user + dirs already exist.
+ensure_runner_acls() {
+  local live_dir="$1"
+  local hub_dir="$2"
+  local home_dir="$3"
+
+  # rx on home + hub for traversal; rwx (with default ACL) on the live dir for compose sync.
+  # Silent on failure (e.g., dir doesn't exist yet) — sync_compose will surface the real error.
+  sudo /usr/bin/setfacl -m "u:gitlab-runner:rx" "$home_dir" 2>/dev/null || true
+  sudo /usr/bin/setfacl -m "u:gitlab-runner:rx" "$hub_dir"  2>/dev/null || true
+  sudo /usr/bin/setfacl -m "u:gitlab-runner:rwx" "$live_dir" 2>/dev/null || true
+  sudo /usr/bin/setfacl -d -m "u:gitlab-runner:rwx" "$live_dir" 2>/dev/null || true
+}
 
 # -------- Compose sync --------
 sync_compose() {
@@ -139,6 +180,7 @@ deploy_if_target() {
   local key="$1" label="$2" compose_repo="$3" secrets_repo="$4" live_dir="$5" hub_dir="$6" home_dir="$7"
 
   if [[ "$TARGET" == "all" || "$TARGET" == "$key" ]]; then
+    ensure_runner_acls "$live_dir" "$hub_dir" "$home_dir"
     sync_compose "$compose_repo" "$live_dir"
     if ! deploy_stack "$label" "$secrets_repo" "$live_dir" "$hub_dir" "$home_dir"; then
       FAILED+=("$key")
@@ -154,6 +196,8 @@ log_info "ServiceHub Multi-Service Deployment"
 log_info "Target: ${TARGET}"
 log_info "========================================"
 log_info ""
+
+sync_scripts
 
 deploy_if_target "wiki" "Wiki.js" \
   "hosts/servicehub/compose/wiki.yml" \

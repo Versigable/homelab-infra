@@ -55,9 +55,15 @@ Defaults:gitlab-runner secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/us
 Defaults:gitlab-runner env_keep += "SOPS_AGE_KEY_FILE CI_PROJECT_DIR LIVE_STACK_DIR LIVE_ENV_FILE"
 
 # Keep this list tight. Add only what deploy.sh needs.
-Cmnd_Alias DEPLOY_CMDS = /usr/bin/docker, /usr/bin/install, /bin/mkdir, /bin/chmod, /bin/chown
+# /usr/bin/setfacl: deploy.sh self-heals runner traversal/write ACLs on home/hub/live dirs
+#                   so onboarding a new ServiceHub stack no longer requires a separate runner-perms.sh run.
+Cmnd_Alias DEPLOY_CMDS = /usr/bin/docker, /usr/bin/install, /bin/mkdir, /bin/chmod, /bin/chown, /usr/bin/setfacl
 
-gitlab-runner ALL=(root) NOPASSWD: DEPLOY_CMDS
+# Scripts shipped from the repo's scripts/ dir, installed by deploy.sh into a stable location.
+# Path is fixed (no wildcards) so sudoers stays auditable.
+Cmnd_Alias DEPLOY_SCRIPTS = /opt/homelab-infra/scripts/devops-grant.sh
+
+gitlab-runner ALL=(root) NOPASSWD: DEPLOY_CMDS, DEPLOY_SCRIPTS
 EOF
 
 chmod 0440 "${SUDOERS_FILE}"
