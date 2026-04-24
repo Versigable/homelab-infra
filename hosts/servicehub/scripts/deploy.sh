@@ -31,7 +31,7 @@ require_cmd() {
 # -------- Target selection --------
 TARGET="${1:-all}"
 
-VALID_TARGETS="all wiki n8n romm"
+VALID_TARGETS="all wiki n8n romm browsergames"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -176,6 +176,13 @@ deploy_if_target "romm" "RomM" \
   "/home/romm/romm-hub/compose" \
   "/home/romm/romm-hub" \
   "/home/romm"
+
+deploy_if_target "browsergames" "Browser Games" \
+  "hosts/servicehub/compose/browsergames.yml" \
+  "hosts/servicehub/secrets/browsergames.env.sops" \
+  "/home/browsergames/browsergames-hub/compose" \
+  "/home/browsergames/browsergames-hub" \
+  "/home/browsergames"
 
 # ============================================================
 # Summary

@@ -1,0 +1,26 @@
+name: browsergames-hub
+
+services:
+  browsergames:
+    image: lscr.io/linuxserver/emulatorjs:latest
+    container_name: browsergames
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      SUBFOLDER: /
+    volumes:
+      - ../config:/config
+      - ../data:/data
+      - /mnt/gameroom:/library:ro
+    ports:
+      # Player frontend — Traefik routes games.ninjaprivacy.org here
+      - "10.0.1.5:8090:80"
+      # Admin / ROM management UI — LAN only via ServiceHub IP
+      - "10.0.1.5:3000:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -86,6 +86,17 @@ deploy-romm:
         - hosts/servicehub/secrets/romm.env.sops
         - hosts/servicehub/scripts/deploy.sh
 
+deploy-browsergames:
+  extends: .servicehub-deploy
+  variables:
+    SERVICE_KEY: browsergames
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/compose/browsergames.yml
+        - hosts/servicehub/secrets/browsergames.env.sops
+        - hosts/servicehub/scripts/deploy.sh
+
 
 # ============================================================
 # GamingHub — Per-Game Deploy Jobs
