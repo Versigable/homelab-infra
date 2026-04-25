@@ -14,10 +14,15 @@ services:
       - ../config:/config
       - ../data:/data
       # Share the canonical library with RomM (RO).
-      # RomM remains the sole writer; EmulatorJS scans /data/<system>/<rom>,
-      # so /mnt/gameroom/roms maps to /data/roms (subdirs are platform slugs).
-      - /mnt/gameroom/roms:/data/roms:ro
-      - /mnt/gameroom/bios:/data/bios:ro
+      # EmulatorJS scans /data/<system>/roms/ per system (verified in
+      # /emulatorjs/index.js: `var romPath = dataRoot + emu.name + '/roms/';`),
+      # so each gameroom platform-slug subdir gets its own mount line.
+      # RomM uses /mnt/gameroom/roms/<platform>/<rom>; map per-platform.
+      # Add a mount line below for each new system as it gets ROMs.
+      - /mnt/gameroom/roms/doom:/data/doom/roms:ro
+      - /mnt/gameroom/roms/arcade:/data/arcade/roms:ro
+      # BIOS files share the same per-system pattern under /data/<system>/bios.
+      - /mnt/gameroom/bios/arcade:/data/arcade/bios:ro
     ports:
       # Player frontend — Traefik routes games.ninjaprivacy.org here
       - "10.0.1.5:8090:80"
