@@ -22,6 +22,8 @@ services:
       - /mnt/gameroom/roms/doom:/data/doom/roms:ro
       - /mnt/gameroom/roms/arcade:/data/arcade/roms:ro
       # BIOS files share the same per-system pattern under /data/<system>/bios.
+      # Note: PrBoom needs prboom.wad as a BIOS file alongside the IWAD.
+      - /mnt/gameroom/bios/doom:/data/doom/bios:ro
       - /mnt/gameroom/bios/arcade:/data/arcade/bios:ro
     ports:
       # Player frontend — Traefik routes games.ninjaprivacy.org here
