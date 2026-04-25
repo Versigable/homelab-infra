@@ -13,7 +13,11 @@ services:
     volumes:
       - ../config:/config
       - ../data:/data
-      - /mnt/gameroom:/library:ro
+      # Share the canonical library with RomM (RO).
+      # RomM remains the sole writer; EmulatorJS scans /data/<system>/<rom>,
+      # so /mnt/gameroom/roms maps to /data/roms (subdirs are platform slugs).
+      - /mnt/gameroom/roms:/data/roms:ro
+      - /mnt/gameroom/bios:/data/bios:ro
     ports:
       # Player frontend — Traefik routes games.ninjaprivacy.org here
       - "10.0.1.5:8090:80"
