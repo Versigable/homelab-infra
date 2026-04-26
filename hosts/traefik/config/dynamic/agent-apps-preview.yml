@@ -1,0 +1,17 @@
+http:
+  routers:
+    agent-apps-preview-router:
+      rule: "Host(`game-preview.ninjaprivacy.org`)"
+      service: agent-apps-preview-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+
+  services:
+    agent-apps-preview-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.1.0.3:4173
+        passHostHeader: true
