@@ -1,0 +1,53 @@
+###############################################################################
+# CouchDB for Obsidian LiveSync
+# Host: ServiceHub (10.0.1.5)
+# Path: /home/couchdb/couchdb-hub/compose/docker-compose.yml
+#
+# Provides real-time sync backend for shared Obsidian vault.
+# Accessed via brain.ninjaprivacy.org (behind Authentik)
+###############################################################################
+
+services:
+  couchdb:
+    image: couchdb:3
+    container_name: couchdb
+    restart: unless-stopped
+    user: "5984:5984"
+
+    environment:
+      - COUCHDB_USER=${COUCHDB_USER}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
+
+    volumes:
+      - ../data/couchdb:/opt/couchdb/data
+      - ../config/local.ini:/opt/couchdb/etc/local.d/local.ini
+
+    ports:
+      - "5984:5984"
+
+    networks:
+      - couchdb-net1
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5984/_up || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+networks:
+  couchdb-net1:
+    name: couchdb-net1
+    driver: bridge
