@@ -31,7 +31,7 @@ require_cmd() {
 # -------- Target selection --------
 TARGET="${1:-all}"
 
-VALID_TARGETS="all wiki n8n romm browsergames"
+VALID_TARGETS="all wiki n8n romm browsergames couchdb"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -227,6 +227,13 @@ deploy_if_target "browsergames" "Browser Games" \
   "/home/browsergames/browsergames-hub/compose" \
   "/home/browsergames/browsergames-hub" \
   "/home/browsergames"
+
+deploy_if_target "couchdb" "CouchDB" \
+  "hosts/servicehub/compose/couchdb.yml" \
+  "hosts/servicehub/secrets/couchdb.env.sops" \
+  "/home/couchdb/couchdb-hub/compose" \
+  "/home/couchdb/couchdb-hub" \
+  "/home/couchdb"
 
 # ============================================================
 # Summary
