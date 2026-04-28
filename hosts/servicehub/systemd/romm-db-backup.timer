@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily RomM DB backup at 04:00 local time
+
+[Timer]
+# Run once per day at 04:00 local. RandomizedDelaySec spreads the load
+# if other backup timers ever co-exist; 0 keeps it deterministic for now.
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=0
+# Persistent: if the host was down at the scheduled time, run on next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

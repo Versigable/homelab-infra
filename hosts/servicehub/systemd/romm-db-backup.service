@@ -1,0 +1,15 @@
+[Unit]
+Description=RomM MariaDB logical backup
+Documentation=https://gitlab.ninjaprivacy.org/gitops/homelab-infra/-/blob/main/scripts/romm-db-backup.sh
+# Don't start while romm-db is in the middle of restarting; the script
+# tolerates a few moments of unavailability anyway.
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/homelab-infra/scripts/romm-db-backup.sh
+StandardOutput=journal
+StandardError=journal
+# Backup completes in seconds for a small DB. Generous deadline.
+TimeoutStartSec=600s
