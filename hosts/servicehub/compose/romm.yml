@@ -43,6 +43,22 @@ services:
       ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY}
       IGDB_CLIENT_ID: ${IGDB_CLIENT_ID}
       IGDB_CLIENT_SECRET: ${IGDB_CLIENT_SECRET}
+      # Reminder: Docker Compose's `.env` file is parse-time substitution only,
+      # NOT auto-injected into containers. Every var RomM should see needs an
+      # explicit ${VAR} line here. Adding a var to romm.env.sops alone has no
+      # effect on the running container.
+      # Metadata providers (each enabled by presence of credentials):
+      STEAMGRIDDB_API_KEY: ${STEAMGRIDDB_API_KEY:-}
+      SCREENSCRAPER_USER: ${SCREENSCRAPER_USER:-}
+      SCREENSCRAPER_PASSWORD: ${SCREENSCRAPER_PASSWORD:-}
+      MOBYGAMES_API_KEY: ${MOBYGAMES_API_KEY:-}
+      RETROACHIEVEMENTS_API_KEY: ${RETROACHIEVEMENTS_API_KEY:-}
+      ENABLE_SCHEDULED_RETROACHIEVEMENTS_PROGRESS_SYNC: ${ENABLE_SCHEDULED_RETROACHIEVEMENTS_PROGRESS_SYNC:-false}
+      # Hasheous: public, just a toggle:
+      HASHEOUS_API_ENABLED: ${HASHEOUS_API_ENABLED:-false}
+      # Scan automation:
+      ENABLE_SCHEDULED_RESCAN: ${ENABLE_SCHEDULED_RESCAN:-false}
+      ENABLE_RESCAN_ON_FILESYSTEM_CHANGE: ${ENABLE_RESCAN_ON_FILESYSTEM_CHANGE:-false}
     volumes:
       - ../data/resources:/romm/resources
       - ../data/redis:/romm/redis-data
