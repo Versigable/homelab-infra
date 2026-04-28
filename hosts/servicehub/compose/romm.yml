@@ -3,6 +3,7 @@ services:
     image: mariadb:11
     container_name: romm-db
     restart: unless-stopped
+    user: "5999:5999"
     environment:
       MYSQL_DATABASE: romm
       MYSQL_USER: romm
