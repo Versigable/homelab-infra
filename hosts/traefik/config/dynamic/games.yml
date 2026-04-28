@@ -32,10 +32,26 @@ http:
   middlewares:
     # EmulatorJS embedded in RomM needs cross-origin isolation for
     # SharedArrayBuffer + WASM threading. RomM's nginx doesn't set
-    # COOP/COEP, and Authentik wouldn't preserve them anyway. Without
-    # these the libretro core loads but renders a black canvas.
+    # COOP/COEP, and Authentik wouldn't preserve them anyway.
+    #
+    # COEP value choice: credentialless, NOT require-corp.
+    # require-corp blocks RomM's bundle entirely because RomM's
+    # index.html declares <script crossorigin src="/assets/...">
+    # and RomM's nginx doesn't emit Cross-Origin-Resource-Policy
+    # on its static asset responses, so the browser refuses to load
+    # the bundle and the page renders a blank white screen with a
+    # couple of broken image icons. credentialless still gives full
+    # cross-origin isolation (SharedArrayBuffer works) but allows
+    # cross-origin no-cors fetches (RomM's bundle, IGDB box art,
+    # etc.) without requiring CORP, at the cost of stripping
+    # credentials on those fetches — fine for public assets.
+    #
+    # Cross-Origin-Resource-Policy: same-origin is set as
+    # belt-and-suspenders so RomM's own same-origin assets
+    # are explicitly allowed under any future stricter COEP.
     games-coop-coep:
       headers:
         customResponseHeaders:
           Cross-Origin-Opener-Policy: "same-origin"
-          Cross-Origin-Embedder-Policy: "require-corp"
+          Cross-Origin-Embedder-Policy: "credentialless"
+          Cross-Origin-Resource-Policy: "same-origin"
