@@ -44,9 +44,19 @@ services:
       - PGID=1000
       - TZ=America/Denver
       - WEBUI_PORT=8080
+    # Supplementary group 1002: gameroom dirs are owned 1001:1002 with mode 775.
+    # Process at uid=1000 needs gid 1002 in its group set to satisfy "group rwx".
+    # Verified on jf VM with: setpriv --reuid=1000 --regid=1002 touch /mnt/gameroom/...
+    # (PUID/PGID kept at 1000/1000 so existing /home/jf/media writes don't break.)
+    group_add:
+      - "1002"
     volumes:
       - ../config/qbittorrent:/config
       - /home/jf/media:/media
+      # /mnt/gameroom mounted rw on the jf VM (fstab entry; was previously ro).
+      # Use this for direct downloads of ROMs/BIOS into RomM's library.
+      # In qBittorrent UI, set save path to /gameroom/roms/<platform>/.
+      - /mnt/gameroom:/gameroom
     restart: unless-stopped
 
   qbit-port-sync:
