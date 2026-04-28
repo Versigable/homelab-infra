@@ -6,8 +6,13 @@ http:
       entrypoints: [websecure]
       tls:
         certResolver: letsencrypt
-      middlewares:
-        - authentik-forward
+      # No authentik-forward — RomM uses its own native login (bcrypt
+      # passwords, session cookies, CSRF). Same pattern as jellyfin
+      # and jellyseerr (see reference_jf-vm). The same RomM also
+      # serves games.ninjaprivacy.org via games.yml; that route adds
+      # a games-coop-coep middleware for the EJS player. arcade.* is
+      # the library/admin door, so no COOP/COEP needed here.
+      # Admin paths still gated by RomM's own ADMIN role check.
 
   services:
     romm-svc:
