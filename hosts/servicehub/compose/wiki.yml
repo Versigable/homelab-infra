@@ -1,3 +1,5 @@
+name: wiki
+
 services:
   # Kannis test 3!
   db:

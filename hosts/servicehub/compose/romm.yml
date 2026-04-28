@@ -1,3 +1,5 @@
+name: romm
+
 services:
   romm-db:
     image: mariadb:11
