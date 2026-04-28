@@ -1,0 +1,41 @@
+http:
+  routers:
+    games-router:
+      rule: "Host(`games.ninjaprivacy.org`)"
+      service: games-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+        - games-coop-coep
+
+  services:
+    # games.ninjaprivacy.org is intentionally NOT its own service.
+    # It points at RomM (10.0.1.5:8080) and uses RomM's bundled
+    # EmulatorJS player at /rom/<id>/ejs as the single-player
+    # browser play surface. RomM here serves as the "platform" off
+    # which users load games and play in their own browsers (all
+    # WASM, all client-side rendering).
+    #
+    # arcade.ninjaprivacy.org points at the same RomM today, but is
+    # earmarked for the future arcade-netplay-stack project (multiplayer,
+    # server-side / GPU-rendered). When that project lands, RomM admin
+    # will move to a dedicated hostname (likely library.ninjaprivacy.org)
+    # and arcade.* will get its own backend. games.* stays here.
+    games-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.5:8080
+        passHostHeader: true
+
+  middlewares:
+    # EmulatorJS embedded in RomM needs cross-origin isolation for
+    # SharedArrayBuffer + WASM threading. RomM's nginx doesn't set
+    # COOP/COEP, and Authentik wouldn't preserve them anyway. Without
+    # these the libretro core loads but renders a black canvas.
+    games-coop-coep:
+      headers:
+        customResponseHeaders:
+          Cross-Origin-Opener-Policy: "same-origin"
+          Cross-Origin-Embedder-Policy: "require-corp"
