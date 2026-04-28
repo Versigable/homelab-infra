@@ -6,8 +6,14 @@ http:
       entrypoints: [websecure]
       tls:
         certResolver: letsencrypt
+      # No authentik-forward — RomM has its own native login (bcrypt
+      # passwords, session cookies, CSRF). Same pattern as jellyfin
+      # and jellyseerr (see reference_jf-vm). Friend access via RomM
+      # invite tokens (admin generates an invite link in the UI;
+      # /api/users/register requires the token, no anonymous signup).
+      # Operator paths /api/admin/* etc. are still gated by RomM's
+      # own ADMIN role check.
       middlewares:
-        - authentik-forward
         - games-coop-coep
 
   services:
