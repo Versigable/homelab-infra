@@ -7,6 +7,10 @@ services:
     user: 1000:1000
     cap_drop:
       - ALL
+    cap_add:
+      # CUDA's cuInit needs SYS_NICE for the worker-thread priority bump.
+      # Without it, ffmpeg fails with CUDA_ERROR_NO_DEVICE on cap_drop=ALL.
+      - SYS_NICE
     ports:
       - "8096:8096"
     environment:
