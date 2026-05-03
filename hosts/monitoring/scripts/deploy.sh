@@ -169,6 +169,32 @@ compose_up() {
   )
 }
 
+# -------- SIGHUP reload --------
+# Compose recreates containers when their compose section changes (image bump,
+# env var change, volume change, etc.) → fresh config loaded naturally.
+# Compose does NOT recreate on config-file-only changes (alert rules edit,
+# scrape target edit, alertmanager template edit). For those, prometheus +
+# alertmanager need an explicit reload. SIGHUP works for both.
+#
+# Using `docker kill --signal=HUP` rather than POST /-/reload because the
+# Prometheus image is FROM scratch — no shell, no curl, no wget. Docker
+# delivers the signal via the kernel directly, no in-container binary needed.
+reload_via_sighup() {
+  local container="$1"
+  for attempt in 1 2 3; do
+    local state
+    state=$(sudo /usr/bin/docker inspect "$container" --format '{{.State.Status}}' 2>/dev/null || echo "missing")
+    if [[ "$state" == "running" ]]; then
+      if sudo /usr/bin/docker kill --signal=HUP "$container" >/dev/null 2>&1; then
+        log_success "  ✓ $container reloaded (SIGHUP)"
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+  log_warn "  $container not running after 6s — reload skipped"
+}
+
 # ============================================================
 # Main
 # ============================================================
@@ -182,5 +208,14 @@ sync_compose
 sync_static_configs
 decrypt_and_render
 compose_up
+
+# Reload prometheus + alertmanager so config-file-only changes (alert rule
+# edits, scrape target edits, alertmanager template edits) take effect
+# without needing a container restart. No-op when compose just recreated
+# the container — but cheap, idempotent, and prevents the "I pushed but
+# Prometheus is still using old rules" surprise.
+log_info "Post-deploy SIGHUP reload"
+reload_via_sighup prometheus
+reload_via_sighup alertmanager
 
 log_success "🎉 Monitoring stack deployed successfully"
