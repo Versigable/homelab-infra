@@ -27,7 +27,7 @@ services:
       - sh
       - -c
       - |
-        set -e
+
         echo "[wg-proton] installing wireguard-tools, libnatpmp, iptables, curl"
         apk add --no-cache wireguard-tools libnatpmp iptables curl >/dev/null 2>&1
 
@@ -48,6 +48,7 @@ services:
 
         echo "[wg-proton] bringing up tun0 (kernel WG)"
         wg-quick up tun0
+        echo "nameserver $${WIREGUARD_DNS}" > /etc/resolv.conf
         ip route add default dev tun0 || true
 
         ENDPOINT_HOST=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f1)
@@ -65,13 +66,13 @@ services:
         iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
         iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
 
-        echo "[wg-proton] WG endpoint: $$(wg show tun0 endpoint | head -1)"
+        echo "[wg-proton] WG endpoint: $$(wg show tun0 endpoints | head -1)"
         echo "[wg-proton] external IP: $$(curl -s --max-time 10 https://api.ipify.org || echo failed)"
 
         echo "[wg-proton] starting NAT-PMP renewal loop (45s interval, 60s lifetime)"
         while true; do
-          OUT_TCP=$$(natpmpc -g 10.2.0.1 -a 1 0 tcp 60 2>&1)
-          OUT_UDP=$$(natpmpc -g 10.2.0.1 -a 1 0 udp 60 2>&1)
+          OUT_TCP=$$(timeout 8 natpmpc -g 10.2.0.1 -a 1 0 tcp 60 2>&1)
+          OUT_UDP=$$(timeout 8 natpmpc -g 10.2.0.1 -a 1 0 udp 60 2>&1)
           PORT=$$(echo "$$OUT_TCP" | grep -oE "Mapped public port [0-9]+" | head -1 | awk '{print $$4}')
           if [ -n "$$PORT" ]; then
             echo "[$$(date +%T)] forwarded port: $$PORT"
