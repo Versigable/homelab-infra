@@ -68,6 +68,24 @@ services:
         condition: service_started
     logging: *logging
 
+  # Proxmox VE exporter — queries the PVE API for cluster/node/guest metrics.
+  # Token auth: monitoring@pve!monitoring with PVEAuditor role (read-only).
+  # Scrape pattern: prometheus targets the PVE node IPs and uses
+  # ?target=<ip> param; pve-exporter queries that node's API and translates.
+  pve-exporter:
+    image: prompve/prometheus-pve-exporter:3.5.5
+    container_name: pve-exporter
+    restart: unless-stopped
+    environment:
+      PVE_USER: ${PVE_USER}
+      PVE_TOKEN_NAME: ${PVE_TOKEN_NAME}
+      PVE_TOKEN_VALUE: ${PVE_TOKEN_VALUE}
+      PVE_VERIFY_SSL: "false"
+    ports:
+      - "10.1.0.5:9221:9221"
+    networks: [monitoring-net]
+    logging: *logging
+
   # External heartbeat sidecar — pings Healthchecks.io every 5 min while the
   # stack is healthy. If the stack (or this LXC) dies, the heartbeat dies with
   # it, and Healthchecks fires its out-of-band alert (email/etc.) configured

@@ -34,20 +34,48 @@ scrape_configs:
     metrics_path: /metrics
 
   # ============================================================
-  # Phase 1.4 will add:
-  #   - job_name: 'node'
-  #     static_configs:
-  #       - targets: ['10.0.1.2:9100']
-  #         labels: { instance: 'phoenix' }
-  #       - targets: ['10.0.2.1:9100']
-  #         labels: { instance: 'rogue' }
-  #       - targets: ['10.1.0.X:9100']    # confirm wolverine LAB-side IP
-  #         labels: { instance: 'wolverine' }
+  # Host-level node metrics (Phase 1.4 — phoenix + rogue)
   #
-  #   - job_name: 'pve'
-  #     static_configs:
-  #       - targets: ['localhost:9221']
-  #     metrics_path: /pve
-  #     params:
-  #       module: [default]
+  # Wolverine (10.1.0.2:9100) is intentionally NOT scraped here.
+  # node_exporter is installed on wolverine and listens on *:9100,
+  # but TCP from the monitoring LXC (10.1.0.5) to wolverine over
+  # vmbr1 is asymmetrically dropped — SYN goes out, SYN+ACK is
+  # generated but never reaches the LXC's eth0. ICMP works fine,
+  # cross-site (phoenix/rogue) works fine. Diagnosed but not yet
+  # rooted; see the wolverine-LXC-intra-lab feedback memory.
+  # Wolverine basic state IS visible via the pve-exporter job
+  # below (PVE API path, which goes through pfSense, not vmbr1).
   # ============================================================
+  - job_name: 'node'
+    static_configs:
+      - targets: ['10.0.1.2:9100']
+        labels:
+          instance: phoenix
+          site: x-mansion
+      - targets: ['10.0.2.1:9100']
+        labels:
+          instance: rogue
+          site: x-mansion
+
+  # ============================================================
+  # Proxmox VE cluster metrics via pve-exporter (Phase 1.5)
+  # Cluster query: target each PVE node; results flow through the
+  # pve-exporter container and are labeled with the queried node.
+  # ============================================================
+  - job_name: 'pve'
+    metrics_path: /pve
+    params:
+      module: [default]
+      cluster: ['1']
+      node: ['1']
+    static_configs:
+      - targets:
+          - 10.0.1.2  # phoenix
+          - 10.0.2.1  # rogue
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: pve-exporter:9221
