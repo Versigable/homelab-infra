@@ -28,6 +28,10 @@ creation_rules:
   # Jellyfin host (10.0.1.8)
   - path_regex: ^hosts/jellyfin/secrets/.*\.env\.sops$
     age: ["age12hnehmn3swcw97med3jvjrh82qkgdfgnnt9t9kwj37ctt32ae46s8a30yn"]
+
+  # Monitoring host (Wolverine LXC 302, 10.1.0.5)
+  - path_regex: ^hosts/monitoring/secrets/.*\.env\.sops$
+    age: ["age1ln833f9r64gjahe6ktjz968frcxkk7l0sgech65m7xac57f9eqsqa7ghek"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================
