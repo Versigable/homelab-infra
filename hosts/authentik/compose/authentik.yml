@@ -36,6 +36,7 @@ services:
     ports:
       - "9443:9443"  # HTTPS (primary for GUI)
       - "9000:9000"  # HTTP (fallback)
+      - "9300:9300"  # Prometheus metrics (no auth on the dedicated port; LAN-only)
 
   authentik-worker:
     image: ghcr.io/goauthentik/server:latest
@@ -48,6 +49,8 @@ services:
     environment: *authentik-env
     volumes:
       - ../data/media:/media
+    ports:
+      - "9301:9301"  # Prometheus metrics for the worker
 
 volumes:
   postgresql:
