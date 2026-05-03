@@ -19,8 +19,11 @@ services:
       - "--web.enable-lifecycle"
       - "--web.external-url=http://10.1.0.5:9090"
     volumes:
-      - ../config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ../config/prometheus/alerts:/etc/prometheus/alerts:ro
+      # Directory bind-mount (not per-file) to avoid Docker's stale-inode
+      # caching when deploy.sh atomically replaces config files via `install`.
+      # File-level bind mounts hold a reference to the original inode and
+      # don't see post-deploy file replacements until the container restarts.
+      - ../config/prometheus:/etc/prometheus:ro
       - ../data/prometheus:/prometheus
     ports:
       - "10.1.0.5:9090:9090"
@@ -37,7 +40,8 @@ services:
       - "--storage.path=/alertmanager"
       - "--web.external-url=http://10.1.0.5:9093"
     volumes:
-      - ../config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # Directory bind-mount (see prometheus block for rationale).
+      - ../config/alertmanager:/etc/alertmanager:ro
       - ../data/alertmanager:/alertmanager
     ports:
       - "10.1.0.5:9093:9093"
@@ -53,11 +57,25 @@ services:
       GF_SERVER_ROOT_URL: "https://grafana.ninjaprivacy.org"
       GF_SERVER_DOMAIN: grafana.ninjaprivacy.org
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-      # Phase 1.9 (Authentik forward-auth) — uncomment when Traefik route + Authentik app land:
-      # GF_AUTH_PROXY_ENABLED: "true"
-      # GF_AUTH_PROXY_HEADER_NAME: X-authentik-username
-      # GF_AUTH_PROXY_HEADER_PROPERTY: username
-      # GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      # Authentik forward-auth via Traefik mw-authentik (Phase 1.9).
+      # Headers populated by the authentik-forward middleware.
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-authentik-username
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_HEADERS: "Email:X-authentik-email Name:X-authentik-name Groups:X-authentik-groups"
+      # CRITICAL: only accept proxy auth from Traefik's IP. Without this,
+      # any LAN host could spoof X-authentik-username and bypass auth on
+      # the Grafana port (10.1.0.5:3000 is LAN-reachable).
+      GF_AUTH_PROXY_WHITELIST: 10.0.2.5
+      # Disable signup for non-proxy auth (defense in depth).
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Auto-signup gives Viewer (safe default — your Authentik covers
+      # *.ninjaprivacy.org so anyone with Jellyfin etc. access could sign
+      # into Grafana too). Promote MetaVersig to Admin once via the
+      # Grafana UI (log in as the local `admin` with the random password
+      # in monitoring.env.sops, then Server Admin → Users → promote).
+      GF_AUTH_PROXY_AUTO_SIGN_UP_ROLE: Viewer
     volumes:
       - ../data/grafana:/var/lib/grafana
     ports:
