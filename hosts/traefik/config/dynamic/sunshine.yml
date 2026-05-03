@@ -1,0 +1,17 @@
+http:
+  routers:
+    sunshine-router:
+      rule: "Host(`sunshine.ninjaprivacy.org`)"
+      service: sunshine-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+
+  services:
+    sunshine-svc:
+      loadbalancer:
+        servers:
+          - url: https://10.0.1.8:47990
+        passHostHeader: true
