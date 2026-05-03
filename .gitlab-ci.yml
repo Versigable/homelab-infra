@@ -258,3 +258,24 @@ deploy-jellyfin:
       changes:
         - hosts/jellyfin/compose/jellyfin.yml
         - hosts/jellyfin/scripts/deploy.sh
+
+# ============================================================
+# Monitoring Host (Wolverine LXC 302) — single tightly-coupled stack
+# ============================================================
+.monitoring-deploy:
+  stage: deploy
+  tags: ["monitoring"]
+  script:
+    - bash hosts/monitoring/scripts/deploy.sh ${SERVICE_KEY}
+
+deploy-monitoring:
+  extends: .monitoring-deploy
+  variables:
+    SERVICE_KEY: monitoring
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/monitoring/compose/monitoring.yml
+        - hosts/monitoring/config/**/*
+        - hosts/monitoring/secrets/monitoring.env.sops
+        - hosts/monitoring/scripts/deploy.sh

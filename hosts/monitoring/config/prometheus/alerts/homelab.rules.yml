@@ -1,0 +1,21 @@
+groups:
+  - name: monitoring-self
+    interval: 30s
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scrape target down: {{ $labels.instance }} ({{ $labels.job }})"
+          description: |-
+            Prometheus has been unable to scrape target {{ $labels.instance }}
+            of job {{ $labels.job }} for more than 5 minutes.
+
+  # Phase 1.4 will add (once node_exporter lands on phoenix/rogue/wolverine):
+  #   - NodeDown        : node_uname_info == 0
+  #   - DiskSpaceLow    : node_filesystem_avail_bytes / size < 0.10
+  #   - MemoryHigh      : (1 - mem_available/mem_total) > 0.9 for 10m
+  #   - LoadHigh        : node_load1 > 2 * cpu_count for 10m
+  #   - WGTunnelDown    : composite — all X-Mansion targets down at once

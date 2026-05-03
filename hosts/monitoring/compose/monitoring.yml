@@ -1,0 +1,100 @@
+name: monitoring
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: prometheus
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+      - "--web.external-url=http://10.1.0.5:9090"
+    volumes:
+      - ../config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../config/prometheus/alerts:/etc/prometheus/alerts:ro
+      - ../data/prometheus:/prometheus
+    ports:
+      - "10.1.0.5:9090:9090"
+    networks: [monitoring-net]
+    logging: *logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    container_name: alertmanager
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://10.1.0.5:9093"
+    volumes:
+      - ../config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../data/alertmanager:/alertmanager
+    ports:
+      - "10.1.0.5:9093:9093"
+    networks: [monitoring-net]
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    restart: unless-stopped
+    user: "472:472"
+    environment:
+      GF_SERVER_ROOT_URL: "https://grafana.ninjaprivacy.org"
+      GF_SERVER_DOMAIN: grafana.ninjaprivacy.org
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # Phase 1.9 (Authentik forward-auth) — uncomment when Traefik route + Authentik app land:
+      # GF_AUTH_PROXY_ENABLED: "true"
+      # GF_AUTH_PROXY_HEADER_NAME: X-authentik-username
+      # GF_AUTH_PROXY_HEADER_PROPERTY: username
+      # GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+    volumes:
+      - ../data/grafana:/var/lib/grafana
+    ports:
+      - "10.1.0.5:3000:3000"
+    networks: [monitoring-net]
+    depends_on:
+      prometheus:
+        condition: service_started
+    logging: *logging
+
+  # External heartbeat sidecar — pings Healthchecks.io every 5 min while the
+  # stack is healthy. If the stack (or this LXC) dies, the heartbeat dies with
+  # it, and Healthchecks fires its out-of-band alert (email/etc.) configured
+  # on the check itself. This is the "monitor of last resort" — see
+  # 5-Decisions/2026-05-02_monitoring-stack-shape for the rationale.
+  heartbeat:
+    image: curlimages/curl:8.11.0
+    container_name: heartbeat
+    restart: unless-stopped
+    environment:
+      HEALTHCHECKS_PING_URL: ${HEALTHCHECKS_PING_URL}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "heartbeat starting; pinging every 5 min"
+        while true; do
+          if curl -fsS --max-time 30 "$$HEALTHCHECKS_PING_URL" >/dev/null; then
+            echo "$(date -u +%FT%TZ) ping ok"
+          else
+            echo "$(date -u +%FT%TZ) ping FAILED"
+          fi
+          sleep 300
+        done
+    networks: [monitoring-net]
+    logging: *logging
+
+networks:
+  monitoring-net:
+    driver: bridge
