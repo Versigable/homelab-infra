@@ -58,6 +58,23 @@ scrape_configs:
           site: x-mansion
 
   # ============================================================
+  # Per-app exporters (Phase 2)
+  # ============================================================
+  - job_name: 'authentik-server'
+    static_configs:
+      - targets: ['10.0.1.3:9300']
+        labels:
+          instance: authentik-server
+          site: x-mansion
+
+  - job_name: 'authentik-worker'
+    static_configs:
+      - targets: ['10.0.1.3:9301']
+        labels:
+          instance: authentik-worker
+          site: x-mansion
+
+  # ============================================================
   # Proxmox VE cluster metrics via pve-exporter (Phase 1.5)
   # Cluster query: target each PVE node; results flow through the
   # pve-exporter container and are labeled with the queried node.
