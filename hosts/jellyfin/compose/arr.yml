@@ -2,42 +2,102 @@ name: arr-hub
 
 services:
 
-  gluetun:
-    image: qmcgaw/gluetun:v3.39.0
-    container_name: gluetun
+  wg-proton:
+    image: alpine:3.20
+    container_name: wg-proton
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
     ports:
       - "8080:8080"
       - "8888:8888"
     environment:
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=wireguard
       - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
-      - SERVER_COUNTRIES=Netherlands
-      - PORT_FORWARD_ONLY=on
-      - VPN_PORT_FORWARDING=on
-      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      # Public values from NL-235 .conf — not secrets, plain compose env per design
+      - WIREGUARD_PEER_PUBLIC_KEY=/i7jCNpcqVBUkY07gVlILN4nFdvZHmxvreAOgLGoZGg=
+      - WIREGUARD_ENDPOINT=146.70.86.114:51820
+      - WIREGUARD_DNS=10.2.0.1
     networks: [net_arr]
     restart: unless-stopped
-    volumes:
-      - gluetun_data:/tmp/gluetun
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "[wg-proton] installing wireguard-tools, libnatpmp, iptables, curl"
+        apk add --no-cache wireguard-tools libnatpmp iptables curl >/dev/null 2>&1
+
+        mkdir -p /etc/wireguard
+        {
+          printf '[Interface]\n'
+          printf 'PrivateKey = %s\n' "$${WIREGUARD_PRIVATE_KEY}"
+          printf 'Address = %s\n' "$${WIREGUARD_ADDRESSES}"
+          printf 'DNS = %s\n' "$${WIREGUARD_DNS}"
+          printf 'Table = off\n\n'
+          printf '[Peer]\n'
+          printf 'PublicKey = %s\n' "$${WIREGUARD_PEER_PUBLIC_KEY}"
+          printf 'AllowedIPs = 0.0.0.0/0\n'
+          printf 'Endpoint = %s\n' "$${WIREGUARD_ENDPOINT}"
+          printf 'PersistentKeepalive = 25\n'
+        } > /etc/wireguard/tun0.conf
+        chmod 600 /etc/wireguard/tun0.conf
+
+        echo "[wg-proton] bringing up tun0 (kernel WG)"
+        wg-quick up tun0
+        ip route add default dev tun0 || true
+
+        ENDPOINT_HOST=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f1)
+        ENDPOINT_PORT=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f2)
+
+        echo "[wg-proton] applying kill-switch (default DROP, allow lo + tun0 + handshake + LAN)"
+        iptables -P INPUT ACCEPT
+        iptables -P FORWARD DROP
+        iptables -P OUTPUT DROP
+        iptables -A OUTPUT -o lo -j ACCEPT
+        iptables -A OUTPUT -o tun0 -j ACCEPT
+        iptables -A OUTPUT -d "$$ENDPOINT_HOST" -p udp --dport "$$ENDPOINT_PORT" -j ACCEPT
+        iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+        iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
+        iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
+        iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+
+        echo "[wg-proton] WG endpoint: $$(wg show tun0 endpoint | head -1)"
+        echo "[wg-proton] external IP: $$(curl -s --max-time 10 https://api.ipify.org || echo failed)"
+
+        echo "[wg-proton] starting NAT-PMP renewal loop (45s interval, 60s lifetime)"
+        while true; do
+          OUT_TCP=$$(natpmpc -g 10.2.0.1 -a 1 0 tcp 60 2>&1)
+          OUT_UDP=$$(natpmpc -g 10.2.0.1 -a 1 0 udp 60 2>&1)
+          PORT=$$(echo "$$OUT_TCP" | grep -oE "Mapped public port [0-9]+" | head -1 | awk '{print $$4}')
+          if [ -n "$$PORT" ]; then
+            echo "[$$(date +%T)] forwarded port: $$PORT"
+            if curl -fsS -X POST --data-urlencode "json={\"listen_port\":$$PORT}" http://localhost:8080/api/v2/app/setPreferences >/dev/null 2>&1; then
+              echo "  -> synced to qBit"
+            else
+              echo "  -> qBit not ready / sync failed"
+            fi
+          else
+            echo "[$$(date +%T)] natpmpc failed: $$OUT_TCP"
+          fi
+          sleep 45
+        done
     healthcheck:
-      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      test: ["CMD-SHELL", "wg show tun0 endpoints 2>/dev/null | grep -q ."]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
-    network_mode: "service:gluetun"
+    network_mode: "service:wg-proton"
     depends_on:
-      gluetun:
+      wg-proton:
         condition: service_healthy
     environment:
       - PUID=1000
@@ -46,7 +106,6 @@ services:
       - WEBUI_PORT=8080
     # Supplementary group 1002: gameroom dirs are owned 1001:1002 with mode 775.
     # Process at uid=1000 needs gid 1002 in its group set to satisfy "group rwx".
-    # Verified on jf VM with: setpriv --reuid=1000 --regid=1002 touch /mnt/gameroom/...
     # (PUID/PGID kept at 1000/1000 so existing /home/jf/media writes don't break.)
     group_add:
       - "1002"
@@ -59,39 +118,8 @@ services:
       - /mnt/gameroom:/gameroom
     restart: unless-stopped
 
-  qbit-port-sync:
-    image: alpine:3.20
-    container_name: qbit-port-sync
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-      qbittorrent:
-        condition: service_started
-    volumes:
-      - gluetun_data:/gluetun:ro
-    command:
-      - sh
-      - -c
-      - |
-        apk add --no-cache curl >/dev/null 2>&1 || true
-        last=""
-        while true; do
-          if [ -f /gluetun/forwarded_port ]; then
-            port=$$(cat /gluetun/forwarded_port 2>/dev/null || echo "")
-            if [ -n "$$port" ] && [ "$$port" != "$$last" ]; then
-              echo "[port-sync] gluetun forwarded port: $$port"
-              if curl -fsS -X POST --data-urlencode "json={\"listen_port\":$$port}" http://localhost:8080/api/v2/app/setPreferences >/dev/null; then
-                echo "[port-sync] qbit listening port updated to $$port"
-                last="$$port"
-              else
-                echo "[port-sync] qbit API call failed (auth-bypass not enabled?)"
-              fi
-            fi
-          fi
-          sleep 60
-        done
-    restart: unless-stopped
+  # NOTE: qbit-port-sync sidecar removed — its role is folded into wg-proton's
+  # NAT-PMP renewal loop above (which runs natpmpc directly + syncs to qBit).
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
@@ -162,6 +190,3 @@ networks:
   net_arr:
     name: net_arr
     driver: bridge
-
-volumes:
-  gluetun_data:
