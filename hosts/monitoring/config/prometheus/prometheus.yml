@@ -1,0 +1,53 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'homelab'
+    site: 'wolverine'
+
+rule_files:
+  - /etc/prometheus/alerts/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # ============================================================
+  # Self-scrape (Phase 1.3 — minimum viable; everything else is
+  # added in Phase 1.4 once node_exporter is on phoenix/rogue/
+  # wolverine and pve-exporter is wired to the Proxmox API.)
+  # ============================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: /metrics
+
+  # ============================================================
+  # Phase 1.4 will add:
+  #   - job_name: 'node'
+  #     static_configs:
+  #       - targets: ['10.0.1.2:9100']
+  #         labels: { instance: 'phoenix' }
+  #       - targets: ['10.0.2.1:9100']
+  #         labels: { instance: 'rogue' }
+  #       - targets: ['10.1.0.X:9100']    # confirm wolverine LAB-side IP
+  #         labels: { instance: 'wolverine' }
+  #
+  #   - job_name: 'pve'
+  #     static_configs:
+  #       - targets: ['localhost:9221']
+  #     metrics_path: /pve
+  #     params:
+  #       module: [default]
+  # ============================================================
