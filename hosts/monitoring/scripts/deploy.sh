@@ -109,6 +109,24 @@ sync_static_configs() {
       "${LIVE_CONFIG_DIR}/prometheus/alerts/$(basename "$f")"
   done
   shopt -u nullglob
+
+  # ---- Grafana provisioning (datasources, dashboards) ----
+  if [[ -d "${REPO_CONFIG_DIR}/grafana/provisioning" ]]; then
+    log_info "Syncing grafana provisioning"
+    sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/grafana"
+    sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/grafana/provisioning"
+    for subdir in datasources dashboards notifiers plugins; do
+      if [[ -d "${REPO_CONFIG_DIR}/grafana/provisioning/${subdir}" ]]; then
+        sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/grafana/provisioning/${subdir}"
+        shopt -s nullglob
+        for f in "${REPO_CONFIG_DIR}/grafana/provisioning/${subdir}"/*.{yaml,yml,json}; do
+          sudo /usr/bin/install -m 0644 -o root -g root "$f" \
+            "${LIVE_CONFIG_DIR}/grafana/provisioning/${subdir}/$(basename "$f")"
+        done
+        shopt -u nullglob
+      fi
+    done
+  fi
 }
 
 # -------- Decrypt secrets + render alertmanager.yml + install both --------

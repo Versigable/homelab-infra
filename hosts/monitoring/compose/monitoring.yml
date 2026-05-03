@@ -78,6 +78,9 @@ services:
       GF_AUTH_PROXY_AUTO_SIGN_UP_ROLE: Viewer
     volumes:
       - ../data/grafana:/var/lib/grafana
+      # Provisioning configs (datasources, dashboard providers) — picked up
+      # at startup. See ../config/grafana/provisioning/ for what's here.
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
       - "10.1.0.5:3000:3000"
     networks: [monitoring-net]
