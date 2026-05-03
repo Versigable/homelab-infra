@@ -1,4 +1,7 @@
 groups:
+  # ============================================================
+  # Self-monitoring (works regardless of host scrape state)
+  # ============================================================
   - name: monitoring-self
     interval: 30s
     rules:
@@ -13,9 +16,85 @@ groups:
             Prometheus has been unable to scrape target {{ $labels.instance }}
             of job {{ $labels.job }} for more than 5 minutes.
 
-  # Phase 1.4 will add (once node_exporter lands on phoenix/rogue/wolverine):
-  #   - NodeDown        : node_uname_info == 0
-  #   - DiskSpaceLow    : node_filesystem_avail_bytes / size < 0.10
-  #   - MemoryHigh      : (1 - mem_available/mem_total) > 0.9 for 10m
-  #   - LoadHigh        : node_load1 > 2 * cpu_count for 10m
-  #   - WGTunnelDown    : composite — all X-Mansion targets down at once
+  # ============================================================
+  # Host health (node_exporter on phoenix + rogue)
+  # Wolverine deferred — see feedback_wolverine-lxc-intra-lab-tcp-drop
+  # ============================================================
+  - name: host-health
+    interval: 30s
+    rules:
+      - alert: DiskSpaceLow
+        expr: |-
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|devtmpfs|squashfs|overlay|aufs|fuse.*"}
+           /
+           node_filesystem_size_bytes{fstype!~"tmpfs|devtmpfs|squashfs|overlay|aufs|fuse.*"}) < 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} {{ $labels.mountpoint }} <10% free"
+          description: |-
+            Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }}
+            has less than 10% available space ({{ $value | humanizePercentage }}).
+
+      - alert: DiskSpaceCritical
+        expr: |-
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|devtmpfs|squashfs|overlay|aufs|fuse.*"}
+           /
+           node_filesystem_size_bytes{fstype!~"tmpfs|devtmpfs|squashfs|overlay|aufs|fuse.*"}) < 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} {{ $labels.mountpoint }} <5% free"
+          description: |-
+            Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }}
+            is critically full ({{ $value | humanizePercentage }} available).
+
+      - alert: MemoryHigh
+        expr: |-
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} memory >90% used"
+          description: |-
+            {{ $labels.instance }} memory utilization has been above 90% for
+            10+ minutes ({{ $value | humanizePercentage }} used).
+
+      - alert: LoadHigh
+        # 1m load > 2x logical core count, sustained
+        expr: |-
+          node_load1
+            >
+          2 * count without (cpu, mode) (node_cpu_seconds_total{mode="idle"})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} 1m load >2x core count"
+          description: |-
+            1-minute load average on {{ $labels.instance }} is {{ $value }},
+            more than 2× the logical core count, sustained for 10+ minutes.
+
+  # ============================================================
+  # Cross-site / WG tunnel health
+  # Composite: detects "all X-Mansion node targets unreachable"
+  # which signals a tunnel issue rather than individual host outages.
+  # ============================================================
+  - name: cross-site
+    interval: 30s
+    rules:
+      - alert: WGTunnelLikelyDown
+        expr: count(up{job="node", site="x-mansion"} == 1) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All X-Mansion node targets unreachable — WG tunnel suspected"
+          description: |-
+            No X-Mansion node_exporter targets have been reachable from the
+            monitoring LXC for 5+ minutes. This pattern points at the WG
+            site-to-site tunnel rather than individual host outages.
+            (Individual host scrape failures fire ScrapeTargetDown instead.)

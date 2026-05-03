@@ -1,0 +1,16 @@
+apiVersion: 1
+
+# Provisioned datasource — picked up by Grafana on startup. Edit-via-UI
+# is disabled (`editable: false`) so changes here in the repo are the
+# only way to alter the datasource. Aligns with GitOps conventions.
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      queryTimeout: 60s
+      httpMethod: POST
