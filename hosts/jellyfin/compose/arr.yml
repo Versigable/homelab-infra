@@ -14,6 +14,7 @@ services:
     ports:
       - "8080:8080"
       - "8888:8888"
+      - "8000:8000"      # qbittorrent-exporter (shares wg-proton's netns; see service below)
     environment:
       - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
@@ -122,6 +123,27 @@ services:
 
   # NOTE: qbit-port-sync sidecar removed — its role is folded into wg-proton's
   # NAT-PMP renewal loop above (which runs natpmpc directly + syncs to qBit).
+
+  # Prometheus exporter for qBittorrent. Shares wg-proton's netns so it can
+  # hit qBit's WebUI API at http://localhost:8080 — the same path the NAT-PMP
+  # loop uses. Auth is unnecessary because qBit has "Bypass authentication
+  # for clients on localhost" enabled (required for the renewal loop). The
+  # exporter's :8000 port is published externally via wg-proton's `ports:`
+  # list above (8000:8000) so Prometheus on the monitoring LXC can scrape
+  # 10.0.1.8:8000/metrics.
+  qbittorrent-exporter:
+    image: esanchezm/prometheus-qbittorrent-exporter:1.7.0
+    container_name: qbittorrent-exporter
+    network_mode: "service:wg-proton"
+    depends_on:
+      qbittorrent:
+        condition: service_started
+    environment:
+      - QBITTORRENT_HOST=http://localhost
+      - QBITTORRENT_PORT=8080
+      - EXPORTER_PORT=8000
+      # No QBITTORRENT_USER/PASS — localhost auth bypass covers it
+    restart: unless-stopped
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
