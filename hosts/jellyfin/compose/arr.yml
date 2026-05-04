@@ -110,6 +110,40 @@ services:
       - EXPORTER_PORT=8001
     restart: unless-stopped
 
+  # Watchdog: gluetun's network namespace gets recreated on every reconnect
+  # (OVPN session refresh, ProtonVPN-side disconnect, hourly key rotation).
+  # Containers sharing its netns via 'network_mode: service:gluetun' keep
+  # a stale reference and become unreachable until restarted. Compose
+  # depends_on only fires at compose-up time, not on parent state changes.
+  #
+  # This sidecar watches gluetun's State.StartedAt and bounces dependents
+  # whenever it changes. ~30s response time. See decision-of-2026-05-04
+  # and the wg-proton-operations runbook for context (the manual
+  # 'docker restart qbittorrent' fallback works if this watchdog itself
+  # fails).
+  gluetun-watchdog:
+    image: docker:27-cli
+    container_name: gluetun-watchdog
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [net_arr]
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        LAST=""
+        echo "[watchdog] starting; restarts qbittorrent + qbit-port-sync + qbittorrent-exporter on gluetun reconnect"
+        while true; do
+          NOW=$$(docker inspect gluetun --format '{{.State.StartedAt}}' 2>/dev/null || echo "")
+          if [ -n "$$NOW" ] && [ -n "$$LAST" ] && [ "$$NOW" != "$$LAST" ]; then
+            echo "[watchdog] gluetun restarted at $$NOW (was $$LAST) - bouncing dependents"
+            docker restart qbittorrent qbit-port-sync qbittorrent-exporter || echo "[watchdog] one or more restarts failed (continuing)"
+          fi
+          LAST="$$NOW"
+          sleep 30
+        done
+
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
