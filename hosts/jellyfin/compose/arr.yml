@@ -132,7 +132,7 @@ services:
   # list above (8000:8000) so Prometheus on the monitoring LXC can scrape
   # 10.0.1.8:8000/metrics.
   qbittorrent-exporter:
-    image: esanchezm/prometheus-qbittorrent-exporter:1.7.0
+    image: esanchezm/prometheus-qbittorrent-exporter:v1.6.0
     container_name: qbittorrent-exporter
     network_mode: "service:wg-proton"
     depends_on:
