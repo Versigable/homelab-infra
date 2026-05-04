@@ -2,150 +2,111 @@ name: arr-hub
 
 services:
 
-  wg-proton:
-    image: alpine:3.20
-    container_name: wg-proton
+  gluetun:
+    image: qmcgaw/gluetun:v3.39.0
+    container_name: gluetun
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
     ports:
-      - "8080:8080"
-      - "8888:8888"
-      - "8000:8000"      # qbittorrent-exporter (shares wg-proton's netns; see service below)
+      - "8080:8080"   # qBittorrent WebUI
+      - "8888:8888"   # gluetun HTTP control server
+      - "8000:8000"   # qbittorrent-exporter (shares gluetun netns)
     environment:
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
-      # Public values from NL-235 .conf — not secrets, plain compose env per design
-      - WIREGUARD_PEER_PUBLIC_KEY=/i7jCNpcqVBUkY07gVlILN4nFdvZHmxvreAOgLGoZGg=
-      - WIREGUARD_ENDPOINT=146.70.86.114:51820
-      - WIREGUARD_DNS=10.2.0.1
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=openvpn
+      # OPENVPN_USER must include the +pmp suffix for ProtonVPN NAT-PMP port
+      # forwarding to work. See [[3-Resources/runbooks/wg-proton-operations]]
+      # and memory reference_protonvpn-ovpn-unshaped-recipe. The +pmp is
+      # baked into the secret value, not appended here.
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - SERVER_COUNTRIES=Netherlands
+      - PORT_FORWARD_ONLY=on
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
     networks: [net_arr]
     restart: unless-stopped
-    command:
-      - sh
-      - -c
-      - |
-
-        echo "[wg-proton] installing wireguard-tools, libnatpmp, iptables, curl"
-        apk add --no-cache wireguard-tools libnatpmp iptables curl >/dev/null 2>&1
-
-        mkdir -p /etc/wireguard
-        {
-          printf '[Interface]\n'
-          printf 'PrivateKey = %s\n' "$${WIREGUARD_PRIVATE_KEY}"
-          printf 'Address = %s\n' "$${WIREGUARD_ADDRESSES}"
-          printf 'DNS = %s\n' "$${WIREGUARD_DNS}"
-          printf 'Table = off\n\n'
-          printf '[Peer]\n'
-          printf 'PublicKey = %s\n' "$${WIREGUARD_PEER_PUBLIC_KEY}"
-          printf 'AllowedIPs = 0.0.0.0/0\n'
-          printf 'Endpoint = %s\n' "$${WIREGUARD_ENDPOINT}"
-          printf 'PersistentKeepalive = 25\n'
-        } > /etc/wireguard/tun0.conf
-        chmod 600 /etc/wireguard/tun0.conf
-
-        echo "[wg-proton] bringing up tun0 (kernel WG)"
-        wg-quick up tun0
-        echo "nameserver $${WIREGUARD_DNS}" > /etc/resolv.conf
-        ip route add 10.2.0.0/24 dev tun0 2>/dev/null || true
-        ip route add default dev tun0 || true
-
-        ENDPOINT_HOST=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f1)
-        ENDPOINT_PORT=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f2)
-
-        echo "[wg-proton] applying kill-switch (default DROP, allow lo + tun0 + handshake + LAN)"
-        iptables -P INPUT ACCEPT
-        iptables -P FORWARD DROP
-        iptables -P OUTPUT DROP
-        iptables -A OUTPUT -o lo -j ACCEPT
-        iptables -A OUTPUT -o tun0 -j ACCEPT
-        iptables -A OUTPUT -d "$$ENDPOINT_HOST" -p udp --dport "$$ENDPOINT_PORT" -j ACCEPT
-        iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-        iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
-        iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
-        iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
-
-        echo "[wg-proton] WG endpoint: $$(wg show tun0 endpoints | head -1)"
-        echo "[wg-proton] external IP: $$(curl -s --max-time 10 https://api.ipify.org || echo failed)"
-
-        echo "[wg-proton] starting NAT-PMP renewal loop (45s interval, 60s lifetime)"
-        while true; do
-          OUT_TCP=$$(timeout 8 natpmpc -g 10.2.0.1 -a 1 0 tcp 60 2>&1)
-          OUT_UDP=$$(timeout 8 natpmpc -g 10.2.0.1 -a 1 0 udp 60 2>&1)
-          PORT=$$(echo "$$OUT_TCP" | grep -oE "Mapped public port [0-9]+" | head -1 | awk '{print $$4}')
-          if [ -n "$$PORT" ]; then
-            echo "[$$(date +%T)] forwarded port: $$PORT"
-            if curl -fsS -X POST --data-urlencode "json={\"listen_port\":$$PORT}" http://localhost:8080/api/v2/app/setPreferences >/dev/null 2>&1; then
-              echo "  -> synced to qBit"
-            else
-              echo "  -> qBit not ready / sync failed"
-            fi
-          else
-            echo "[$$(date +%T)] natpmpc failed: $$OUT_TCP"
-          fi
-          sleep 45
-        done
+    volumes:
+      - gluetun_data:/tmp/gluetun
     healthcheck:
-      test: ["CMD-SHELL", "wg show tun0 endpoints 2>/dev/null | grep -q ."]
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 30s
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
-    network_mode: "service:wg-proton"
+    network_mode: "service:gluetun"
     depends_on:
-      wg-proton:
+      gluetun:
         condition: service_healthy
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=America/Denver
       - WEBUI_PORT=8080
-    # Supplementary group 1002: gameroom dirs are owned 1001:1002 with mode 775.
-    # Process at uid=1000 needs gid 1002 in its group set to satisfy "group rwx".
-    # (PUID/PGID kept at 1000/1000 so existing /home/jf/media writes don't break.)
+    # Supplementary group 1002: gameroom dirs are owned 1001:1002 mode 775.
+    # Process at uid=1000 needs gid 1002 in its group set to satisfy 'group rwx'.
     group_add:
       - "1002"
     volumes:
       - ../config/qbittorrent:/config
       - /home/jf/media:/media
-      # /mnt/gameroom mounted rw on the jf VM (fstab entry; was previously ro).
-      # Use this for direct downloads of ROMs/BIOS into RomM's library.
-      # In qBittorrent UI, set save path to /gameroom/roms/<platform>/.
       - /mnt/gameroom:/gameroom
     restart: unless-stopped
 
-  # NOTE: qbit-port-sync sidecar removed — its role is folded into wg-proton's
-  # NAT-PMP renewal loop above (which runs natpmpc directly + syncs to qBit).
+  # Restored from pre-MR-68 era: polls gluetun's forwarded_port file and
+  # syncs to qBit via WebUI API. Inline script (deploy.sh installs only the
+  # compose file, not separate scripts).
+  qbit-port-sync:
+    image: alpine:3.20
+    container_name: qbit-port-sync
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      qbittorrent:
+        condition: service_started
+    volumes:
+      - gluetun_data:/gluetun:ro
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache curl >/dev/null 2>&1 || true
+        last=""
+        while true; do
+          if [ -f /gluetun/forwarded_port ]; then
+            port=$$(cat /gluetun/forwarded_port 2>/dev/null || echo "")
+            if [ -n "$$port" ] && [ "$$port" != "$$last" ]; then
+              echo "[port-sync] gluetun forwarded port: $$port"
+              if curl -fsS -X POST --data-urlencode "json={\"listen_port\":$$port}" http://localhost:8080/api/v2/app/setPreferences >/dev/null; then
+                echo "[port-sync] qbit listening port updated to $$port"
+                last="$$port"
+              else
+                echo "[port-sync] qbit API call failed (auth-bypass not enabled?)"
+              fi
+            fi
+          fi
+          sleep 60
+        done
+    restart: unless-stopped
 
-  # Prometheus exporter for qBittorrent. Shares wg-proton's netns so it can
-  # hit qBit's WebUI API at http://localhost:8080 — the same path the NAT-PMP
-  # loop uses. Auth is unnecessary because qBit has "Bypass authentication
-  # for clients on localhost" enabled (required for the renewal loop). The
-  # exporter's :8000 port is published externally via wg-proton's `ports:`
-  # list above (8000:8000) so Prometheus on the monitoring LXC can scrape
-  # 10.0.1.8:8000/metrics.
   qbittorrent-exporter:
     image: esanchezm/prometheus-qbittorrent-exporter:v1.6.0
     container_name: qbittorrent-exporter
-    network_mode: "service:wg-proton"
+    network_mode: "service:gluetun"
     depends_on:
       qbittorrent:
         condition: service_started
     environment:
-      # esanchezm exporter expects bare hostname, not URL — passing
-      # `http://localhost` results in `host=http, path=/localhost:8080`
-      # parsing and DNS-resolution failure on "http".
       - QBITTORRENT_HOST=localhost
       - QBITTORRENT_PORT=8080
       - EXPORTER_PORT=8000
-      # No QBITTORRENT_USER/PASS — localhost auth bypass covers it
     restart: unless-stopped
 
   prowlarr:
@@ -217,3 +178,6 @@ networks:
   net_arr:
     name: net_arr
     driver: bridge
+
+volumes:
+  gluetun_data:
