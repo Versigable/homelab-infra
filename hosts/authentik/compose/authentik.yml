@@ -49,8 +49,11 @@ services:
     environment: *authentik-env
     volumes:
       - ../data/media:/media
-    ports:
-      - "9301:9301"  # Prometheus metrics for the worker
+    # No metrics port: Authentik 2025.2.4's worker doesn't bind 9301 by
+    # default (server image, command=worker → Celery process, no native
+    # Prometheus endpoint). Server's metrics on 9300 cover the auth-flow
+    # signals we care about. Add a celery-exporter sidecar later if we
+    # want queue/task visibility.
 
 volumes:
   postgresql:
