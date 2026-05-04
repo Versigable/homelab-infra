@@ -7,6 +7,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8082:8082"     # Prometheus metrics entryPoint (LAN-only — no public CF tunnel route)
 
       # UDP publishes (must match entryPoints)
       # --- Game ports (UDP) ---

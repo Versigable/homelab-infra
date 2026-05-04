@@ -72,6 +72,13 @@ scrape_configs:
   # cover the meaningful auth-flow signals. Revisit with a celery-exporter
   # sidecar if queue/task visibility becomes useful.
 
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['10.0.2.5:8082']
+        labels:
+          instance: traefik
+          site: x-mansion
+
   # ============================================================
   # Proxmox VE cluster metrics via pve-exporter (Phase 1.5)
   # Cluster query: target each PVE node; results flow through the

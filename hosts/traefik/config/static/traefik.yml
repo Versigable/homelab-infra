@@ -10,6 +10,10 @@ entryPoints:
   websecure:
     address: :443
 
+    # === Prometheus metrics entryPoint (LAN-only via compose port mapping) ===
+  metrics:
+    address: :8082
+
     # === UDP game entryPoints ===
   bedrock19132:   { address: ":19132/udp" }
   bedrock19142:   { address: ":19142/udp" }
@@ -69,3 +73,14 @@ log:
 
 api:
   dashboard: true
+
+# Prometheus metrics — served on the `metrics` entryPoint (:8082) only.
+# Exposes per-router/service/entrypoint counters + duration histograms.
+# LAN-only because the metrics entryPoint isn't on a Cloudflare-tunneled
+# port + no Traefik dynamic file-provider entry routes it externally.
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    addRoutersLabels: true
