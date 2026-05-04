@@ -139,7 +139,10 @@ services:
       qbittorrent:
         condition: service_started
     environment:
-      - QBITTORRENT_HOST=http://localhost
+      # esanchezm exporter expects bare hostname, not URL — passing
+      # `http://localhost` results in `host=http, path=/localhost:8080`
+      # parsing and DNS-resolution failure on "http".
+      - QBITTORRENT_HOST=localhost
       - QBITTORRENT_PORT=8080
       - EXPORTER_PORT=8000
       # No QBITTORRENT_USER/PASS — localhost auth bypass covers it
