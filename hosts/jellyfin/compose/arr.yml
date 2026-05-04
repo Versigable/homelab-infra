@@ -49,6 +49,7 @@ services:
         echo "[wg-proton] bringing up tun0 (kernel WG)"
         wg-quick up tun0
         echo "nameserver $${WIREGUARD_DNS}" > /etc/resolv.conf
+        ip route add 10.2.0.0/24 dev tun0 2>/dev/null || true
         ip route add default dev tun0 || true
 
         ENDPOINT_HOST=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f1)
