@@ -79,6 +79,17 @@ scrape_configs:
           instance: traefik
           site: x-mansion
 
+  # qBittorrent metrics via esanchezm/prometheus-qbittorrent-exporter sidecar
+  # in wg-proton's netns (see hosts/jellyfin/compose/arr.yml). Exporter port
+  # 8000 is published through wg-proton, so the scrape target is the jf VM's
+  # IP on its LAN-side interface, not the VPN exit IP.
+  - job_name: 'qbittorrent'
+    static_configs:
+      - targets: ['10.0.1.8:8000']
+        labels:
+          instance: qbittorrent
+          site: x-mansion
+
   # ============================================================
   # Proxmox VE cluster metrics via pve-exporter (Phase 1.5)
   # Cluster query: target each PVE node; results flow through the
