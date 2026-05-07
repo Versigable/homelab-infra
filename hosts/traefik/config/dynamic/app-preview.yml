@@ -1,0 +1,17 @@
+http:
+  routers:
+    app-preview-router:
+      rule: "Host(`app-preview.ninjaprivacy.org`)"
+      service: app-preview-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - authentik-forward
+
+  services:
+    app-preview-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.1.0.3:4175
+        passHostHeader: true
