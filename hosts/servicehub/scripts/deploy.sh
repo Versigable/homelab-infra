@@ -31,7 +31,7 @@ require_cmd() {
 # -------- Target selection --------
 TARGET="${1:-all}"
 
-VALID_TARGETS="all wiki n8n romm browsergames couchdb"
+VALID_TARGETS="all wiki n8n romm browsergames couchdb kreoly-dev"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -234,6 +234,13 @@ deploy_if_target "couchdb" "CouchDB" \
   "/home/couchdb/couchdb-hub/compose" \
   "/home/couchdb/couchdb-hub" \
   "/home/couchdb"
+
+deploy_if_target "kreoly-dev" "Kreoly (dev)" \
+  "hosts/servicehub/compose/kreoly-dev.yml" \
+  "hosts/servicehub/secrets/kreoly-dev.env.sops" \
+  "/home/kreoly-dev/kreoly-dev-hub/compose" \
+  "/home/kreoly-dev/kreoly-dev-hub" \
+  "/home/kreoly-dev"
 
 # ============================================================
 # Summary

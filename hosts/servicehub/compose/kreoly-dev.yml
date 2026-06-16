@@ -1,0 +1,98 @@
+name: kreoly-dev
+
+# Kreoly creator-platform — dev test deployment on ServiceHub (10.0.1.5).
+# Web app (Next.js 16) image is built by GitHub Actions and pulled from GHCR.
+# Dedicated Postgres + Redis, matching the one-DB-per-service convention.
+#
+# IMPORTANT (see romm.yml): docker compose's `.env` is parse-time substitution
+# only — every variable the container must see needs an explicit ${VAR} line
+# under `environment:` below. Adding a key to kreoly-dev.env.sops alone is not
+# enough.
+#
+# Routing: Traefik (10.0.2.5) → http://10.0.1.5:3002 → app container :3000.
+# Public (no Authentik) so Stripe test webhooks can reach /api/webhooks/stripe.
+
+services:
+  kreoly-db:
+    image: postgres:15-alpine
+    container_name: kreoly-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ../data/db/postgres:/var/lib/postgresql/data
+    networks: [kreoly-dev-net1]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  kreoly-redis:
+    image: redis:7-alpine
+    container_name: kreoly-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - ../data/redis:/data
+    networks: [kreoly-dev-net1]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  kreoly-app:
+    image: ghcr.io/versigable/kreoly_dev:dev
+    container_name: kreoly-app
+    restart: unless-stopped
+    depends_on:
+      kreoly-db:
+        condition: service_healthy
+      kreoly-redis:
+        condition: service_healthy
+    environment:
+      # Server-side runtime config (all sourced from kreoly-dev.env.sops).
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      AUTH_SECRET: ${AUTH_SECRET}
+      NEXT_PUBLIC_URL: ${NEXT_PUBLIC_URL}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      # CDN_BASE_URL is read at module load and throws in production if unset.
+      # R2 storage is not wired up for dev; this is a well-formed placeholder.
+      CDN_BASE_URL: ${CDN_BASE_URL}
+      # Turnstile server-side verification (test secret = always passes).
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+    ports:
+      # Published only on the ServiceHub LAN IP for Traefik to reach.
+      - "10.0.1.5:3002:3000"
+    networks: [kreoly-dev-net1]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  kreoly-dev-net1:
+    driver: bridge

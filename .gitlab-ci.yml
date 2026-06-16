@@ -97,6 +97,17 @@ deploy-browsergames:
         - hosts/servicehub/secrets/browsergames.env.sops
         - hosts/servicehub/scripts/deploy.sh
 
+deploy-kreoly-dev:
+  extends: .servicehub-deploy
+  variables:
+    SERVICE_KEY: kreoly-dev
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/compose/kreoly-dev.yml
+        - hosts/servicehub/secrets/kreoly-dev.env.sops
+        - hosts/servicehub/scripts/deploy.sh
+
 
 # ============================================================
 # GamingHub — Per-Game Deploy Jobs
