@@ -69,7 +69,9 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       AUTH_SECRET: ${AUTH_SECRET}
-      NEXT_PUBLIC_URL: ${NEXT_PUBLIC_URL}
+      # Public hostname (not secret). Inlined into the image at build time too;
+      # set here as well so server-side runtime reads stay consistent.
+      NEXT_PUBLIC_URL: https://kreoly.ninjaprivacy.org
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       # CDN_BASE_URL is read at module load and throws in production if unset.

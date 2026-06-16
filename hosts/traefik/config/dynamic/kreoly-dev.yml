@@ -1,7 +1,7 @@
 http:
   routers:
     kreoly-dev-router:
-      rule: "Host(`kreoly-dev.ninjaprivacy.org`)"
+      rule: "Host(`kreoly.ninjaprivacy.org`)"
       service: kreoly-dev-svc
       entrypoints: [websecure]
       tls:
