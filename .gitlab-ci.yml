@@ -107,6 +107,10 @@ deploy-kreoly-dev:
         - hosts/servicehub/compose/kreoly-dev.yml
         - hosts/servicehub/secrets/kreoly-dev.env.sops
         - hosts/servicehub/scripts/deploy.sh
+    # Triggered by the kreoly_dev GitHub Actions build (after a push to main) to
+    # pull + redeploy the freshly-built :dev image. Only this job runs on such a
+    # trigger pipeline (other services' rules need their own file changes).
+    - if: '$DEPLOY == "kreoly-dev"'
 
 
 # ============================================================
