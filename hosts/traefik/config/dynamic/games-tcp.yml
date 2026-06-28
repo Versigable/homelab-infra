@@ -5,8 +5,18 @@ tcp:
       rule: "HostSNI(`*`)"          # plain TCP
       service: satapi7777_svc
 
+    satisfact8888tcp:
+      entryPoints: [satisfact8888tcp]
+      rule: "HostSNI(`*`)"          # plain TCP
+      service: satmsg8888_svc
+
   services:
     satapi7777_svc:
       loadBalancer:
         servers:
           - address: "10.0.1.9:7777"  # Satisfactory Server API (TCP)
+
+    satmsg8888_svc:
+      loadBalancer:
+        servers:
+          - address: "10.0.1.9:8888"  # Satisfactory reliable-messaging (TCP)
