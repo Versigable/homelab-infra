@@ -54,6 +54,7 @@ services:
       # TCP publishes (must match entryPoints)
       # --- Game ports (TCP) ---
       - "7777:7777/tcp"     # Satisfactory TCP
+      - "8888:8888/tcp"     # Satisfactory reliable-messaging
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
