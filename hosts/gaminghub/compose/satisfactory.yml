@@ -26,6 +26,10 @@ services:
       - PGID=1003
       - MAXPLAYERS=8
       - STEAMBETA=false
+      # Pin game build: skip SteamCMD auto-update on container start so the installed
+      # build (CL 495413 / Satisfactory 1.2.0) cannot drift and break installed mods (SML 3.12).
+      # Set back to false and update mods together when moving to a newer game build.
+      - SKIPUPDATE=true
       
       # FORCE the server to run on 7776 internally
       - SERVERGAMEPORT=7777
