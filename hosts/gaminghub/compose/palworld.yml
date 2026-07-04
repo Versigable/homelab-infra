@@ -22,7 +22,7 @@ services:
       - PLAYERS=10
       - MULTITHREAD=true            # uses perf threads (effective up to ~4 threads)
       - PUBLIC_LOBBY=false          # set true to list publicly
-      - ENABLE_PLAYER_LOGGING=false # off = no REST 'AdminPassword is empty' / jq parse-error spam (needs an admin password to work)
+      - ENABLE_PLAYER_LOGGING=true  # join/leave logging via REST API; clean now that ADMIN_PASSWORD is set
       # LOAD-BEARING pin. SteamCMD re-downloads land the server binaries as mode 0664 (no
       # execute) on this host, which trips init.sh's `[ -x PalServer.sh ]` check and crash-loops
       # the container (the process runs as the file owner uid 995, so owner-class perms apply).
