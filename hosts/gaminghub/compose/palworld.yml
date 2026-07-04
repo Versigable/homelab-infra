@@ -9,13 +9,21 @@ services:
       - PGID=1003
       - SERVER_NAME=NinjaPrivacy_Palworld
       - SERVER_PORT=8211
-      - QUERY_PORT=27018
+      - QUERY_PORT=27015           # must match the container side of the 27018:27015 publish below
       - RCON_ENABLED=true           # toggle per preference
       - RCON_PORT=25575             # enable only if you intend to manage remotely
       - DIFFICULTY=0
       - PLAYERS=10
       - MULTITHREAD=true            # uses perf threads (effective up to ~4 threads)
       - PUBLIC_LOBBY=false          # set true to list publicly
+      - ENABLE_PLAYER_LOGGING=false # off = no REST 'AdminPassword is empty' / jq parse-error spam (needs an admin password to work)
+      # LOAD-BEARING pin. SteamCMD re-downloads land the server binaries as mode 0664 (no
+      # execute) on this host, which trips init.sh's `[ -x PalServer.sh ]` check and crash-loops
+      # the container (the process runs as the file owner uid 995, so owner-class perms apply).
+      # UPDATE_ON_BOOT=false skips the on-boot SteamCMD verify so the restored exec bits persist.
+      # To upgrade the game later: flip to true + redeploy, then chmod +x the launch binaries
+      # (data/PalServer.sh + data/Pal/Binaries/Linux/PalServer-Linux-Shipping) and flip back.
+      - UPDATE_ON_BOOT=false
     volumes:
       - ../data:/palworld
       - ../logs:/palworld/Pal/Saved/Logs
@@ -24,11 +32,9 @@ services:
       - "8211:8211/udp"
       - "27018:27015/udp"
       # - "25575:25575/tcp"         # only if RCON enabled & needed externally
-    healthcheck:
-      test: ["CMD-SHELL", "ss -lunp | grep -q ':8211 '"]
-      interval: 30s
-      timeout: 5s
-      retries: 30
+    # healthcheck: inherited from the image (`pgrep PalServer-Linux`, 300s start-period).
+    # The previous custom `ss`-based check always failed — `ss` is not installed in this image,
+    # so the container was flagged unhealthy even while serving.
 
     deploy:
       resources:
