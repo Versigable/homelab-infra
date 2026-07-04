@@ -8,6 +8,12 @@ services:
       - PUID=995
       - PGID=1003
       - SERVER_NAME=NinjaPrivacy_Palworld
+      # Admin password enables RCON/REST admin + in-game admin commands. Value comes from the
+      # SOPS-managed .env (secrets/palworld.env.sops -> compose/.env via deploy.sh). The image
+      # env var is ADMIN_PASSWORD but the secret key is SERVER_ADMIN_PASSWORD, so map it here.
+      # Deliberately ${...} interpolation, NOT env_file, so the unused SERVER_PASSWORD in .env
+      # stays orphaned and player join stays open.
+      - ADMIN_PASSWORD=${SERVER_ADMIN_PASSWORD}
       - SERVER_PORT=8211
       - QUERY_PORT=27015           # must match the container side of the 27018:27015 publish below
       - RCON_ENABLED=true           # toggle per preference
