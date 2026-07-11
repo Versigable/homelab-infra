@@ -20,8 +20,17 @@ services:
       - RCON_PORT=25575             # enable only if you intend to manage remotely
       - DIFFICULTY=0
       - PLAYERS=10
-      - MULTITHREAD=true            # uses perf threads (effective up to ~4 threads)
-      - PUBLIC_LOBBY=false          # set true to list publicly
+      - MULTITHREADING=true         # image var is MULTITHREADING (NOT MULTITHREAD, which the image silently ignored); adds -useperfthreads/-NoAsyncLoadingThread/-UseMultithreadForDS
+      # Community listing: COMMUNITY=true makes start.sh append the -publiclobby launch arg so the
+      # server shows in the in-game Community Servers tab. This is the ONLY way Xbox / PC Game Pass
+      # players can join (they cannot direct-IP-connect; Steam/PS5 can). The old PUBLIC_LOBBY line
+      # was a no-op the image never read. Intentionally passwordless/public per operator choice
+      # 2026-07-10 (SERVER_PASSWORD left orphaned = open join). Requires pfSense to forward WAN
+      # UDP 8211 (+ 27018 query) to Traefik 10.0.2.5; Traefik routing (pal8211 entrypoint/router/
+      # service + publish) is already in main.
+      - COMMUNITY=true
+      - CROSSPLAY_PLATFORMS=(Steam,Xbox,PS5,Mac)  # explicit pin (previously relied on image default)
+      - SHOW_PLAYER_LIST=true       # explicit pin (previously relied on image default)
       - ENABLE_PLAYER_LOGGING=true  # join/leave logging via REST API; clean now that ADMIN_PASSWORD is set
       # LOAD-BEARING pin. SteamCMD re-downloads land the server binaries as mode 0664 (no
       # execute) on this host, which trips init.sh's `[ -x PalServer.sh ]` check and crash-loops
