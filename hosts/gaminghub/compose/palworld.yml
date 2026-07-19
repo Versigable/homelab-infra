@@ -20,6 +20,8 @@ services:
       - RCON_PORT=25575             # enable only if you intend to manage remotely
       - DIFFICULTY=0
       - PLAYERS=10
+      - BASE_CAMP_WORKER_MAX_NUM=50   # pals per base (image/game default 15; raised for v1.0)
+      - BASE_CAMP_MAX_NUM_IN_GUILD=4  # max bases per guild (default 3; v1.0 setting)
       - MULTITHREADING=true         # image var is MULTITHREADING (NOT MULTITHREAD, which the image silently ignored); adds -useperfthreads/-NoAsyncLoadingThread/-UseMultithreadForDS
       # Community listing: COMMUNITY=true makes start.sh append the -publiclobby launch arg so the
       # server shows in the in-game Community Servers tab. This is the ONLY way Xbox / PC Game Pass
