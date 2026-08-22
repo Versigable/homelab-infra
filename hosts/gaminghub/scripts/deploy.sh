@@ -50,7 +50,7 @@ require_cmd() {
 TARGET="${1:-all}"
 
 # Validate target
-VALID_TARGETS="all minecraft valheim rust astroneer ark-island ark-ragnarok ark-fjordur sotf palworld satisfactory windrose"
+VALID_TARGETS="all minecraft valheim rust astroneer ark-island ark-ragnarok ark-fjordur ark-lostisland sotf palworld satisfactory windrose"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -198,6 +198,7 @@ deploy_if_target "astroneer"    "Astroneer"            "astroneer"    "astroneer
 deploy_if_target "ark-island"   "Ark SE - The Island"  "ark-island"   "ark-island.yml"   "/home/arkse/arkse-hub/compose"
 deploy_if_target "ark-ragnarok" "Ark SE - Ragnarok"    "ark-ragnarok" "ark-ragnarok.yml" "/home/arkse/arkse-hub-rag/compose"
 deploy_if_target "ark-fjordur"  "Ark SE - Fjordur"     "ark-fjordur"  "ark-fjordur.yml"  "/home/arkse/arkse-hub-fjor/compose"
+deploy_if_target "ark-lostisland" "Ark SE - Lost Island" "ark-lostisland" "ark-lostisland.yml" "/home/arkse/arkse-hub-lost/compose"
 deploy_if_target "sotf"         "Sons of the Forest"   "sotf"         "sotf.yml"         "/home/sotf/sotf-hub/compose"
 deploy_if_target "palworld"     "Palworld"             "palworld"     "palworld.yml"     "/home/palworld/palworld-hub/compose"
 deploy_if_target "satisfactory" "Satisfactory"         "satisfactory" "satisfactory.yml" "/home/satisfactory/satisfactory-hub/compose"

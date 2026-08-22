@@ -199,6 +199,17 @@ deploy-ark-fjordur:
         - hosts/gaminghub/secrets/ark-fjordur.env.sops
         - hosts/gaminghub/scripts/deploy.sh
 
+deploy-ark-lostisland:
+  extends: .gaminghub-deploy
+  variables:
+    GAME_KEY: ark-lostisland
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/gaminghub/compose/ark-lostisland.yml
+        - hosts/gaminghub/secrets/ark-lostisland.env.sops
+        - hosts/gaminghub/scripts/deploy.sh
+
 deploy-sotf:
   extends: .gaminghub-deploy
   variables:
