@@ -20,4 +20,14 @@ services:
       - /home/jf/config:/config
       - /home/jf/cache:/cache
       - /home/jf/media:/media:ro
+      # Movies was migrated to the Liberry pool on 2026-08-29 after
+      # Twelve_TB_Mirror reached 100% and stopped accepting writes.
+      # This overlays ONLY Movies, at the SAME container path Jellyfin
+      # already has recorded in its library database. Keeping /media/Movies
+      # byte-identical preserves watch history, resume positions and
+      # favourites; repointing the library at a new path (/media2/Movies)
+      # would make Jellyfin treat every film as a new item and discard all
+      # per-user data. Docker orders bind mounts by destination depth, so
+      # /media mounts first and /media/Movies overlays it.
+      - /home/jf/media2/Movies:/media/Movies:ro
     restart: unless-stopped
