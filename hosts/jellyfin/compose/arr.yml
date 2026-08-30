@@ -182,6 +182,16 @@ services:
     volumes:
       - ../config/radarr:/config
       - /home/jf/media:/media
+      # Movies now lives on the Liberry pool - see jellyfin.yml. Same
+      # container path, so Radarr's root folder (/media/Movies) is unchanged.
+      #
+      # CAVEAT: /media/downloads (Twelve_TB_Mirror) and /media/Movies
+      # (Liberry) are now DIFFERENT filesystems, so Radarr's
+      # copyUsingHardlinks=true can no longer hardlink on import and
+      # silently falls back to a full copy. Imported films therefore occupy
+      # space twice until the download stops seeding. Reuniting them by
+      # moving downloads/ to Liberry is deliberate follow-up work.
+      - /home/jf/media2/Movies:/media/Movies
     ports:
       - "7878:7878"
     networks: [net_arr]
