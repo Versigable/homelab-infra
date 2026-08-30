@@ -56,6 +56,14 @@ services:
     volumes:
       - ../config/qbittorrent:/config
       - /home/jf/media:/media
+      # Movie seed data was de-duplicated onto the Liberry pool on 2026-08-30.
+      # The 207 seeded movie releases are now HARDLINKS to the library copies
+      # under /media2/Movies - one physical copy on disk serving both Jellyfin
+      # and qBittorrent, which is the arrangement Radarr's hardlink imports
+      # gave us before Movies moved pools. Those torrents are re-pointed at
+      # /media2/downloads/complete via Set Location; everything else (Minerva
+      # ROM sets, TV, active downloads) still lives under /media on the mirror.
+      - /home/jf/media2:/media2
       - /mnt/gameroom:/gameroom
     restart: unless-stopped
 
