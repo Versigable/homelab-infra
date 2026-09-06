@@ -1,3 +1,9 @@
+# NOTE: `name:` is set explicitly. Without it, Compose derives the project name from the
+# live directory (always ".../compose"), which lands this stack in the shared "compose"
+# project alongside the other ARK maps and rust -- a `docker compose down` in any one of
+# those dirs can then reach across and take the others with it.
+name: ark-ragnarok
+
 services:
   ark-ragnarok:
     image: ich777/steamcmd:arkse
