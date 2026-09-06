@@ -177,27 +177,39 @@ deploy-ark-island:
         - hosts/gaminghub/secrets/ark-island.env.sops
         - hosts/gaminghub/scripts/deploy.sh
 
+# ark-ragnarok is intentionally kept STOPPED (2026-09-05) to free RAM on GamingHub.
+# Manual-only, and deliberately WITHOUT a `changes:` filter:
+#   - `changes:` would make the job appear only when the compose file happens to be
+#     edited, which is both an on-demand button you cannot find when you want it and
+#     the exact trip-wire that silently restarted Fjordur after ~9 months down.
+#   - allow_failure: true keeps the job non-blocking, so main pipelines still go green
+#     with the button sitting there unclicked.
+# To bring the map back up: run this job from the pipeline view.
 deploy-ark-ragnarok:
   extends: .gaminghub-deploy
   variables:
     GAME_KEY: ark-ragnarok
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
-      changes:
-        - hosts/gaminghub/compose/ark-ragnarok.yml
-        - hosts/gaminghub/secrets/ark-ragnarok.env.sops
-        - hosts/gaminghub/scripts/deploy.sh
+      when: manual
+      allow_failure: true
 
+# ark-fjordur is intentionally kept STOPPED (2026-09-05) to free RAM on GamingHub.
+# Manual-only, and deliberately WITHOUT a `changes:` filter:
+#   - `changes:` would make the job appear only when the compose file happens to be
+#     edited, which is both an on-demand button you cannot find when you want it and
+#     the exact trip-wire that silently restarted Fjordur after ~9 months down.
+#   - allow_failure: true keeps the job non-blocking, so main pipelines still go green
+#     with the button sitting there unclicked.
+# To bring the map back up: run this job from the pipeline view.
 deploy-ark-fjordur:
   extends: .gaminghub-deploy
   variables:
     GAME_KEY: ark-fjordur
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
-      changes:
-        - hosts/gaminghub/compose/ark-fjordur.yml
-        - hosts/gaminghub/secrets/ark-fjordur.env.sops
-        - hosts/gaminghub/scripts/deploy.sh
+      when: manual
+      allow_failure: true
 
 deploy-ark-lostisland:
   extends: .gaminghub-deploy
