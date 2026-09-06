@@ -104,6 +104,12 @@ deploy_game() {
   local SECRET_NAME="$2"   # Secret file stem (e.g., "minecraft", "ark-island")
   local STACK_DIR="$3"     # Full path to compose directory
 
+  # NOTE: do NOT rely on `set -e` inside this function. deploy_game is invoked as
+  # `if ! deploy_game ...` (see run_deploy), and POSIX shells disable errexit for the
+  # entire dynamic extent of a command whose status is being tested -- subshells included.
+  # Every failure that must fail the deploy has to be checked explicitly, or the function
+  # falls through to `return 0` and the pipeline goes green on a broken deploy.
+
   log_info "========================================"
   log_info "Deploying: ${GAME_NAME}"
   log_info "Stack:     ${STACK_DIR}"
@@ -119,14 +125,24 @@ deploy_game() {
     log_warn "Encrypted env file not found: ${SOPS_ENV_FILE}"
     log_warn "Skipping secrets for ${GAME_NAME} (continuing deploy)"
     # Still deploy compose; game might not need env vars.
-    ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose pull && sudo /usr/bin/docker compose up -d && sudo /usr/bin/docker compose ps )
+    if ! ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose pull ); then
+      log_warn "⚠️  'docker compose pull' failed for ${GAME_NAME} — continuing with the local image"
+    fi
+    if ! ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose up -d ); then
+      log_error "❌ ${GAME_NAME} FAILED: 'docker compose up -d' returned non-zero"
+      ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose ps ) || true
+      return 1
+    fi
+    ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose ps ) || true
     log_success "✅ ${GAME_NAME} deployed (no secrets applied)"
     echo ""
     return 0
   fi
 
-  # Decrypt to temp file with strict perms
- (
+  # Decrypt to temp file with strict perms.
+  # Wrapped in `if !` because the `exit 1` below exits only the SUBSHELL -- without this
+  # check the parent carried on and deployed with a stale or missing .env.
+ if ! (
   # subshell so trap doesn't leak across games
   umask 077
   TMP_ENV="$(mktemp)"
@@ -145,16 +161,26 @@ deploy_game() {
   fi
 
   log_info "Writing .env to ${LIVE_ENV_FILE}"
-  sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
- )
+  sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}" || exit 1
+ ); then
+   log_error "❌ ${GAME_NAME} FAILED: could not decrypt or install secrets"
+   return 1
+ fi
 
   log_info "Deploying containers..."
-  (
-    cd "${STACK_DIR}"
-    sudo /usr/bin/docker compose pull
-    sudo /usr/bin/docker compose up -d
-    sudo /usr/bin/docker compose ps
-  )
+  # Previously this was one subshell ending in `docker compose ps`, so the subshell's status
+  # was `ps`'s (always 0) and a failed `up -d` was reported as a successful deploy.
+  if ! ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose pull ); then
+    log_warn "⚠️  'docker compose pull' failed for ${GAME_NAME} — continuing with the local image"
+  fi
+
+  if ! ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose up -d ); then
+    log_error "❌ ${GAME_NAME} FAILED: 'docker compose up -d' returned non-zero"
+    ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose ps ) || true
+    return 1
+  fi
+
+  ( cd "${STACK_DIR}" && sudo /usr/bin/docker compose ps ) || true
 
   log_success "✅ ${GAME_NAME} deployed successfully"
   echo ""
