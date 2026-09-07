@@ -54,3 +54,29 @@ All credential fields in these files are empty (`Token`, `UserName`,
 `AchievementsUserName`, `InfrastructureUsername`). `ISPUsername = flycast1` is a
 Flycast default for Dreamcast dial-up emulation, not an account. PPSSPP's
 `MacAddress` is a generated identity for the emulated PSP, not host hardware.
+
+## PSP: "not enough memory stick space" — set `MemStickSize = 1`
+
+Sonic Rivals 2 refused to start 2026-09-07, demanding **256 KB free** on the
+memory stick. Nothing real was wrong: 184 G free on disk, the flatpak sandbox saw
+the same, `MemStickInserted = True`, `SAVEDATA` present and writable.
+
+**`MemStickSize` is the size PPSSPP *reports* to the game, in GB.** At 32 it
+claims ~34 billion bytes free. Many PSP-era titles hold free space in a **signed
+32-bit int** (max ~2.147e9), so a large stick overflows it and the game reads a
+negative or garbage value — concluding it cannot fit 256 KB. Real sticks were
+usually 1-4 GB, so plenty of games were never tested against 32 GB.
+
+Fixed by **Settings → System → Memory Stick size → 1 GB**. Confirmed working.
+Affects only what PPSSPP reports; actual disk usage is unchanged, and 1 GB is
+still far more than any PSP game needs. Left at 1 as the library-wide default
+rather than a per-game workaround.
+
+Treat this error as a **reported-size** problem first — permissions, sandbox
+paths and real free space were all red herrings here.
+
+### Do not edit `ppsspp.ini` while PPSSPP is running
+
+It holds config in memory and rewrites the file on exit, silently discarding
+external edits. This clobbered two changes on 2026-09-07. Change settings in the
+app, or close it first.
