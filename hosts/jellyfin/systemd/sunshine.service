@@ -1,0 +1,18 @@
+[Unit]
+Description=Sunshine self-hosted game-stream host
+StartLimitIntervalSec=500
+StartLimitBurst=5
+After=openbox-session.service network.target sound.target
+Requires=openbox-session.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:1
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/bin/sunshine
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Headless Xorg :1 for Sunshine
+
+[Service]
+Type=simple
+Environment=DISPLAY=:1
+ExecStart=/usr/bin/Xorg :1 -nolisten tcp -noreset -depth 24 vt1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
