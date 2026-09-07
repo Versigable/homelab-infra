@@ -1,0 +1,30 @@
+[Unit]
+# Re-asserts the compose file's desired state after boot.
+#
+# Why this exists: on 2026-06-25 wolverine lost power. When LXC 302 came back,
+# Docker reconciled all five containers after the unclean shutdown but only
+# restarted three of them -- prometheus and alertmanager were left stopped with
+# no error logged, despite all five carrying `restart: unless-stopped`. They
+# stayed down for 74 days. `restart: unless-stopped` is therefore NOT a
+# guarantee across an unclean shutdown, and something has to re-assert intent.
+#
+# `docker compose up -d` is idempotent: containers already running are left
+# untouched, so this only ever starts what is missing.
+Description=Reconcile docker compose desired state (monitoring stack)
+Documentation=https://gitlab.ninjaprivacy.org/gitops/homelab-infra
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/monitoring/monitoring-hub/compose
+# Let dockerd finish its own container reconciliation before we assert intent,
+# otherwise compose can race the daemon's restart pass and double-start.
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/bin/docker compose up -d
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

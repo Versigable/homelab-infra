@@ -107,11 +107,19 @@ services:
     networks: [monitoring-net]
     logging: *logging
 
-  # External heartbeat sidecar — pings Healthchecks.io every 5 min while the
-  # stack is healthy. If the stack (or this LXC) dies, the heartbeat dies with
-  # it, and Healthchecks fires its out-of-band alert (email/etc.) configured
-  # on the check itself. This is the "monitor of last resort" — see
+  # External heartbeat sidecar — the "monitor of last resort". See
   # 5-Decisions/2026-05-02_monitoring-stack-shape for the rationale.
+  #
+  # It now VERIFIES THE STACK before pinging. The previous version claimed to ping
+  # "while the stack is healthy" but never checked anything — it pinged
+  # unconditionally, so it only ever proved itself alive. That is exactly how
+  # prometheus and alertmanager stayed dead for 74 days (2026-06-25 → 2026-09-07)
+  # while Healthchecks.io showed a continuous green: the heartbeat container was
+  # up and happily reporting "ping ok" the entire time.
+  #
+  # Now: ping only when prometheus AND alertmanager both answer /-/healthy, and
+  # actively hit the /fail endpoint when they do not, so the alert fires
+  # immediately rather than waiting out the grace period.
   heartbeat:
     image: curlimages/curl:8.11.0
     container_name: heartbeat
@@ -122,12 +130,17 @@ services:
       - sh
       - -c
       - |
-        echo "heartbeat starting; pinging every 5 min"
+        echo "heartbeat starting; verifying stack health every 5 min"
         while true; do
-          if curl -fsS --max-time 30 "$$HEALTHCHECKS_PING_URL" >/dev/null; then
-            echo "$(date -u +%FT%TZ) ping ok"
+          if curl -fsS --max-time 10 -o /dev/null "http://prometheus:9090/-/healthy" && curl -fsS --max-time 10 -o /dev/null "http://alertmanager:9093/-/healthy"; then
+            if curl -fsS --max-time 30 -o /dev/null "$$HEALTHCHECKS_PING_URL"; then
+              echo "$(date -u +%FT%TZ) stack healthy; ping ok"
+            else
+              echo "$(date -u +%FT%TZ) stack healthy; ping FAILED"
+            fi
           else
-            echo "$(date -u +%FT%TZ) ping FAILED"
+            echo "$(date -u +%FT%TZ) stack UNHEALTHY (prometheus/alertmanager not answering) -- signalling failure"
+            curl -fsS --max-time 30 -o /dev/null "$$HEALTHCHECKS_PING_URL/fail" || true
           fi
           sleep 300
         done
