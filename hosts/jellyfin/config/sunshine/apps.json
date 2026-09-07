@@ -1,0 +1,39 @@
+{
+    "env": {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games"
+    },
+    "apps": [
+        {
+            "name": "Desktop",
+            "image-path": "desktop.png"
+        },
+        {
+            "name": "Dolphin (GameCube/Wii)",
+            "cmd": "/usr/games/dolphin-emu",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
+            "name": "Flycast (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
+            "name": "PCSX2 (PlayStation 2)",
+            "cmd": "/usr/bin/flatpak run net.pcsx2.PCSX2",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
+            "name": "PPSSPP (PSP)",
+            "cmd": "/usr/bin/flatpak run org.ppsspp.PPSSPP",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
+        }
+    ]
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Openbox in headless Xorg :1
+After=xorg-headless.service
+Requires=xorg-headless.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:1
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/openbox --config-file /home/jf/.config/openbox/rc.xml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
