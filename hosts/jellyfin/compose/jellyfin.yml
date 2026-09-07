@@ -2,7 +2,15 @@ name: jellyfin-hub
 
 services:
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    # PINNED (2026-09-06). Was :latest, which meant every `deploy.sh
+    # jellyfin` pulled whatever was current and could bounce Jellyfin
+    # mid-stream as a side effect of an unrelated change. Pinned to the
+    # version that was running at the time, so adopting this recreates
+    # nothing. Upgrade deliberately, in its own MR.
+    #
+    # jellyfin/jellyfin lives on Docker Hub, whose anonymous pull limit
+    # already failed pipelines #222 and #226 on the arr stack.
+    image: jellyfin/jellyfin:10.11.11
     container_name: jellyfin
     user: 1000:1000
     cap_drop:
