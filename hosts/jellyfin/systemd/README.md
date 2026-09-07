@@ -104,3 +104,46 @@ only because `sunshine.ninjaprivacy.org` is Authentik-gated.
 - `ds5_inputtino_randomize_mac` was renamed `virtualhid_randomize_mac` (not set here).
 - Input moves to libvirtualhid; controller identity may change and Moonlight
   gamepad mappings may need redoing.
+
+## REQUIRED: the `uinput` kernel module must be loaded
+
+Sunshine creates **all** virtual input — mouse, keyboard *and* gamepad — through
+`/dev/uinput`. On this host `uinput` is a module (`CONFIG_INPUT_UINPUT=m`) and
+nothing loaded it at boot, so Sunshine could not create any input device.
+
+Symptom (found 2026-09-07 on the first successful Moonlight session): **video
+streams fine, but the pointer is frozen and no input reaches the guest.** The
+tell is in `sunshine.log`:
+
+    Warning: Unable to create virtual Xbox One controller: Permission denied
+
+repeated on every input attempt, while the encoder lines look perfectly healthy.
+
+Note this had **never worked** since the host was built in May — the
+ordering-cycle bug above meant Sunshine never started, so input was never
+exercised and the gap stayed hidden.
+
+### Fix (both parts needed)
+
+```bash
+sudo modprobe uinput                                  # now
+echo uinput | sudo tee /etc/modules-load.d/uinput.conf # every boot
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=uinput
+```
+
+`modules-load.d/uinput.conf` is tracked in this directory.
+
+### Verify
+
+```bash
+lsmod | grep uinput                    # module present
+ls -l /dev/uinput                      # want: crw-rw---- root input
+sudo -u jf test -w /dev/uinput && echo OK
+grep -c "Permission denied" ~jf/.config/sunshine/sunshine.log   # want 0
+```
+
+The packaged udev rule `/etc/udev/rules.d/85-sunshine-uinput.rules`
+(`KERNEL=="uinput", MODE="0660", GROUP="input"`) is already correct and `jf` is
+already in `input` — the rule simply has no driver to act on until the module is
+loaded. Do not "fix" the rule or the group; load the module.
