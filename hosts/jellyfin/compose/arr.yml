@@ -41,6 +41,20 @@ services:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     network_mode: "service:gluetun"
+    # Docker's default 10s stop timeout is too short here. On SIGTERM
+    # qBittorrent must stop ~530 torrents, announce stopped to their
+    # trackers, and flush 48M of .fastresume state. Overrunning 10s means
+    # SIGKILL mid-flush, and any torrent whose resume data was not written
+    # reverts to whatever was last persisted - which is how six Minerva
+    # sets came back as missingFiles on 2026-09-06 after a gluetun flap
+    # restarted this container, discarding that morning's rechecks and
+    # forcing an 887 GB rehash of the Saturn set alone.
+    #
+    # jf-netns-reconcile.service restarts this container unconditionally
+    # after every gluetun recovery, so this path is exercised often.
+    # Paired with Session\SaveResumeDataInterval=5 (was 180) set on the
+    # running instance the same day.
+    stop_grace_period: 120s
     depends_on:
       gluetun:
         condition: service_healthy
