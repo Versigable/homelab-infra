@@ -55,7 +55,7 @@ services:
       # Extra raw command-line flags
       # - cluster id for transfers
       # - NoTransferFromFiltering so uploads are allowed
-      - GAME_PARAMS_EXTRA=-server -log -NoBattlEye -NoTransferFromFiltering -clusterid=VersoCluster
+      - GAME_PARAMS_EXTRA=-server -log -NoBattlEye -NoTransferFromFiltering -clusterid=VersoCluster -PublicIP=184.99.18.57 -PublicPort=7787
 
       # Skip SteamCMD's full file validation on every boot (parity with Island, which already
       # sets this). The image runs `app_update` unconditionally at each start either way --
@@ -63,13 +63,29 @@ services:
       # restart and can break the 4 workshop mods in ActiveMods. Nothing here prevents that.
       - VALIDATE=false
 
-      # NOT SET ON PURPOSE: -PublicIP / -PublicPort.
-      # Island advertises games-upd.ninjaprivacy.org, but that name currently resolves to
-      # Cloudflare proxy addresses (104.21.x / 172.67.x). Cloudflare does not proxy arbitrary
-      # game UDP, so advertising it to the Steam master server would publish an address that
-      # cannot accept game traffic -- strictly worse than leaving it unset, where Steam uses
-      # the source IP it actually observes. Needs a DNS-only (grey-cloud) record pointing at
-      # the real WAN IP before this can be turned on.
+      # -PublicIP / -PublicPort are REQUIRED here -- this was wrong when it was left unset.
+      #
+      # The earlier reasoning was "leave it unset and Steam uses the observed source IP".
+      # That holds for a plainly NATed server, but NOT for this topology: inbound game UDP is
+      # full-proxied by Traefik, so the server sees every query arriving from 10.0.2.5 (a
+      # private LAN address) on a random ephemeral port. Confirmed by tcpdump on the host --
+      # an external query from a WAN client landed as `10.0.2.5.57271 > 10.0.1.9.27023`.
+      #
+      # Direct A2S queries still answer fine, which is why the server looks healthy from the
+      # outside. Steam LISTING is the part that breaks: the registration heartbeat egresses
+      # the default route (not Traefik) and reaches Steam from 184.99.18.57:<random NAT port>,
+      # which does not match the :27023 endpoint clients would query, so the server never gets
+      # validated into the master list. Symptom: joinable by direct connect / favourites,
+      # invisible in the in-game browser, and absent from third-party trackers.
+      #
+      # Use the WAN IP, NOT games-upd.ninjaprivacy.org -- that name is Cloudflare-proxied
+      # (104.21.x / 172.67.x) and Cloudflare does not carry game UDP, so advertising it would
+      # publish an address that cannot accept traffic.
+      #
+      # CAVEAT: 184.99.18.57 is a residential WAN IP and can change. If the server vanishes
+      # from the browser again, re-check it first. The durable fix is a DNS-only (grey-cloud)
+      # record, or removing Traefik from the game-UDP path entirely so no proxy rewrites the
+      # source and -PublicIP stops being necessary at all.
 
     volumes:
       # Main ARK files for Lost Island
