@@ -98,3 +98,77 @@ groups:
             monitoring LXC for 5+ minutes. This pattern points at the WG
             site-to-site tunnel rather than individual host outages.
             (Individual host scrape failures fire ScrapeTargetDown instead.)
+
+  # ============================================================
+  # Backup freshness (pve-backup-metrics.py textfile exporter)
+  #
+  # These alert on the AGE OF THE NEWEST BACKUP IN PBS, not on the backup job's
+  # own success reporting -- deliberately. PVE only notifies when a job runs and
+  # fails; a job that is disabled, whose schedule never fires, or whose storage is
+  # unreachable emits nothing at all. That is exactly what happened between
+  # 2026-05-31 and 2026-09-07: 99 days with no backups and no alert, because the
+  # failure notifications were queuing into an undeliverable mailbox.
+  #
+  # Both PVE nodes run the exporter and report identical cluster-wide data, so
+  # every expression aggregates with max() -- if one node's exporter stops, the
+  # other still reports the true value rather than a false "stale".
+  # ============================================================
+  - name: backups
+    interval: 60s
+    rules:
+      - alert: PVEBackupStale
+        # Nightly at 02:00, so >36h means at least one run was missed entirely.
+        expr: |-
+          (time() - max by (vmid, name, type) (pve_backup_last_success_timestamp_seconds))
+            > 36 * 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backup stale: {{ $labels.name }} (vmid {{ $labels.vmid }})"
+          description: |-
+            No backup for {{ $labels.type }}/{{ $labels.vmid }} ({{ $labels.name }})
+            in {{ $value | humanizeDuration }}. Nightly backups run at 02:00, so this
+            means at least one scheduled run did not produce a backup.
+
+      - alert: PVEBackupVeryStale
+        expr: |-
+          (time() - max by (vmid, name, type) (pve_backup_last_success_timestamp_seconds))
+            > 7 * 24 * 3600
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup CRITICALLY stale: {{ $labels.name }} (vmid {{ $labels.vmid }})"
+          description: |-
+            No backup for {{ $labels.type }}/{{ $labels.vmid }} ({{ $labels.name }})
+            in {{ $value | humanizeDuration }}. Backups have been failing or not running
+            for over a week -- check PBS reachability and the vzdump job.
+
+      - alert: PVEGuestNeverBackedUp
+        # A guest created after the last successful run has no backup at all, so it
+        # has no age to be stale -- it would be invisible to the alerts above.
+        expr: max by (vmid, name, type) (pve_backup_guest_without_backup) == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Never backed up: {{ $labels.name }} (vmid {{ $labels.vmid }})"
+          description: |-
+            Guest {{ $labels.type }}/{{ $labels.vmid }} ({{ $labels.name }}) exists in the
+            cluster but has no backup in any PBS datastore.
+
+      - alert: PVEBackupMetricsStale
+        # Watches the checker itself: if this stops updating, the alerts above go
+        # quiet for the wrong reason. Runs every 15m via /etc/cron.d.
+        expr: |-
+          (time() - max(pve_backup_metrics_last_run_timestamp_seconds)) > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backup-freshness exporter has stopped updating"
+          description: |-
+            pve-backup-metrics.py last completed {{ $value | humanizeDuration }} ago on
+            every node. Backup staleness alerts are no longer trustworthy until this is
+            fixed -- check /etc/cron.d/pve-backup-metrics on phoenix and rogue.
