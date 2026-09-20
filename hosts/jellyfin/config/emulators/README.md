@@ -14,6 +14,8 @@ auto-deployed.** `deploy.sh` handles compose stacks only.
 | `pcsx2/` | `~jf/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis/` |
 | `flycast/` | `~jf/.var/app/org.flycast.Flycast/config/flycast/` |
 | `dolphin/` | `~jf/.config/dolphin-emu/` |
+| `azahar/` | `~jf/.var/app/org.azahar_emu.Azahar/config/azahar-emu/` |
+| `cemu/` | `~jf/.var/app/info.cemu.Cemu/config/Cemu/` |
 | `openbox/rc.xml` | `~jf/.config/openbox/rc.xml` |
 
 Flatpak apps must be launched once before their config dir exists. Each also
@@ -80,3 +82,46 @@ paths and real free space were all red herrings here.
 It holds config in memory and rewrites the file on exit, silently discarding
 external edits. This clobbered two changes on 2026-09-07. Change settings in the
 app, or close it first.
+
+## Azahar (3DS) and Cemu (Wii U) — added 2026-09-20
+
+```
+org.azahar_emu.Azahar   2126.1.1   gamedir -> /mnt/gameroom/roms/3ds
+info.cemu.Cemu          2.6        GamePaths/Entry -> /mnt/gameroom/roms/wiiu
+```
+
+Both installed from Flathub and given `flatpak override --filesystem=/mnt/gameroom`,
+same as Flycast/PCSX2/PPSSPP. Both added to `../sunshine/apps.json`.
+
+### 3DS ROMs must be DECRYPTED — keys are not a workaround
+
+Scene `.3ds` releases (LiGHTFORCE, VENOM, anything "tested with Gateway") are
+**encrypted cartridge dumps**. Azahar lists them but refuses to boot:
+
+```
+Core <Critical> core/core.cpp:Load:353: Failed to determine system mode (Error 8)!
+```
+
+`aes_keys.txt` (98 `slot0x*` entries) **and** `boot9.bin` were installed to
+Azahar's sysdata and confirmed readable from inside the flatpak sandbox — the
+ROM still failed with the same error. Treat a decrypted dump as a hard
+requirement. The keys are kept anyway for CIA installs and title-key content.
+
+Check before downloading, no emulator needed (partition 0 at `0x4000`, NCCH
+flags at NCCH+`0x188`):
+
+```bash
+dd if=rom.3ds bs=1 skip=256   count=4 2>/dev/null | od -c        # N C S D
+dd if=rom.3ds bs=1 skip=16640 count=4 2>/dev/null | od -c        # N C C H
+dd if=rom.3ds bs=1 skip=16776 count=8 2>/dev/null | od -An -tx1  # flags
+```
+
+`flags[7]` bit `0x04` = NoCrypto: set means decrypted and bootable, `00` means
+it will not boot. `flags[3]` is the crypto method (`0x01` = 7.x keys). A `.3dz`
+extension is just a renamed `.3ds` — check the flags, not the extension.
+
+### Keys and BIOS are NOT tracked here
+
+`aes_keys.txt`, `boot9.bin` and the Wii U `keys.txt` live on the host at
+`/mnt/gameroom/bios/<slug>/` and in each emulator's sysdata. They are
+BIOS-class binaries and stay out of this repo, like every other console BIOS.

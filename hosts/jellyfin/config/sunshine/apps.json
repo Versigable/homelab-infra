@@ -34,6 +34,20 @@
             "auto-detach": "true",
             "wait-all": "true",
             "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
+            "name": "Azahar (Nintendo 3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
+            "name": "Cemu (Wii U)",
+            "cmd": "/usr/bin/flatpak run info.cemu.Cemu",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
         }
     ]
 }
