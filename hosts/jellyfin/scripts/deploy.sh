@@ -4,7 +4,7 @@ set -euo pipefail
 # deploy.sh (Jellyfin Host) — Model B GitOps
 #
 # Usage:
-#   deploy.sh arr       — Deploy arr stack (qBit/gluetun/Sonarr/Radarr/Prowlarr/Jellyseerr/Flaresolverr)
+#   deploy.sh arr       — Deploy arr stack (qBit/wg-proton/Sonarr/Radarr/Prowlarr/Jellyseerr/Flaresolverr)
 #   deploy.sh jellyfin  — Deploy Jellyfin media server
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -79,7 +79,12 @@ log_info "Deploying ${TARGET} stack..."
 (
   cd "$LIVE_COMPOSE_DIR"
   sudo /usr/bin/docker compose pull
-  sudo /usr/bin/docker compose up -d
+  # --remove-orphans: a renamed or removed service otherwise leaves its old
+  # container running and holding its published ports, which blocks the
+  # replacement from starting (bit twice in the 2026-05 arr-stack work; the
+  # gluetun -> wg-proton swap would hit it on port 8080). Scoped to this
+  # compose project, so it cannot touch the other stack.
+  sudo /usr/bin/docker compose up -d --remove-orphans
   sudo /usr/bin/docker compose ps
 )
 
