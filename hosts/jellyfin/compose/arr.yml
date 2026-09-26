@@ -12,45 +12,129 @@ name: arr-hub
 
 services:
 
-  gluetun:
-    image: qmcgaw/gluetun:v3.39.0
-    container_name: gluetun
+  # WireGuard to ProtonVPN via a thin Alpine container. Restored 2026-09-26,
+  # replacing gluetun-OVPN (MR !77, 2026-05-04). That migration rested on an
+  # 85s test showing OVPN "unshaped" at 17-28 MB/s; in production it capped
+  # at the same ~1.5 MB/s as WG (a burst budget, not a bypass - the BT cap is
+  # account-level). What gluetun-OVPN DID bring was instability: on
+  # 2026-09-26 alone it logged 107 AUTH_FAILED from ProtonVPN's OpenVPN auth
+  # and 13 restarts, most of them container exits (gluetun v3.39.0's
+  # port-forwarding loop crashes on an iptables delete during a VPN restart
+  # and takes the container down), each one bouncing qBittorrent.
+  # WireGuard is key-based (no auth round-trip) and this container has no
+  # restart-on-unhealthy loop, so it only restarts if it actually dies.
+  #
+  # Network alias `gluetun` is kept on purpose: Sonarr and Radarr address
+  # qBittorrent as host "gluetun" port 8080.
+  wg-proton:
+    image: alpine:3.20
+    container_name: wg-proton
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
     ports:
-      - "8080:8080"   # qBittorrent WebUI
-      - "8888:8888"   # gluetun HTTP control server
-      - "8001:8001"   # qbittorrent-exporter (8000 reserved for gluetun control server) (shares gluetun netns)
+      - "8080:8080"   # qBittorrent WebUI (shares wg-proton netns)
+      - "8001:8001"   # qbittorrent-exporter (shares wg-proton netns)
     environment:
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=openvpn
-      # OPENVPN_USER must include the +pmp suffix for ProtonVPN NAT-PMP port
-      # forwarding to work. See [[3-Resources/runbooks/wg-proton-operations]]
-      # and memory reference_protonvpn-ovpn-unshaped-recipe. The +pmp is
-      # baked into the secret value, not appended here.
-      - OPENVPN_USER=${OPENVPN_USER}
-      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
-      - SERVER_COUNTRIES=Netherlands
-      - PORT_FORWARD_ONLY=on
-      - VPN_PORT_FORWARDING=on
-      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
-    networks: [net_arr]
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      # Public values from the NL-235 .conf - not secrets, plain compose env.
+      # Re-verified 2026-09-26: handshake, NL exit, DNS and NAT-PMP all OK.
+      - WIREGUARD_PEER_PUBLIC_KEY=/i7jCNpcqVBUkY07gVlILN4nFdvZHmxvreAOgLGoZGg=
+      - WIREGUARD_ENDPOINT=146.70.86.114:51820
+      - WIREGUARD_DNS=10.2.0.1
+    networks:
+      net_arr:
+        aliases: [gluetun]
     restart: unless-stopped
-    volumes:
-      - gluetun_data:/tmp/gluetun
+    command:
+      - sh
+      - -c
+      - |
+        echo "[wg-proton] installing wireguard-tools, libnatpmp, iptables, curl"
+        apk add --no-cache wireguard-tools libnatpmp iptables curl >/dev/null 2>&1
+
+        mkdir -p /etc/wireguard
+        {
+          printf '[Interface]\n'
+          printf 'PrivateKey = %s\n' "$${WIREGUARD_PRIVATE_KEY}"
+          printf 'Address = %s\n' "$${WIREGUARD_ADDRESSES}"
+          printf 'DNS = %s\n' "$${WIREGUARD_DNS}"
+          printf 'Table = off\n\n'
+          printf '[Peer]\n'
+          printf 'PublicKey = %s\n' "$${WIREGUARD_PEER_PUBLIC_KEY}"
+          printf 'AllowedIPs = 0.0.0.0/0\n'
+          printf 'Endpoint = %s\n' "$${WIREGUARD_ENDPOINT}"
+          printf 'PersistentKeepalive = 25\n'
+        } > /etc/wireguard/tun0.conf
+        chmod 600 /etc/wireguard/tun0.conf
+
+        echo "[wg-proton] bringing up tun0 (kernel WG)"
+        wg-quick up tun0
+        echo "nameserver $${WIREGUARD_DNS}" > /etc/resolv.conf
+        # ProtonVPN's gateway (DNS + NAT-PMP) must route via tun0, or natpmpc
+        # hangs - this route is what made port forwarding work (MR !72).
+        ip route add 10.2.0.0/24 dev tun0 2>/dev/null || true
+        ip route add default dev tun0 || true
+
+        ENDPOINT_HOST=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f1)
+        ENDPOINT_PORT=$$(echo "$${WIREGUARD_ENDPOINT}" | cut -d: -f2)
+
+        # Fail closed. qBittorrent also binds tun0 (Network interface setting),
+        # so this is the second of two layers.
+        echo "[wg-proton] applying kill-switch (default DROP, allow lo + tun0 + handshake + LAN)"
+        iptables -P INPUT ACCEPT
+        iptables -P FORWARD DROP
+        iptables -P OUTPUT DROP
+        iptables -A OUTPUT -o lo -j ACCEPT
+        iptables -A OUTPUT -o tun0 -j ACCEPT
+        iptables -A OUTPUT -d "$$ENDPOINT_HOST" -p udp --dport "$$ENDPOINT_PORT" -j ACCEPT
+        iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+        iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
+        iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
+        iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+
+        echo "[wg-proton] WG endpoint: $$(wg show tun0 endpoints | head -1)"
+        echo "[wg-proton] external IP: $$(curl -s --max-time 10 --interface tun0 https://api.ipify.org || echo failed)"
+
+        # NAT-PMP renewal + qBit listen-port sync (replaces qbit-port-sync).
+        # Re-syncs whenever the mapped port changes OR qBit's listen_port has
+        # drifted from it (e.g. qBit restarted with a stale value).
+        echo "[wg-proton] starting NAT-PMP renewal loop (45s interval, 60s lifetime)"
+        while true; do
+          OUT_TCP=$$(timeout 8 natpmpc -g 10.2.0.1 -a 1 0 tcp 60 2>&1)
+          timeout 8 natpmpc -g 10.2.0.1 -a 1 0 udp 60 >/dev/null 2>&1
+          PORT=$$(echo "$$OUT_TCP" | grep -oE "Mapped public port [0-9]+" | head -1 | awk '{print $$4}')
+          if [ -n "$$PORT" ]; then
+            CUR=$$(curl -s -m 5 http://localhost:8080/api/v2/app/preferences | grep -oE '"listen_port":[0-9]+' | cut -d: -f2)
+            if [ "$$CUR" != "$$PORT" ]; then
+              if curl -fsS -m 10 -X POST --data-urlencode "json={\"listen_port\":$$PORT}" http://localhost:8080/api/v2/app/setPreferences >/dev/null 2>&1; then
+                echo "[$$(date +%T)] forwarded port $$PORT -> synced to qBit (was $${CUR:-unknown})"
+              else
+                echo "[$$(date +%T)] forwarded port $$PORT -> qBit not ready, will retry"
+              fi
+            fi
+          else
+            echo "[$$(date +%T)] natpmpc failed: $$OUT_TCP"
+          fi
+          sleep 45
+        done
     healthcheck:
-      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      # Healthy = a WG handshake within the last 3 minutes (rekey is every
+      # 2 min while traffic flows), not merely "an endpoint is configured".
+      test: ["CMD-SHELL", "hs=$$(wg show tun0 latest-handshakes | awk '{print $$2}'); [ -n \"$$hs\" ] && [ $$(( $$(date +%s) - hs )) -lt 180 ]"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.14-ls474
     container_name: qbittorrent
-    network_mode: "service:gluetun"
+    network_mode: "service:wg-proton"
     # Docker's default 10s stop timeout is too short here. On SIGTERM
     # qBittorrent must stop ~530 torrents, announce stopped to their
     # trackers, and flush 48M of .fastresume state. Overrunning 10s means
@@ -61,12 +145,12 @@ services:
     # forcing an 887 GB rehash of the Saturn set alone.
     #
     # jf-netns-reconcile.service restarts this container unconditionally
-    # after every gluetun recovery, so this path is exercised often.
+    # after every VPN-container recovery, so this path is exercised often.
     # Paired with Session\SaveResumeDataInterval=5 (was 180) set on the
     # running instance the same day.
     stop_grace_period: 120s
     depends_on:
-      gluetun:
+      wg-proton:
         condition: service_healthy
     environment:
       - PUID=1000
@@ -91,47 +175,10 @@ services:
       - /mnt/gameroom:/gameroom
     restart: unless-stopped
 
-  # Restored from pre-MR-68 era: polls gluetun's forwarded_port file and
-  # syncs to qBit via WebUI API. Inline script (deploy.sh installs only the
-  # compose file, not separate scripts).
-  qbit-port-sync:
-    image: alpine:3.20
-    container_name: qbit-port-sync
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-      qbittorrent:
-        condition: service_started
-    volumes:
-      - gluetun_data:/gluetun:ro
-    command:
-      - sh
-      - -c
-      - |
-        apk add --no-cache curl >/dev/null 2>&1 || true
-        last=""
-        while true; do
-          if [ -f /gluetun/forwarded_port ]; then
-            port=$$(cat /gluetun/forwarded_port 2>/dev/null || echo "")
-            if [ -n "$$port" ] && [ "$$port" != "$$last" ]; then
-              echo "[port-sync] gluetun forwarded port: $$port"
-              if curl -fsS -X POST --data-urlencode "json={\"listen_port\":$$port}" http://localhost:8080/api/v2/app/setPreferences >/dev/null; then
-                echo "[port-sync] qbit listening port updated to $$port"
-                last="$$port"
-              else
-                echo "[port-sync] qbit API call failed (auth-bypass not enabled?)"
-              fi
-            fi
-          fi
-          sleep 60
-        done
-    restart: unless-stopped
-
   qbittorrent-exporter:
     image: esanchezm/prometheus-qbittorrent-exporter:v1.6.0
     container_name: qbittorrent-exporter
-    network_mode: "service:gluetun"
+    network_mode: "service:wg-proton"
     depends_on:
       qbittorrent:
         condition: service_started
@@ -141,17 +188,14 @@ services:
       - EXPORTER_PORT=8001
     restart: unless-stopped
 
-  # Watchdog: gluetun's network namespace gets recreated on every reconnect
-  # (OVPN session refresh, ProtonVPN-side disconnect, hourly key rotation).
-  # Containers sharing its netns via 'network_mode: service:gluetun' keep
-  # a stale reference and become unreachable until restarted. Compose
-  # depends_on only fires at compose-up time, not on parent state changes.
+  # Watchdog: containers sharing the VPN container's netns via
+  # 'network_mode: service:wg-proton' keep a stale reference if it restarts
+  # and become unreachable until they are restarted too. Compose depends_on
+  # only fires at compose-up time, not on parent state changes.
   #
-  # This sidecar watches gluetun's State.StartedAt and bounces dependents
-  # whenever it changes. ~30s response time. See decision-of-2026-05-04
-  # and the wg-proton-operations runbook for context (the manual
-  # 'docker restart qbittorrent' fallback works if this watchdog itself
-  # fails).
+  # This sidecar watches wg-proton's State.StartedAt and bounces dependents
+  # whenever it changes. ~30s response time. Container name kept as
+  # gluetun-watchdog so the swap leaves nothing orphaned.
   gluetun-watchdog:
     image: docker:27-cli
     container_name: gluetun-watchdog
@@ -159,17 +203,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [net_arr]
     restart: unless-stopped
+    environment:
+      - VPN_CONTAINER=wg-proton
     command:
       - sh
       - -c
       - |
         LAST=""
-        echo "[watchdog] starting; restarts qbittorrent + qbit-port-sync + qbittorrent-exporter on gluetun reconnect"
+        echo "[watchdog] starting; restarts qbittorrent + qbittorrent-exporter when $${VPN_CONTAINER} restarts"
         while true; do
-          NOW=$$(docker inspect gluetun --format '{{.State.StartedAt}}' 2>/dev/null || echo "")
+          NOW=$$(docker inspect "$${VPN_CONTAINER}" --format '{{.State.StartedAt}}' 2>/dev/null || echo "")
           if [ -n "$$NOW" ] && [ -n "$$LAST" ] && [ "$$NOW" != "$$LAST" ]; then
-            echo "[watchdog] gluetun restarted at $$NOW (was $$LAST) - bouncing dependents"
-            docker restart qbittorrent qbit-port-sync qbittorrent-exporter || echo "[watchdog] one or more restarts failed (continuing)"
+            echo "[watchdog] $${VPN_CONTAINER} restarted at $$NOW (was $$LAST) - bouncing dependents"
+            docker restart qbittorrent qbittorrent-exporter || echo "[watchdog] one or more restarts failed (continuing)"
           fi
           LAST="$$NOW"
           sleep 30
@@ -258,6 +304,3 @@ networks:
   net_arr:
     name: net_arr
     driver: bridge
-
-volumes:
-  gluetun_data:
