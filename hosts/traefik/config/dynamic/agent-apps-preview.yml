@@ -6,8 +6,11 @@ http:
       entrypoints: [websecure]
       tls:
         certResolver: letsencrypt
-      middlewares:
-        - authentik-forward
+      # PUBLIC (no authentik-forward) by decision 2026-09-26: players are
+      # anyone. This origin runs agent-generated game JS, so it must stay
+      # static-only: backend 4173 runs PREVIEW_SURFACE=games and must never
+      # expose Kanban/operator APIs or task-store access. Operator/Game Dev
+      # controls live on gamedev.ninjaprivacy.org (4175), never here.
 
   services:
     agent-apps-preview-svc:
