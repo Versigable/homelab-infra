@@ -1,0 +1,32 @@
+http:
+  routers:
+    gamedev-router:
+      rule: "Host(`gamedev.ninjaprivacy.org`)"
+      service: gamedev-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      # Operator-only Game Dev surface (board, scoped management API,
+      # trusted launcher, versioned ZIP downloads). Same operator backend
+      # as app-preview (10.1.0.3:4175); the app scopes routes by Host.
+      #
+      # Operator gate = the domain-wide forward_domain provider, whose
+      # "proxmox" application binds group Hokagis (metaversig, firekube,
+      # ultradmin). No per-host Authentik provider by decision 2026-09-26.
+      #
+      # The Authentik session cookie is Domain=ninjaprivacy.org, so sibling
+      # origins (incl. public game-preview) can send credentialed requests
+      # here. CSRF defense is app-side: exact Origin check + JSON-only
+      # writes + no wildcard CORS on 4175.
+      #
+      # Backend 4175 is nft-restricted on openclaw to Traefik (10.0.2.5)
+      # + admin workstation (table inet backend_guard).
+      middlewares:
+        - authentik-forward
+
+  services:
+    gamedev-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.1.0.3:4175
+        passHostHeader: true
