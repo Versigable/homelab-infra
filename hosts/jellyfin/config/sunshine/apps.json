@@ -48,6 +48,216 @@
             "auto-detach": "true",
             "wait-all": "true",
             "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
+            "name": "ChuChu Rocket! (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/ChuChu Rocket! (USA) (En,Ja,Fr,De,Es)/ChuChu Rocket! (USA) (En,Ja,Fr,De,Es).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28422.png"
+        },
+        {
+            "name": "Crazy Taxi (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Crazy Taxi (USA)/Crazy Taxi (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28423.png"
+        },
+        {
+            "name": "Ikaruga (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Ikaruga (Japan)/Ikaruga (Japan).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28424.png"
+        },
+        {
+            "name": "Jet Grind Radio (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Jet Grind Radio (USA)/Jet Grind Radio (USA).gdi\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/20997.png"
+        },
+        {
+            "name": "Marvel vs. Capcom 2: New Age of Heroes (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Marvel vs. Capcom 2 (USA)/Marvel vs. Capcom 2 (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28425.png"
+        },
+        {
+            "name": "Power Stone 2 (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Power Stone 2 (USA)/Power Stone 2 (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28426.png"
+        },
+        {
+            "name": "Rez (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Rez (Europe) (En,Ja,Fr,De,Es,It)/Rez (Europe) (En,Ja,Fr,De,Es,It).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28427.png"
+        },
+        {
+            "name": "Seaman (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Seaman (USA)/Seaman (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28428.png"
+        },
+        {
+            "name": "Shenmue (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Shenmue (USA)/Shenmue (USA) (Disc 1).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28429.png"
+        },
+        {
+            "name": "Shenmue II (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Shenmue II (Europe) (En,Fr,De,Es)/Shenmue II (Europe) (En,Fr,De,Es) (Disc 1).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28430.png"
+        },
+        {
+            "name": "Skies of Arcadia (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Skies of Arcadia (USA)/Skies of Arcadia (USA) (Disc 1).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28431.png"
+        },
+        {
+            "name": "Sonic Adventure (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Sonic Adventure (USA) (En,Ja,Fr,De,Es) (Rev A)/Sonic Adventure (USA) (En,Ja,Fr,De,Es) (Rev A).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28432.png"
+        },
+        {
+            "name": "Sonic Adventure 2 (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Sonic Adventure 2 (USA) (En,Ja,Fr,De,Es)/Sonic Adventure 2 (USA) (En,Ja,Fr,De,Es).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28433.png"
+        },
+        {
+            "name": "Sonic Shuffle (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Sonic Shuffle (USA)/Sonic Shuffle (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28434.png"
+        },
+        {
+            "name": "SoulCalibur (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Soulcalibur (USA)/Soulcalibur (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28435.png"
+        },
+        {
+            "name": "Space Channel 5 (Dreamcast)",
+            "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/Space Channel 5 (USA)/Space Channel 5 (USA).chd\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28436.png"
+        },
+        {
+            "name": "Bravely Default (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Bravely Default (USA) (En,Ja,Fr,De,Es,It).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28410.png"
+        },
+        {
+            "name": "Etrian Odyssey IV: Legends of the Titan (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Etrian Odyssey IV - Legends of the Titan (USA).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28411.png"
+        },
+        {
+            "name": "Fire Emblem Awakening (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Fire Emblem - Awakening (USA).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28412.png"
+        },
+        {
+            "name": "Kid Icarus: Uprising (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Kid Icarus - Uprising (USA) (En,Fr,Es).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28413.png"
+        },
+        {
+            "name": "Luigi's Mansion (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Luigi's Mansion (Europe).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28407.png"
+        },
+        {
+            "name": "Luigi's Mansion: Dark Moon (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Luigi's Mansion - Dark Moon (USA).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28409.png"
+        },
+        {
+            "name": "Metroid: Samus Returns (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Metroid - Samus Returns (USA) (En,Fr,Es).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28415.png"
+        },
+        {
+            "name": "Monster Hunter 4 Ultimate (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Monster Hunter 4 Ultimate (USA).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28416.png"
+        },
+        {
+            "name": "Pok\u00e9mon Ultra Moon (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Pokemon Ultra Moon (USA) (En,Ja,Fr,De,Es,It,Zh,Ko).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28417.png"
+        },
+        {
+            "name": "Pok\u00e9mon Ultra Sun (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Pokemon Ultra Sun (USA) (En,Ja,Fr,De,Es,It,Zh,Ko).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28418.png"
+        },
+        {
+            "name": "Professor Layton vs. Phoenix Wright: Ace Attorney (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Professor Layton vs. Phoenix Wright - Ace Attorney (USA) (En,Fr,Es).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28419.png"
+        },
+        {
+            "name": "Radiant Historia: Perfect Chronology (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Radiant Historia - Perfect Chronology (USA).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28420.png"
+        },
+        {
+            "name": "Shin Megami Tensei IV (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Shin Megami Tensei IV (USA).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28421.png"
+        },
+        {
+            "name": "The Legend of Zelda: A Link Between Worlds (3DS)",
+            "cmd": "/usr/bin/flatpak run org.azahar_emu.Azahar -f \"/mnt/gameroom/roms/3ds/Legend of Zelda, The - A Link Between Worlds (USA) (En,Fr,Es).3ds\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28414.png"
         }
     ]
 }
