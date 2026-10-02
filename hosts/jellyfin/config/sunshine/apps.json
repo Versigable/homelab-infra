@@ -50,6 +50,13 @@
             "image-path": "/usr/share/sunshine/box.png"
         },
         {
+            "name": "xemu (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/usr/share/sunshine/box.png"
+        },
+        {
             "name": "ChuChu Rocket! (Dreamcast)",
             "cmd": "/usr/bin/flatpak run org.flycast.Flycast -config window:fullscreen=yes \"/mnt/gameroom/roms/dc/ChuChu Rocket! (USA) (En,Ja,Fr,De,Es)/ChuChu Rocket! (USA) (En,Ja,Fr,De,Es).chd\"",
             "auto-detach": "true",
@@ -258,6 +265,139 @@
             "auto-detach": "true",
             "wait-all": "true",
             "image-path": "/home/jf/.config/sunshine/covers/28414.png"
+        },
+        {
+            "name": "Black (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Black (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28437.png"
+        },
+        {
+            "name": "Burnout 3: Takedown (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Burnout 3 - Takedown (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28438.png"
+        },
+        {
+            "name": "Conker: Live & Reloaded (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Conker - Live & Reloaded (USA) (En,Ja,Fr,De,Es,It).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28439.png"
+        },
+        {
+            "name": "Crimson Skies: High Road to Revenge (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Crimson Skies - High Road to Revenge (USA) (En,Fr,De,Zh,Ko).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28440.png"
+        },
+        {
+            "name": "Fable: The Lost Chapters (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Fable - The Lost Chapters (USA) (En,Es).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28442.png"
+        },
+        {
+            "name": "Halo 2 (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Halo 2 (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28444.png"
+        },
+        {
+            "name": "Halo: Combat Evolved (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Halo - Combat Evolved (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28443.png"
+        },
+        {
+            "name": "Jet Set Radio Future (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/JSRF - Jet Set Radio Future (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28445.png"
+        },
+        {
+            "name": "Ninja Gaiden Black (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Ninja Gaiden Black (USA) (En,Ja).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28446.png"
+        },
+        {
+            "name": "Oddworld: Stranger's Wrath (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Oddworld - Stranger's Wrath (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28447.png"
+        },
+        {
+            "name": "Otogi: Myth of Demons (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Otogi - Myth of Demons (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28448.png"
+        },
+        {
+            "name": "OutRun 2006: Coast 2 Coast (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/OutRun 2006 - Coast 2 Coast (USA, Europe) (En,Fr,De,Es,It).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28449.png"
+        },
+        {
+            "name": "Panzer Dragoon Orta (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Panzer Dragoon Orta (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28450.png"
+        },
+        {
+            "name": "Psychonauts (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Psychonauts (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28451.png"
+        },
+        {
+            "name": "Shenmue II (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Shenmue II (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28452.png"
+        },
+        {
+            "name": "Star Wars: Knights of the Old Republic (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Star Wars - Knights of the Old Republic (USA) (Rev 1).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28453.png"
+        },
+        {
+            "name": "Star Wars: Knights of the Old Republic II - The Sith Lords (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Star Wars - Knights of the Old Republic II - The Sith Lords (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28454.png"
+        },
+        {
+            "name": "The Elder Scrolls III: Morrowind - Game of the Year Edition (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Elder Scrolls III, The - Morrowind - Game of the Year Edition (USA).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28441.png"
+        },
+        {
+            "name": "Tom Clancy's Splinter Cell: Chaos Theory (Xbox)",
+            "cmd": "/usr/bin/flatpak run app.xemu.xemu -full-screen -dvd_path \"/mnt/gameroom/roms/xbox/Tom Clancy's Splinter Cell - Chaos Theory (USA, Europe) (En,Fr,De,Es,It).iso\"",
+            "auto-detach": "true",
+            "wait-all": "true",
+            "image-path": "/home/jf/.config/sunshine/covers/28455.png"
         }
     ]
 }
