@@ -9,9 +9,20 @@ services:
   webstation:
     image: lscr.io/linuxserver/webstation:romm-version-v0.15.0
     container_name: romm-webstation
-    # jf's dockerd defaults to the nvidia runtime; keep the GPU out until the
-    # driver is >= 595.80 (Selkies GPU support starts at 580).
-    runtime: runc
+    # GPU: jf runs NVIDIA's .run driver 595.104.02 (>= 595.80, so no kernel
+    # params or dummy plug). Selkies also needs /dev/nvidia-modeset; the image
+    # already sets NVIDIA_DRIVER_CAPABILITIES=all. The 3060 Ti is shared with
+    # Jellyfin (NVENC) and Sunshine.
+    runtime: nvidia
+    devices:
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     environment:
       - PUID=1000
@@ -22,10 +33,11 @@ services:
       - HARDEN_DESKTOP=true
       - DISABLE_TERMINALS=true
       - DISABLE_SUDO=true
-      # Software x264 + llvmpipe can't keep up at window size (a 5K2K fullscreen
-      # meant 5120x2160 @ 60 fps); lock 720p and let the browser scale it up.
-      - SELKIES_MANUAL_WIDTH=1280
-      - SELKIES_MANUAL_HEIGHT=720
+      # Fixed stream size; the browser scales it to the window. Unlocked, Selkies
+      # follows the window (a 5K2K fullscreen asked for 5120x2160, past what
+      # H.264 NVENC encodes). 720p while CPU-only, 1080p now NVENC encodes.
+      - SELKIES_MANUAL_WIDTH=1920
+      - SELKIES_MANUAL_HEIGHT=1080
       # The client sends its devicePixelRatio as DPI (Windows 150% => 144), which
       # flips the compositor to scale 1.5 mid-session and blew up Qt emulators.
       - SELKIES_SCALING_DPI=96
