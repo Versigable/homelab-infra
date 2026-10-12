@@ -29,6 +29,17 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    # The NVIDIA hook grants /dev/nvidiactl, /dev/nvidia0 and /dev/nvidia-uvm
+    # behind systemd's back: they are missing from the container scope's
+    # DeviceAllow, so when systemd rebuilds the scope's device rules (seen on jf
+    # 2026-10-12 after an apt install started a service) CUDA/NVENC and NVML lose
+    # the GPU until the container restarts. Listing them here puts them in
+    # DeviceAllow, so they survive.
+    # On 2026-10-12 h264_nvenc failed this way inside Jellyfin.
+    devices:
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
     volumes:
       - /home/jf/config:/config
       - /home/jf/cache:/cache

@@ -48,8 +48,19 @@ x-webstation: &webstation
   # three instances, Jellyfin (NVENC) and Sunshine; 10 concurrent 1080p60
   # NVENC encodes were tested OK on 2026-10-12.
   runtime: nvidia
+  # The NVIDIA hook grants /dev/nvidiactl, /dev/nvidia0 and /dev/nvidia-uvm
+  # behind systemd's back: they are missing from the container scope's
+  # DeviceAllow, so when systemd rebuilds the scope's device rules (seen on jf
+  # 2026-10-12 after an apt install started a service) CUDA/NVENC and NVML lose
+  # the GPU until the container restarts. Listing them here puts them in
+  # DeviceAllow, so they survive.
+  # Without them Selkies fell back to software x264 ("Failed to retain the
+  # device's primary CUDA context") and the stream stuttered.
   devices:
     - /dev/nvidia-modeset:/dev/nvidia-modeset
+    - /dev/nvidiactl:/dev/nvidiactl
+    - /dev/nvidia0:/dev/nvidia0
+    - /dev/nvidia-uvm:/dev/nvidia-uvm
   deploy:
     resources:
       reservations:
