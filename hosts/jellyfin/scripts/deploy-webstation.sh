@@ -3,8 +3,9 @@ set -euo pipefail
 
 # deploy-webstation.sh (Jellyfin Host) — Model B GitOps
 #
-# Deploys the RomM emulator-streaming webstation (compose/webstation.yml) plus the
-# files it mounts from config/webstation/.
+# Deploys the RomM emulator-streaming webstations (compose/webstation.yml: three
+# instances, so three games can stream at once) plus the files they all mount
+# from config/webstation/.
 #
 # Kept apart from deploy.sh on purpose: CI re-runs deploy-arr and deploy-jellyfin on
 # any deploy.sh change, and re-pulling arr's floating alpine/docker-cli tags can
@@ -44,6 +45,17 @@ git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
 [[ -d "$LIVE_COMPOSE_DIR" ]] || die "missing stack dir: $LIVE_COMPOSE_DIR"
 [[ -d "${STACK_DIR}/config" ]] || die "missing config dir: ${STACK_DIR}/config"
 
+# Instances 2 and 3 start from an empty /config, which the image and the cont-init
+# seed fill on first start (BIOS, xemu HDD, emulator config). Owned by PUID/PGID
+# 1000 (jf), like instance 1's. RetroArch cores and shader caches build up per
+# instance, so the first launch of a platform on a new instance is slower.
+for n in 2 3; do
+  if [[ ! -d "${STACK_DIR}/config-${n}" ]]; then
+    sudo /usr/bin/install -d -m 0755 -o 1000 -g 1000 "${STACK_DIR}/config-${n}"
+    log_info "created ${STACK_DIR}/config-${n}"
+  fi
+done
+
 log_info "Syncing compose -> ${LIVE_COMPOSE_DIR}/docker-compose.yml"
 sudo /usr/bin/install -m 0644 -o root -g root "$SRC_COMPOSE" "${LIVE_COMPOSE_DIR}/docker-compose.yml"
 
@@ -77,7 +89,7 @@ for d in custom-cont-init.d custom-services.d seed bin; do
   done
 done
 
-log_info "Deploying webstation stack..."
+log_info "Deploying webstation stack (3 instances)..."
 (
   cd "$LIVE_COMPOSE_DIR"
   sudo /usr/bin/docker compose pull

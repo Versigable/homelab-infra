@@ -1,19 +1,25 @@
 http:
   routers:
-    # RomM emulator streaming: the webstation container (Selkies desktop +
-    # romm-broker) on jf, served under /streaming on RomM's own hostnames.
-    # Same origin is what lets RomM's player iframe it: both RomM hosts send
-    # COEP credentialless, and a cross-origin iframe without COEP of its own
-    # is blocked. The webstation's SUBFOLDER is /streaming/, so no path rewrite.
+    # RomM emulator streaming: three webstation containers (Selkies desktop +
+    # romm-broker) on jf, served under /streaming, /streaming-2 and
+    # /streaming-3 on RomM's own hostnames. Same origin is what lets RomM's
+    # player iframe them: both RomM hosts send COEP credentialless, and a
+    # cross-origin iframe without COEP of its own is blocked. Each
+    # webstation's SUBFOLDER matches its path, so no path rewrite.
     #
     # Access layers, outermost first:
     #   1. romm-session-auth: only browsers signed in to RomM get through.
     #   2. The broker refuses stream/desktop/file sockets without the
     #      per-session stream_token RomM hands the claiming user at launch.
-    #   3. The broker API wants RomM's X-Broker-Secret. RomM calls it over the
-    #      LAN (broker_host http://10.0.1.8:3010), not through this route.
+    #   3. The broker API wants RomM's X-Broker-Secret. RomM calls each broker
+    #      over the LAN (broker_host http://10.0.1.8:3010/3020/3030), not
+    #      through these routes.
+    #
+    # PathPrefix(`/streaming`) also matches /streaming-2 and /streaming-3, so
+    # the numbered routers carry a higher explicit priority than the base one.
     games-streaming-router:
       rule: "Host(`games.ninjaprivacy.org`) && PathPrefix(`/streaming`)"
+      priority: 100
       service: romm-webstation-svc
       entrypoints: [websecure]
       tls:
@@ -24,6 +30,7 @@ http:
 
     arcade-streaming-router:
       rule: "Host(`arcade.ninjaprivacy.org`) && PathPrefix(`/streaming`)"
+      priority: 100
       service: romm-webstation-svc
       entrypoints: [websecure]
       tls:
@@ -32,18 +39,74 @@ http:
         - romm-session-auth
         - games-coop-coep@file
 
+    games-streaming-2-router:
+      rule: "Host(`games.ninjaprivacy.org`) && PathPrefix(`/streaming-2`)"
+      priority: 200
+      service: romm-webstation-2-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - romm-session-auth
+        - games-coop-coep@file
+
+    arcade-streaming-2-router:
+      rule: "Host(`arcade.ninjaprivacy.org`) && PathPrefix(`/streaming-2`)"
+      priority: 200
+      service: romm-webstation-2-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - romm-session-auth
+        - games-coop-coep@file
+
+    games-streaming-3-router:
+      rule: "Host(`games.ninjaprivacy.org`) && PathPrefix(`/streaming-3`)"
+      priority: 200
+      service: romm-webstation-3-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - romm-session-auth
+        - games-coop-coep@file
+
+    arcade-streaming-3-router:
+      rule: "Host(`arcade.ninjaprivacy.org`) && PathPrefix(`/streaming-3`)"
+      priority: 200
+      service: romm-webstation-3-svc
+      entrypoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - romm-session-auth
+        - games-coop-coep@file
+
   services:
-    # The webstation on jf: hosts/jellyfin/compose/webstation.yml.
+    # The webstations on jf: hosts/jellyfin/compose/webstation.yml.
     romm-webstation-svc:
       loadbalancer:
         servers:
           - url: http://10.0.1.8:3010
         passHostHeader: true
 
+    romm-webstation-2-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:3020
+        passHostHeader: true
+
+    romm-webstation-3-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.8:3030
+        passHostHeader: true
+
   middlewares:
     # Traefik replays each request's headers (cookies included) as a GET to
     # RomM. /api/users/me answers 200 for a signed-in session and 401
-    # otherwise, so RomM's own login gates the webstation. Friends have RomM
+    # otherwise, so RomM's own login gates the webstations. Friends have RomM
     # accounts, not Authentik ones, which is why this isn't authentik-forward.
     romm-session-auth:
       forwardAuth:

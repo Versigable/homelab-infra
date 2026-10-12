@@ -1,56 +1,86 @@
 # RomM emulator streaming: LinuxServer webstation (Selkies desktop + romm-broker).
-# RomM launches games here over the broker API (http://10.0.1.8:3010, X-Broker-Secret)
-# and players reach the stream same-origin through Traefik at /streaming on games.* and
-# arcade.* (hosts/traefik/config/dynamic/romm-streaming.yml).
+# Three identical instances, so three games can stream at once. RomM pools them
+# (same emulators and cores per platform) and a launch takes the first free one
+# in config order, so instance 1 stays the warm one.
+#
+#   instance  container          /config     broker (RomM, LAN)      player path (Traefik)
+#   1         romm-webstation    ../config   http://10.0.1.8:3010    /streaming
+#   2         romm-webstation-2  ../config-2 http://10.0.1.8:3020    /streaming-2
+#   3         romm-webstation-3  ../config-3 http://10.0.1.8:3030    /streaming-3
+#
+# RomM calls each broker over the LAN (X-Broker-Secret, shared by all three) and
+# players reach each stream same-origin through Traefik on games.* and arcade.*
+# (hosts/traefik/config/dynamic/romm-streaming.yml). RomM's own list of the three
+# lives in its live config.yml; see config/webstation/README.md.
 # Deployed by scripts/deploy-webstation.sh, which also ships config/webstation/.
 name: webstation
 
+x-webstation-env: &webstation-env
+  PUID: "1000"
+  PGID: "1000"
+  TZ: Etc/UTC
+  BROKER_SECRET: ${BROKER_SECRET}
+  HARDEN_DESKTOP: "true"
+  DISABLE_TERMINALS: "true"
+  DISABLE_SUDO: "true"
+  # Fixed stream size; the browser scales it to the window. Unlocked, Selkies
+  # follows the window (a 5K2K fullscreen asked for 5120x2160, past what
+  # H.264 NVENC encodes).
+  SELKIES_MANUAL_WIDTH: "1920"
+  SELKIES_MANUAL_HEIGHT: "1080"
+  # The client sends its devicePixelRatio as DPI (Windows 150% => 144), which
+  # flips the compositor to scale 1.5 mid-session and blew up Qt emulators.
+  SELKIES_SCALING_DPI: "96"
+  # PCSX2's patches.zip is installed by custom-cont-init.d/50-seed-emulators;
+  # the broker's own refresh needs sudo, which DISABLE_SUDO blocks.
+  PCSX2_PATCHES_FETCH: "false"
+  # Azahar's bundled Qt picks native Wayland, where frames never reach the
+  # window on NVIDIA; the wrapper forces XWayland (see config/webstation/bin).
+  AZAHAR_BIN: /opt/webstation-bin/azahar-xcb
+
+x-webstation: &webstation
+  image: lscr.io/linuxserver/webstation:romm-version-v0.15.0
+  # GPU: jf runs NVIDIA's .run driver 595.104.02 (>= 595.80, so no kernel
+  # params or dummy plug). Selkies also needs /dev/nvidia-modeset, which the
+  # .run driver creates lazily; a docker.service ExecStartPre on jf
+  # (nvidia-modprobe) makes it exist before containers start at boot. The image
+  # already sets NVIDIA_DRIVER_CAPABILITIES=all. The 3060 Ti is shared by all
+  # three instances, Jellyfin (NVENC) and Sunshine; 10 concurrent 1080p60
+  # NVENC encodes were tested OK on 2026-10-12.
+  runtime: nvidia
+  devices:
+    - /dev/nvidia-modeset:/dev/nvidia-modeset
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+  restart: unless-stopped
+  shm_size: "1gb"
+  # Per-instance caps so one runaway game can't starve the other two sessions or
+  # Jellyfin. jf has 12 vCPUs / 16 GiB; a real xemu or Azahar session peaked at
+  # 1.86 GiB (Selkies included) and used about 1.5-3 cores.
+  cpus: 4
+  mem_limit: 3g
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   webstation:
-    image: lscr.io/linuxserver/webstation:romm-version-v0.15.0
+    <<: *webstation
     container_name: romm-webstation
-    # GPU: jf runs NVIDIA's .run driver 595.104.02 (>= 595.80, so no kernel
-    # params or dummy plug). Selkies also needs /dev/nvidia-modeset; the image
-    # already sets NVIDIA_DRIVER_CAPABILITIES=all. The 3060 Ti is shared with
-    # Jellyfin (NVENC) and Sunshine.
-    runtime: nvidia
-    devices:
-      - /dev/nvidia-modeset:/dev/nvidia-modeset
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    restart: unless-stopped
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Etc/UTC
-      - SUBFOLDER=/streaming/
-      - BROKER_SECRET=${BROKER_SECRET}
-      - HARDEN_DESKTOP=true
-      - DISABLE_TERMINALS=true
-      - DISABLE_SUDO=true
-      # Fixed stream size; the browser scales it to the window. Unlocked, Selkies
-      # follows the window (a 5K2K fullscreen asked for 5120x2160, past what
-      # H.264 NVENC encodes). 720p while CPU-only, 1080p now NVENC encodes.
-      - SELKIES_MANUAL_WIDTH=1920
-      - SELKIES_MANUAL_HEIGHT=1080
-      # The client sends its devicePixelRatio as DPI (Windows 150% => 144), which
-      # flips the compositor to scale 1.5 mid-session and blew up Qt emulators.
-      - SELKIES_SCALING_DPI=96
-      # PCSX2's patches.zip is installed by custom-cont-init.d/50-seed-emulators;
-      # the broker's own refresh needs sudo, which DISABLE_SUDO blocks.
-      - PCSX2_PATCHES_FETCH=false
-      # Azahar's bundled Qt picks native Wayland, where frames never reach the
-      # window on NVIDIA; the wrapper forces XWayland (see config/webstation/bin).
-      - AZAHAR_BIN=/opt/webstation-bin/azahar-xcb
+      <<: *webstation-env
+      SUBFOLDER: /streaming/
     volumes:
       - ../config:/config
       - /mnt/gameroom:/romm/library:ro
-      # Seeds BIOS files and PPSSPP config the broker expects but never provides.
+      # Seeds BIOS files and emulator config the broker expects but never provides.
       - ../custom-cont-init.d:/custom-cont-init.d:ro
       # Clears PPSSPP's stale instance counter (secondary instances mute themselves).
       - ../custom-services.d:/custom-services.d:ro
@@ -58,11 +88,35 @@ services:
       - ../bin:/opt/webstation-bin:ro
     ports:
       - "10.0.1.8:3010:3000" # HTTP: RomM broker calls and the Traefik /streaming route
-    shm_size: "1gb"
-    cpus: 6
-    mem_limit: 6g
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+
+  webstation-2:
+    <<: *webstation
+    container_name: romm-webstation-2
+    environment:
+      <<: *webstation-env
+      SUBFOLDER: /streaming-2/
+    volumes:
+      - ../config-2:/config
+      - /mnt/gameroom:/romm/library:ro
+      - ../custom-cont-init.d:/custom-cont-init.d:ro
+      - ../custom-services.d:/custom-services.d:ro
+      - ../seed:/seed:ro
+      - ../bin:/opt/webstation-bin:ro
+    ports:
+      - "10.0.1.8:3020:3000" # HTTP: RomM broker calls and the Traefik /streaming-2 route
+
+  webstation-3:
+    <<: *webstation
+    container_name: romm-webstation-3
+    environment:
+      <<: *webstation-env
+      SUBFOLDER: /streaming-3/
+    volumes:
+      - ../config-3:/config
+      - /mnt/gameroom:/romm/library:ro
+      - ../custom-cont-init.d:/custom-cont-init.d:ro
+      - ../custom-services.d:/custom-services.d:ro
+      - ../seed:/seed:ro
+      - ../bin:/opt/webstation-bin:ro
+    ports:
+      - "10.0.1.8:3030:3000" # HTTP: RomM broker calls and the Traefik /streaming-3 route
