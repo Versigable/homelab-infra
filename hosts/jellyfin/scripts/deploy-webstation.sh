@@ -70,10 +70,12 @@ sync_file() { # sync_file <src> <dest> <mode>
 }
 for d in custom-cont-init.d custom-services.d seed; do
   sudo /usr/bin/install -d -m 0755 -o root -g root "${STACK_DIR}/${d}"
+  mode=0755
+  [[ "$d" == seed ]] && mode=0644
+  for f in "${SRC_FILES}/${d}"/*; do
+    [[ -f "$f" ]] && sync_file "$f" "${STACK_DIR}/${d}/${f##*/}" "$mode"
+  done
 done
-sync_file "${SRC_FILES}/custom-cont-init.d/50-seed-emulators" "${STACK_DIR}/custom-cont-init.d/50-seed-emulators" 0755
-sync_file "${SRC_FILES}/custom-services.d/svc-ppsspp-shm-reaper" "${STACK_DIR}/custom-services.d/svc-ppsspp-shm-reaper" 0755
-sync_file "${SRC_FILES}/seed/ppsspp-controls.ini" "${STACK_DIR}/seed/ppsspp-controls.ini" 0644
 
 log_info "Deploying webstation stack..."
 (

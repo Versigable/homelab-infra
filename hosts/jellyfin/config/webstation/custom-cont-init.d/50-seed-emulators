@@ -33,6 +33,36 @@ for f in dc_boot dc_flash; do
   seed "$BIOS/dc/$f.bin" "/config/.config/retroarch/system/dc/$f.bin"
 done
 
+# PS2 BIOS for PCSX2, whose data root is $XDG_CONFIG_HOME/PCSX2 (BIOS folder
+# bios/). Pin the USA SCPH-39001 image, as the library's PS2 games are USA.
+# A fresh PCSX2.ini starts the way the broker seeds one (SettingsVersion = 1),
+# so PCSX2 keeps it rather than resetting to defaults.
+for f in "$BIOS"/ps2/*; do
+  seed "$f" "/config/.config/PCSX2/bios/${f##*/}"
+done
+PCSX2_INI=/config/.config/PCSX2/inis/PCSX2.ini
+if ! grep -q '^BIOS = ' "$PCSX2_INI" 2>/dev/null; then
+  mkdir_abc "${PCSX2_INI%/*}"
+  [[ -f "$PCSX2_INI" ]] || printf '[UI]\nSettingsVersion = 1\n' >"$PCSX2_INI"
+  if grep -q '^\[Filenames\]' "$PCSX2_INI"; then
+    sed -i '/^\[Filenames\]/a BIOS = SCPH-39001.bin' "$PCSX2_INI"
+  else
+    printf '\n[Filenames]\nBIOS = SCPH-39001.bin\n' >>"$PCSX2_INI"
+  fi
+  chown abc:abc "$PCSX2_INI"
+  echo "[seed-emulators] pinned PCSX2 BIOS SCPH-39001.bin"
+fi
+
+# Wii controls. The broker binds GameCube pads to the virtual SDL pad but leaves
+# Wiimotes on Dolphin's keyboard/mouse default. Emulate a Wiimote with a Classic
+# Controller on each SDL pad, which covers Classic-capable games (Xenoblade).
+DOLPHIN_CFG=/config/.config/dolphin-emu
+if ! grep -q 'SDL/' "$DOLPHIN_CFG/WiimoteNew.ini" 2>/dev/null; then
+  mkdir_abc "$DOLPHIN_CFG"
+  install -m 0644 -o abc -g abc /seed/dolphin-WiimoteNew.ini "$DOLPHIN_CFG/WiimoteNew.ini" &&
+    echo "[seed-emulators] installed Wii Classic Controller map"
+fi
+
 # PPSSPP controls. The broker writes controls.ini with only its Save/Load State
 # keys, and PPSSPP 1.20 (KeyMap::LoadFromIni) drops the default binding of every
 # action a [ControlMapping] section leaves out: no keyboard, no pad. Install the
