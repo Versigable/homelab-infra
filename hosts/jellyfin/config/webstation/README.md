@@ -6,7 +6,7 @@ the romm-broker shipped with `lscr.io/linuxserver/webstation:romm-version-v0.15.
 
 | File | Mounted at | Why |
 |------|-----------|-----|
-| `custom-cont-init.d/50-seed-emulators` | `/custom-cont-init.d` | Runs as root at every start. Copies the PS1, PS2 and Dreamcast BIOS from the RomM library into DuckStation, PCSX2, Flycast and RetroArch, and pins PCSX2 to the USA SCPH-39001 BIOS. Installs PCSX2's `patches.zip` (upstream's rolling release, validated, refreshed weekly). Sets up xemu: `xemu.toml` with the library's MCPX and Complex 4627 images, a blank HDD, and port 1 on the virtual pad. Installs the full PPSSPP and Wii control maps, and sets PPSSPP's memory stick to 1 GB. Copy-if-missing only, except the gamepad shim, which it installs into the Selkies web root (`/usr/share/selkies/web`, container layer) and loads from `index.html` on every start. |
+| `custom-cont-init.d/50-seed-emulators` | `/custom-cont-init.d` | Runs as root at every start. Copies the PS1, PS2 and Dreamcast BIOS from the RomM library into DuckStation, PCSX2, Flycast and RetroArch, and pins PCSX2 to the USA SCPH-39001 BIOS. Installs PCSX2's `patches.zip` (upstream's rolling release, validated, refreshed weekly). Sets up xemu: `xemu.toml` with the library's MCPX and Complex 4627 images, a blank HDD, and port 1 on the virtual pad. Installs the full PPSSPP and Wii control maps, and sets PPSSPP's memory stick to 1 GB. Adds the performance defaults below to Dolphin's `GFX.ini`, `PCSX2.ini` and `xemu.toml`. Copy-if-missing or set-if-missing only, except the gamepad shim, which it installs into the Selkies web root (`/usr/share/selkies/web`, container layer) and loads from `index.html` on every start. |
 | `custom-services.d/svc-ppsspp-shm-reaper` | `/custom-services.d` | s6 service. Deletes `/dev/shm/PPSSPP_ID` whenever PPSSPP isn't running; otherwise every launch after a broker stop is a "secondary instance" with game volume 0. |
 | `seed/ppsspp-controls.ini` | `/seed` | PPSSPP 1.20.4's default Linux map (QWERTY keyboard + pad 0) plus the broker's `[`/`]` save/load keys, generated from the v1.20.4 sources. The broker's own seed holds only those two keys, and PPSSPP unbinds everything a `[ControlMapping]` section leaves out. |
 | `seed/dolphin-WiimoteNew.ini` | `/seed` | Wiimotes 1-4 as emulated Wiimotes with a Classic Controller, bound to SDL pads 0-3 using the names the broker's own GameCube template uses (`SDL/<n>/Xbox 360 Controller`). The broker configures only GameCube pads, leaving Wii games on Dolphin's keyboard/mouse default. |
@@ -56,5 +56,35 @@ its own `SUBFOLDER` and Traefik routers rather than one load-balanced path.
 Changing any of these files restarts all three containers on deploy, ending any running sessions.
 
 PCSX2 reads `patches.zip` only from `/usr/share/PCSX2/resources/`. The broker's own refresh installs it with `sudo`, which `DISABLE_SUDO=true` blocks, so compose sets `PCSX2_PATCHES_FETCH=false` and the cont-init script fetches it as root. It sits in the container layer, so a recreate fetches it again.
+
+## Emulator performance defaults
+
+`50-seed-emulators` adds these keys only where a file doesn't set them yet (`set_defaults`), so
+a value someone later changes in the emulator's own menu stays (except xemu's, below). Found
+while chasing stutter on the heavy systems (2026-10-12):
+
+| Emulator | File | Keys | Why |
+|---|---|---|---|
+| Dolphin | `.config/dolphin-emu/GFX.ini` | `[Settings] ShaderCompilationMode = 2`, `ShaderPrecompilerThreads = 3`; `[Hardware] VSync = True`; `[Hacks] SkipDuplicateXFBs = False` | The empty default compiles every new shader synchronously, so a game hitches the first time an effect appears (worst on instances 2 and 3, whose caches start cold). Hybrid ubershaders compile in the background, on 3 threads rather than the 10 that auto picks from jf's 12 vCPUs. `WaitForShadersBeforeStarting` stays off: on a cold cache it would hold the game past the broker's 5 s delay before loading a resume state. VSync with duplicate frames presented should give 30 fps games a near-even cadence on the 60 Hz capture (untested; Dolphin can't sync to the host rate, so one repeat per ~17 s remains). |
+| PCSX2 | `.config/PCSX2/inis/PCSX2.ini` | `[EmuCore/GS] VsyncEnable`, `SyncToHostRefreshRate`, `UseVSyncForTiming = true`; `[EmuCore/Speedhacks] vuThread = true` | Selkies captures at 60.000 Hz, and PCSX2's own 59.94 Hz limiter drifts against it. With these, PCSX2 paces on VSync, so the capture rate sets game speed: compose locks it with `SELKIES_FRAMERATE=60-60`. Check the emulog for `Refresh rate: Host=60… can sync and using vsync for pacing`. MTVU is PCSX2's own default on 3+ cores, but it applies it only to an ini it writes itself. |
+| xemu | `.local/share/xemu/xemu/xemu.toml` | `[audio.vp] num_workers = 3` | Auto starts one voice worker per CPU xemu sees: all 12 of jf's vCPUs, not the 4 in the cpuset. Those 12 threads woke about 22,000 times a second on 4 vCPUs (container CPU pressure 11-15% with the vCPUs half idle). Auto can't be chosen from xemu's menu and kept: xemu drops default-valued keys on exit and the seed puts 3 back, so change it here. |
+
+Compose also sets `memswap_limit` equal to `mem_limit`, so nothing in a webstation is swapped
+out: with MGLRU, jf's swappiness of 10 didn't stop the kernel from swapping a running xemu,
+Selkies and labwc while qBittorrent's page cache (and chdman ROM ingests on jf) filled memory.
+It also locks `SELKIES_FRAMERATE` at 60 (see PCSX2 above; RetroArch and xemu pace on the same frames).
+
+xemu emulates the Xbox CPU on one TCG thread; there is no multithreaded or KVM path. That thread
+reads 93-97% of a vCPU in Shenmue II, but also ~97% at Halo's idle menu, so the figure doesn't show
+whether a game is running below speed. In a live A/B on 2026-10-12, giving the thread its own
+physical core on phoenix and then a vCPU of its own in the container (run-queue wait 39 -> 17 ms/s)
+made no felt difference, so CPU contention isn't the cause. Whether Shenmue II actually drops below
+30 fps here is unmeasured: read xemu's Debug > Video FPS during a slowdown before calling it a CPU
+limit (these instances run `surface_scale = 2`).
+
+Not every freeze is server-side: on 2026-10-12, brief freezes in PCSX2 (Legaia 2, EE ~35%) and
+RetroArch (Smash 64) seen from a remote client never appeared on jf, whose stream stayed
+continuous. Check the client and transport (Selkies client stats, a LAN test) before tuning
+emulators.
 
 Azahar (3DS) needs nothing here: the image seeds `qt-config.ini` from `/defaults/azahar.ini`, which already binds the virtual pad (GUID `030081b85e0400008e02000014010000`) through SDL's controller API.
