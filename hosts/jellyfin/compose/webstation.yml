@@ -31,6 +31,11 @@ x-webstation-env: &webstation-env
   # The client sends its devicePixelRatio as DPI (Windows 150% => 144), which
   # flips the compositor to scale 1.5 mid-session and blew up Qt emulators.
   SELKIES_SCALING_DPI: "96"
+  # Capture locked at 60 fps. Emulators that pace on VSync (PCSX2 with
+  # UseVSyncForTiming, Dolphin VSync, RetroArch, xemu) wait on the compositor's
+  # frames, which follow this rate; unlocked, the sidebar's framerate slider
+  # (8-240, saved in the browser) would change game speed. Locked, it's hidden.
+  SELKIES_FRAMERATE: "60-60"
   # PCSX2's patches.zip is installed by custom-cont-init.d/50-seed-emulators;
   # the broker's own refresh needs sudo, which DISABLE_SUDO blocks.
   PCSX2_PATCHES_FETCH: "false"
@@ -75,6 +80,12 @@ x-webstation: &webstation
   # Selkies included. CPU is bounded by each instance's own cpuset below (4 of
   # jf's 12 vCPUs) instead of a CFS quota.
   mem_limit: 3g
+  # No swap (memory.swap.max 0). qBittorrent's ~11 GiB of torrent page cache, and
+  # ROM-ingest chdman runs on jf (11-13 GiB peaks), keep jf at its reclaim
+  # watermarks, and with MGLRU even swappiness 10 swapped out ~400 MB of a running
+  # xemu plus part of Selkies and labwc (2026-10-12), which came back from disk at
+  # the next launch. Peak use is ~1.9 GiB with what was in swap, under the cap.
+  memswap_limit: 3g
   logging:
     driver: json-file
     options:

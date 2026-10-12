@@ -19,6 +19,85 @@ seed() { # seed <src> <dest>: copy when the destination is missing
   install -m 0644 -o abc -g abc "$1" "$2" && echo "[seed-emulators] seeded $2"
 }
 
+# set_defaults <file> <section> <key> <value> [<section> <key> <value> ...]
+# Adds each key to its [section] of an INI or TOML file only when the file doesn't
+# set it yet, so a value changed later in the emulator's own menus stays. A .toml
+# result must parse (tomllib) with every key in its own table, or the file is left
+# as it was. The file keeps its mode (on config-2/3 that sets the ACL mask).
+set_defaults() {
+  mkdir_abc "$(dirname "$1")"
+  python3 - "$@" <<'PY' || echo "[seed-emulators] could not update $1; left as it was"
+import os, re, sys, tempfile
+path, args = sys.argv[1], sys.argv[2:]
+toml = path.endswith(".toml")
+header = re.compile(r"\s*\[([^\[\]]+)\]\s*(#.*)?$")
+boundary = re.compile(r"\s*\[\[?[^\[\]]+\]\]?\s*(#.*)?$")  # a section also ends at a TOML [[table]]
+
+def lookup(tree, section, key):
+    node = tree
+    for part in section.split(".") + [key]:
+        node = node.get(part) if isinstance(node, dict) else None
+    return node
+
+tmp = None
+try:
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        lines = []
+    if toml:
+        import tomllib
+        have = tomllib.loads("\n".join(lines))
+    added = []
+    for i in range(0, len(args), 3):
+        section, key, value = args[i:i + 3]
+        if toml and lookup(have, section, key) is not None:
+            continue
+        start = next((n for n, l in enumerate(lines)
+                      if (m := header.match(l)) and m.group(1).strip() == section), None)
+        if start is None:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines += [f"[{section}]", f"{key} = {value}"]
+        else:
+            end = next((n for n in range(start + 1, len(lines)) if boundary.match(lines[n])), len(lines))
+            if any(re.match(rf"\s*{re.escape(key)}\s*=", l) for l in lines[start + 1:end]):
+                continue
+            while end > start + 1 and not lines[end - 1].strip():
+                end -= 1  # after the section's last line, before its trailing blanks
+            lines.insert(end, f"{key} = {value}")
+        added.append((section, key, value))
+    if not added:
+        sys.exit(0)
+    text = "\n".join(lines) + "\n"
+    if toml:
+        result = tomllib.loads(text)  # raises, leaving the file untouched
+        for section, key, _ in added:
+            if lookup(result, section, key) is None:
+                raise ValueError(f"{key} would land outside [{section}]")
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except FileNotFoundError:
+        mode = 0o644
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=os.path.basename(path) + ".", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+    tmp = None
+except Exception as e:
+    if tmp:
+        os.unlink(tmp)
+    print(f"[seed-emulators] {path}: {e}", file=sys.stderr)
+    sys.exit(1)
+print(f"[seed-emulators] {path}: set " + " ".join(f"{s}/{k}={v}" for s, k, v in added))
+PY
+  if [[ -f "$1" ]]; then chown abc:abc "$1"; fi
+}
+
 # PS1 BIOS for standalone DuckStation and RetroArch's SwanStation core. Without
 # one, DuckStation exits 0 on launch and the player sees a black screen.
 for f in scph5500 scph5501 scph5502 scph7001; do
@@ -52,6 +131,18 @@ if ! grep -q '^BIOS = ' "$PCSX2_INI" 2>/dev/null; then
   chown abc:abc "$PCSX2_INI"
   echo "[seed-emulators] pinned PCSX2 BIOS SCPH-39001.bin"
 fi
+# PCSX2 pacing. The stream is captured on a 60.000 Hz timer (locked by
+# SELKIES_FRAMERATE in compose), and PCSX2's defaults (VSync off, its own 59.94 Hz
+# limiter) drift against it, repeating or dropping a frame every ~17 s. Sync to the
+# host refresh and pace on VSync instead. VSync then sets game speed, which is why
+# the capture rate must stay locked: at 30 fps PCSX2 would run at half speed.
+# MTVU (VU1 on its own thread) is PCSX2's own default on 3+ cores, but PCSX2 sets
+# it only when it writes a fresh ini itself, and the BIOS pin above writes one first.
+set_defaults "$PCSX2_INI" \
+  EmuCore/GS VsyncEnable true \
+  EmuCore/GS SyncToHostRefreshRate true \
+  EmuCore/GS UseVSyncForTiming true \
+  EmuCore/Speedhacks vuThread true
 
 # Wii controls. The broker binds GameCube pads to the virtual SDL pad but leaves
 # Wiimotes on Dolphin's keyboard/mouse default. Emulate a Wiimote with a Classic
@@ -62,6 +153,23 @@ if ! grep -q 'SDL/' "$DOLPHIN_CFG/WiimoteNew.ini" 2>/dev/null; then
   install -m 0644 -o abc -g abc /seed/dolphin-WiimoteNew.ini "$DOLPHIN_CFG/WiimoteNew.ini" &&
     echo "[seed-emulators] installed Wii Classic Controller map"
 fi
+
+# Dolphin graphics. GFX.ini starts empty, so Dolphin compiles each new shader
+# synchronously and the game hitches the first time an effect appears (worst on a
+# cold cache, e.g. instances 2 and 3). Hybrid ubershaders (mode 2) draw with an
+# ubershader while the specialized one compiles in the background. 3 background
+# compile threads for the ubershaders: auto would start 10, sized from jf's 12 vCPUs,
+# not the 4 in the cpuset. WaitForShadersBeforeStarting stays off: on a cold cache it
+# would hold the game past the broker's fixed 5 s delay before it loads a resume state.
+# VSync on, with duplicate frames still presented, puts frames on the compositor's
+# 60 Hz ticks instead of wherever Dolphin's own timer lands them. Dolphin can't sync
+# to the host rate, so one repeated frame per ~17 s remains (59.94 vs 60). GFX.ini,
+# not Dolphin.ini: the image's autostart can rewrite Dolphin.ini.
+set_defaults "$DOLPHIN_CFG/GFX.ini" \
+  Settings ShaderCompilationMode 2 \
+  Settings ShaderPrecompilerThreads 3 \
+  Hardware VSync True \
+  Hacks SkipDuplicateXFBs False
 
 # PCSX2 patch bundle (GameDB fixes, widescreen, no-interlace). pcsx2-qt reads it
 # only from /usr/share/PCSX2/resources/patches.zip, which this image doesn't ship,
@@ -135,6 +243,15 @@ TOML
 elif ! grep -q '^bootrom_path' "$XEMU_TOML"; then
   echo "[seed-emulators] $XEMU_TOML exists without [sys.files]; left alone"
 fi
+# xemu's audio voice workers. Auto (0) starts one per CPU it sees, which is all 12
+# of jf's vCPUs, not the 4 in the cpuset. The 12 threads woke ~22,000 times/s and
+# kept the container's cpu.pressure at 11-15% with its vCPUs about half idle; fewer
+# workers leave that CPU to Selkies and labwc. It won't raise xemu's own ceiling: an
+# exclusive vCPU for the emulated-CPU thread made no felt difference (2026-10-12).
+# Never 1, so the voice processor stays parallel; if audio crackles (Debug > Audio
+# utilization at 1 or more), raise it to 4. Auto can't be restored from xemu's menu:
+# xemu drops default-valued keys on exit and this puts 3 back, so change it here.
+set_defaults "$XEMU_TOML" audio.vp num_workers 3
 
 # PPSSPP controls. The broker writes controls.ini with only its Save/Load State
 # keys, and PPSSPP 1.20 (KeyMap::LoadFromIni) drops the default binding of every
