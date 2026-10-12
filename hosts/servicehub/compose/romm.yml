@@ -61,7 +61,7 @@ services:
       ENABLE_RESCAN_ON_FILESYSTEM_CHANGE: ${ENABLE_RESCAN_ON_FILESYSTEM_CHANGE:-false}
     volumes:
       - ../data/resources:/romm/resources
-      - ../data/redis:/romm/redis-data
+      - ../data/redis:/redis-data # internal valkey runs with --dir /redis-data
       - ../data/assets:/romm/assets
       - ../config/app:/romm/config
       - /mnt/gameroom:/romm/library:ro
