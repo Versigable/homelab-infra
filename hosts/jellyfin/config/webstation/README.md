@@ -1,6 +1,6 @@
 # webstation (RomM emulator streaming)
 
-Files `scripts/deploy-webstation.sh` installs (every file in these three folders) under `/home/jf/webstation-hub/` and
+Files `scripts/deploy-webstation.sh` installs (every file in these four folders) under `/home/jf/webstation-hub/` and
 `compose/webstation.yml` mounts read-only into the container. All three fill gaps in
 the romm-broker shipped with `lscr.io/linuxserver/webstation:romm-version-v0.15.0`:
 
@@ -11,6 +11,7 @@ the romm-broker shipped with `lscr.io/linuxserver/webstation:romm-version-v0.15.
 | `seed/ppsspp-controls.ini` | `/seed` | PPSSPP 1.20.4's default Linux map (QWERTY keyboard + pad 0) plus the broker's `[`/`]` save/load keys, generated from the v1.20.4 sources. The broker's own seed holds only those two keys, and PPSSPP unbinds everything a `[ControlMapping]` section leaves out. |
 | `seed/dolphin-WiimoteNew.ini` | `/seed` | Wiimotes 1-4 as emulated Wiimotes with a Classic Controller, bound to SDL pads 0-3 using the names the broker's own GameCube template uses (`SDL/<n>/Xbox 360 Controller`). The broker configures only GameCube pads, leaving Wii games on Dolphin's keyboard/mouse default. |
 | `seed/xemu-xbox_hdd.qcow2.zip` | `/seed` | xemu's official blank 8 GiB HDD (xemu-project/xemu-hdd-image 1.0, sha256 `d9f5a4c1…bb39`). It's extracted to `/config/xemu/xbox_hdd.qcow2` once, and the broker converts it to raw on first launch. |
+| `bin/azahar-xcb` | `/opt/webstation-bin` | The `AZAHAR_BIN` launch wrapper. It forces `QT_QPA_PLATFORM=xcb` because on native Wayland Azahar's frames never reach the window on NVIDIA (the game runs with audio, but the screen stays black). |
 
 The container's `/config` (cores, BIOS copies, emulator settings, broker exports) lives
 in `/home/jf/webstation-hub/config` and is not in git.

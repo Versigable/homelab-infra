@@ -1,0 +1,9 @@
+#!/bin/sh
+# Launch wrapper for Azahar (compose sets AZAHAR_BIN to this file).
+# Azahar's bundled Qt picks native Wayland here, and on NVIDIA its frames never
+# reach the window: the game runs at full speed with audio but the screen stays
+# black (A/B tested 2026-10-12). XWayland renders, so force xcb, as the broker
+# already does for its other Qt emulators (Dolphin, RPCS3).
+QT_QPA_PLATFORM=xcb
+export QT_QPA_PLATFORM
+exec /opt/azahar/AppRun "$@"

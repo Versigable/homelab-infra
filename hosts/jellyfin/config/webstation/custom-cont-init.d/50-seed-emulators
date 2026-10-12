@@ -98,6 +98,9 @@ fi
 XEMU_DIR=/config/xemu
 XEMU_TOML=/config/.local/share/xemu/xemu/xemu.toml
 mkdir_abc "$XEMU_DIR"
+# xemu's config dirs once came up root-owned 0700 (holding an empty xemu.toml),
+# which abc can't read: xemu then aborts in xemu_settings_get_base_path().
+[[ -d /config/.local/share/xemu ]] && chown -R abc:abc /config/.local/share/xemu
 if [[ ! -e "$XEMU_DIR/xbox_hdd.qcow2" ]]; then
   python3 - /seed/xemu-xbox_hdd.qcow2.zip "$XEMU_DIR" <<'PY' &&
 import sys, zipfile
