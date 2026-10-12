@@ -3,10 +3,10 @@
 # (same emulators and cores per platform) and a launch takes the first free one
 # in config order, so instance 1 stays the warm one.
 #
-#   instance  container          /config     broker (RomM, LAN)      player path (Traefik)
-#   1         romm-webstation    ../config   http://10.0.1.8:3010    /streaming
-#   2         romm-webstation-2  ../config-2 http://10.0.1.8:3020    /streaming-2
-#   3         romm-webstation-3  ../config-3 http://10.0.1.8:3030    /streaming-3
+#   instance  container          /config     vCPUs  broker (RomM, LAN)      player path (Traefik)
+#   1         romm-webstation    ../config   0-3    http://10.0.1.8:3010    /streaming
+#   2         romm-webstation-2  ../config-2 4-7    http://10.0.1.8:3020    /streaming-2
+#   3         romm-webstation-3  ../config-3 8-11   http://10.0.1.8:3030    /streaming-3
 #
 # RomM calls each broker over the LAN (X-Broker-Secret, shared by all three) and
 # players reach each stream same-origin through Traefik on games.* and arcade.*
@@ -59,10 +59,10 @@ x-webstation: &webstation
             capabilities: [gpu]
   restart: unless-stopped
   shm_size: "1gb"
-  # Per-instance caps so one runaway game can't starve the other two sessions or
-  # Jellyfin. jf has 12 vCPUs / 16 GiB; a real xemu or Azahar session peaked at
-  # 1.86 GiB (Selkies included) and used about 1.5-3 cores.
-  cpus: 4
+  # Memory cap so one runaway game can't starve the other two sessions or
+  # Jellyfin (jf has 16 GiB); a real xemu or Azahar session peaked at 1.86 GiB,
+  # Selkies included. CPU is bounded by each instance's own cpuset below (4 of
+  # jf's 12 vCPUs) instead of a CFS quota.
   mem_limit: 3g
   logging:
     driver: json-file
@@ -74,6 +74,12 @@ services:
   webstation:
     <<: *webstation
     container_name: romm-webstation
+    # Each instance gets its own 4 vCPUs. Unconfined, jf's kernel moved xemu's
+    # emulated-CPU thread across all 12 vCPUs ~150 times/s (cold caches every
+    # hop); held to 4 it moved ~44 times/s and got 98% of a vCPU instead of 90%
+    # (Halo, measured 2026-10-12). Jellyfin and arr still use all 12. On
+    # phoenix, jf itself is pinned to CCD0 (VM 108 affinity 0-7,16-23).
+    cpuset: "0-3"
     environment:
       <<: *webstation-env
       SUBFOLDER: /streaming/
@@ -92,6 +98,7 @@ services:
   webstation-2:
     <<: *webstation
     container_name: romm-webstation-2
+    cpuset: "4-7"
     environment:
       <<: *webstation-env
       SUBFOLDER: /streaming-2/
@@ -108,6 +115,7 @@ services:
   webstation-3:
     <<: *webstation
     container_name: romm-webstation-3
+    cpuset: "8-11"
     environment:
       <<: *webstation-env
       SUBFOLDER: /streaming-3/

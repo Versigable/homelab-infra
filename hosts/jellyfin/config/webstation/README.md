@@ -20,13 +20,17 @@ in `/home/jf/webstation-hub/config`, `config-2` or `config-3` and is not in git.
 
 One webstation runs one game session, so there are three, to let three games stream at once.
 
-| Instance | Container | `/config` | Broker (RomM, LAN) | Player path (Traefik) |
-|---|---|---|---|---|
-| 1 | `romm-webstation` | `config` | `http://10.0.1.8:3010` | `/streaming` |
-| 2 | `romm-webstation-2` | `config-2` | `http://10.0.1.8:3020` | `/streaming-2` |
-| 3 | `romm-webstation-3` | `config-3` | `http://10.0.1.8:3030` | `/streaming-3` |
+| Instance | Container | `/config` | jf vCPUs | Broker (RomM, LAN) | Player path (Traefik) |
+|---|---|---|---|---|---|
+| 1 | `romm-webstation` | `config` | 0-3 | `http://10.0.1.8:3010` | `/streaming` |
+| 2 | `romm-webstation-2` | `config-2` | 4-7 | `http://10.0.1.8:3020` | `/streaming-2` |
+| 3 | `romm-webstation-3` | `config-3` | 8-11 | `http://10.0.1.8:3030` | `/streaming-3` |
 
-Each is capped at 4 CPUs and 3 GiB (jf has 12 vCPUs and 16 GiB), and all three share the 3060 Ti.
+Each runs on its own 4 of jf's 12 vCPUs (a cpuset, not a CFS quota) and is capped at 3 GiB
+(jf has 16 GiB); all three share the 3060 Ti. The cpusets keep an emulator's hot thread from
+being bounced across all 12 vCPUs, which cost xemu about 8% of its CPU time. On phoenix, jf
+is pinned to the faster CCD (`qm` affinity `0-7,16-23`), which lives in the Proxmox config,
+not here.
 They share `BROKER_SECRET`: RomM's `STREAMING_BROKER_SECRET` env var overrides every
 container's `broker_secret`, so the secrets can't differ.
 
