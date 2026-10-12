@@ -161,3 +161,22 @@ if ! grep -q '^MemStickSize' "$INI" 2>/dev/null; then
   chown abc:abc "$INI"
   echo "[seed-emulators] set PPSSPP MemStickSize = 1"
 fi
+
+# Selkies gamepad shim. Chrome gives some controllers no standard layout, and for
+# those the Selkies client turns raw axes 4/5 into the d-pad and ignores hats: a
+# PowerA GameCube-style pad loses its d-pad and its C-stick drives it instead. The
+# shim rewrites known pads to the standard layout before the client reads them, so
+# Dolphin's GameCube map (and every other emulator's) sees an Xbox-layout pad. The
+# web root sits in the container layer, so this runs on every start.
+SELKIES_WEB=/usr/share/selkies/web
+if [[ -f "$SELKIES_WEB/index.html" ]]; then
+  install -m 0644 -o root -g root /seed/selkies-gamepad-shim.js "$SELKIES_WEB/gamepad-shim.js"
+  if ! grep -q 'gamepad-shim.js' "$SELKIES_WEB/index.html"; then
+    sed -i 's|<head>|<head><script src="./gamepad-shim.js"></script>|' "$SELKIES_WEB/index.html"
+    if grep -q 'gamepad-shim.js' "$SELKIES_WEB/index.html"; then
+      echo "[seed-emulators] loaded the gamepad shim into the Selkies page"
+    else
+      echo "[seed-emulators] Selkies index.html has no <head>; gamepad shim not loaded"
+    fi
+  fi
+fi
