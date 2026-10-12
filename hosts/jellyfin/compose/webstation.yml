@@ -41,6 +41,9 @@ services:
       # The client sends its devicePixelRatio as DPI (Windows 150% => 144), which
       # flips the compositor to scale 1.5 mid-session and blew up Qt emulators.
       - SELKIES_SCALING_DPI=96
+      # PCSX2's patches.zip is installed by custom-cont-init.d/50-seed-emulators;
+      # the broker's own refresh needs sudo, which DISABLE_SUDO blocks.
+      - PCSX2_PATCHES_FETCH=false
     volumes:
       - ../config:/config
       - /mnt/gameroom:/romm/library:ro
