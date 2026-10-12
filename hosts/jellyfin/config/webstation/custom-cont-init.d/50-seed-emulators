@@ -63,6 +63,100 @@ if ! grep -q 'SDL/' "$DOLPHIN_CFG/WiimoteNew.ini" 2>/dev/null; then
     echo "[seed-emulators] installed Wii Classic Controller map"
 fi
 
+# PCSX2 patch bundle (GameDB fixes, widescreen, no-interlace). pcsx2-qt reads it
+# only from /usr/share/PCSX2/resources/patches.zip, which this image doesn't ship,
+# and the broker's own refresh installs it with sudo, which DISABLE_SUDO blocks
+# (compose turns that refresh off with PCSX2_PATCHES_FETCH=false). Fetch
+# upstream's rolling release here instead, as root, when missing or a week old.
+# It lives in the container layer, so a recreate fetches it again.
+PATCHES=/usr/share/PCSX2/resources/patches.zip
+if [[ ! -f "$PATCHES" || -n "$(find "$PATCHES" -mtime +7 2>/dev/null)" ]]; then
+  tmp="$(mktemp)"
+  if curl -fsSL --max-time 60 --max-filesize 67108864 -o "$tmp" \
+      https://github.com/PCSX2/pcsx2_patches/releases/download/latest/patches.zip &&
+    python3 - "$tmp" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:  # a 200 can still carry an error page
+    ok = z.testzip() is None and any(n.endswith(".pnach") for n in z.namelist())
+sys.exit(0 if ok else 1)
+PY
+  then
+    install -D -m 0644 -o root -g root "$tmp" "$PATCHES" && echo "[seed-emulators] installed PCSX2 patches.zip"
+  else
+    echo "[seed-emulators] PCSX2 patches.zip fetch failed; PCSX2 runs without patches"
+  fi
+  rm -f "$tmp"
+fi
+
+# Xbox (xemu). The broker reads hdd_path from xemu.toml and pins only the renderer
+# and fullscreen, so the boot ROM, flash BIOS, EEPROM and HDD are ours to set.
+# Complex 4627 is the flash image proven to boot Halo on jf. The HDD is xemu's
+# official blank image (xemu-hdd-image 1.0); the broker converts it to raw in
+# place on first launch so it can reach saves through FATX. xemu creates the
+# EEPROM itself. Port 1 is bound to the virtual pad's SDL GUID (see Azahar below).
+XEMU_DIR=/config/xemu
+XEMU_TOML=/config/.local/share/xemu/xemu/xemu.toml
+mkdir_abc "$XEMU_DIR"
+if [[ ! -e "$XEMU_DIR/xbox_hdd.qcow2" ]]; then
+  python3 - /seed/xemu-xbox_hdd.qcow2.zip "$XEMU_DIR" <<'PY' &&
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    z.extract("xbox_hdd.qcow2", sys.argv[2])
+PY
+    chown abc:abc "$XEMU_DIR/xbox_hdd.qcow2" && echo "[seed-emulators] installed blank Xbox HDD"
+fi
+if [[ ! -f "$XEMU_TOML" ]]; then
+  mkdir_abc "${XEMU_TOML%/*}"
+  cat >"$XEMU_TOML" <<'TOML'
+[general]
+show_welcome = false
+skip_boot_anim = true
+
+[display.quality]
+surface_scale = 2
+
+[input.bindings]
+port1 = '030081b85e0400008e02000014010000'
+
+[sys.files]
+bootrom_path = '/romm/library/bios/xbox/mcpx_1.0.bin'
+flashrom_path = '/romm/library/bios/xbox/Complex_4627.bin'
+eeprom_path = '/config/xemu/eeprom.bin'
+hdd_path = '/config/xemu/xbox_hdd.qcow2'
+TOML
+  chown abc:abc "$XEMU_TOML"
+  echo "[seed-emulators] wrote xemu.toml"
+elif ! grep -q '^bootrom_path' "$XEMU_TOML"; then
+  echo "[seed-emulators] $XEMU_TOML exists without [sys.files]; left alone"
+fi
+
+# 3DS (Azahar). The broker forces three UI keys in qt-config.ini and nothing
+# else, leaving the controls on Azahar's keyboard defaults. Bind profile 1 to
+# the virtual SDL pad by its GUID, 030081b85e0400008e02000014010000: the value
+# the container's SDL 2.32.10 reports, which is also the SDL Azahar builds in.
+# Merged key-wise, like the broker does, so Azahar's own settings survive.
+AZ_CFG=/config/.config/azahar-emu/qt-config.ini
+if ! grep -q 'engine:sdl' "$AZ_CFG" 2>/dev/null; then
+  mkdir_abc "${AZ_CFG%/*}"
+  python3 - /seed/azahar-controls.ini "$AZ_CFG" <<'PY' &&
+import configparser, os, sys
+def load(path):
+    p = configparser.RawConfigParser(delimiters=("=",))
+    p.optionxform = str  # keys are case-sensitive QSettings names
+    if os.path.exists(path):
+        p.read(path, encoding="utf-8")
+    return p
+seed, cfg = load(sys.argv[1]), load(sys.argv[2])
+if not cfg.has_section("Controls"):
+    cfg.add_section("Controls")
+for key, value in seed.items("Controls"):
+    cfg.set("Controls", key, value)
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    cfg.write(f, space_around_delimiters=False)
+PY
+    chown abc:abc "$AZ_CFG" && echo "[seed-emulators] bound Azahar controls to the virtual pad"
+fi
+
 # PPSSPP controls. The broker writes controls.ini with only its Save/Load State
 # keys, and PPSSPP 1.20 (KeyMap::LoadFromIni) drops the default binding of every
 # action a [ControlMapping] section leaves out: no keyboard, no pad. Install the
