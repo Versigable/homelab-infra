@@ -1,0 +1,10 @@
+#!/usr/bin/with-contenv bash
+# PPSSPP counts live copies in /dev/shm/PPSSPP_ID. The romm-broker stops it with a
+# signal, so the count never goes back down and every later launch runs as a
+# "secondary instance" with game volume 0. Clear the file whenever no PPSSPP runs.
+while true; do
+  if [[ -e /dev/shm/PPSSPP_ID ]] && ! pgrep -x PPSSPPQt >/dev/null; then
+    rm -f /dev/shm/PPSSPP_ID
+  fi
+  sleep 2
+done

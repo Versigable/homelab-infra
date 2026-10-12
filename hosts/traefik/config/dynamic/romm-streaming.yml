@@ -33,7 +33,7 @@ http:
         - games-coop-coep@file
 
   services:
-    # 2026-10-12: CPU-only spike, run by hand at /opt/romm-webstation on jf.
+    # The webstation on jf: hosts/jellyfin/compose/webstation.yml.
     romm-webstation-svc:
       loadbalancer:
         servers:

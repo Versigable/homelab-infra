@@ -1,0 +1,49 @@
+# RomM emulator streaming: LinuxServer webstation (Selkies desktop + romm-broker).
+# RomM launches games here over the broker API (http://10.0.1.8:3010, X-Broker-Secret)
+# and players reach the stream same-origin through Traefik at /streaming on games.* and
+# arcade.* (hosts/traefik/config/dynamic/romm-streaming.yml).
+# Deployed by scripts/deploy-webstation.sh, which also ships config/webstation/.
+name: webstation
+
+services:
+  webstation:
+    image: lscr.io/linuxserver/webstation:romm-version-v0.15.0
+    container_name: romm-webstation
+    # jf's dockerd defaults to the nvidia runtime; keep the GPU out until the
+    # driver is >= 595.80 (Selkies GPU support starts at 580).
+    runtime: runc
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - SUBFOLDER=/streaming/
+      - BROKER_SECRET=${BROKER_SECRET}
+      - HARDEN_DESKTOP=true
+      - DISABLE_TERMINALS=true
+      - DISABLE_SUDO=true
+      # Software x264 + llvmpipe can't keep up at window size (a 5K2K fullscreen
+      # meant 5120x2160 @ 60 fps); lock 720p and let the browser scale it up.
+      - SELKIES_MANUAL_WIDTH=1280
+      - SELKIES_MANUAL_HEIGHT=720
+      # The client sends its devicePixelRatio as DPI (Windows 150% => 144), which
+      # flips the compositor to scale 1.5 mid-session and blew up Qt emulators.
+      - SELKIES_SCALING_DPI=96
+    volumes:
+      - ../config:/config
+      - /mnt/gameroom:/romm/library:ro
+      # Seeds BIOS files and PPSSPP config the broker expects but never provides.
+      - ../custom-cont-init.d:/custom-cont-init.d:ro
+      # Clears PPSSPP's stale instance counter (secondary instances mute themselves).
+      - ../custom-services.d:/custom-services.d:ro
+      - ../seed:/seed:ro
+    ports:
+      - "10.0.1.8:3010:3000" # HTTP: RomM broker calls and the Traefik /streaming route
+    shm_size: "1gb"
+    cpus: 6
+    mem_limit: 6g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
