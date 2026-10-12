@@ -1,0 +1,60 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d).
+# Seeds what the romm-broker expects in /config but never provides itself.
+# Every step only fills a gap, so files the emulators have since written stay.
+
+BIOS=/romm/library/bios
+
+# Directories are made as abc: on a fresh /config, a root-owned parent would stop
+# the emulator from writing its own data dir.
+mkdir_abc() { s6-setuidgid abc mkdir -p "$1"; }
+
+seed() { # seed <src> <dest>: copy when the destination is missing
+  [[ -e "$2" ]] && return 0
+  if [[ ! -f "$1" ]]; then
+    echo "[seed-emulators] missing source: $1"
+    return 0
+  fi
+  mkdir_abc "$(dirname "$2")"
+  install -m 0644 -o abc -g abc "$1" "$2" && echo "[seed-emulators] seeded $2"
+}
+
+# PS1 BIOS for standalone DuckStation and RetroArch's SwanStation core. Without
+# one, DuckStation exits 0 on launch and the player sees a black screen.
+for f in scph5500 scph5501 scph5502 scph7001; do
+  seed "$BIOS/ps/$f.bin" "/config/.local/share/duckstation/bios/$f.bin"
+  seed "$BIOS/ps/$f.bin" "/config/.config/retroarch/system/$f.bin"
+done
+
+# Dreamcast BIOS pair for standalone Flycast and RetroArch's Flycast core.
+# dc_flash.bin is written by the emulator, hence copy-if-missing.
+for f in dc_boot dc_flash; do
+  seed "$BIOS/dc/$f.bin" "/config/.local/share/flycast/$f.bin"
+  seed "$BIOS/dc/$f.bin" "/config/.config/retroarch/system/dc/$f.bin"
+done
+
+# PPSSPP controls. The broker writes controls.ini with only its Save/Load State
+# keys, and PPSSPP 1.20 (KeyMap::LoadFromIni) drops the default binding of every
+# action a [ControlMapping] section leaves out: no keyboard, no pad. Install the
+# full default map; the broker then merges its bracket keys into it.
+PPSSPP_SYS=/config/.config/ppsspp/PSP/SYSTEM
+if ! grep -q '^Up = ' "$PPSSPP_SYS/controls.ini" 2>/dev/null; then
+  mkdir_abc "$PPSSPP_SYS"
+  install -m 0644 -o abc -g abc /seed/ppsspp-controls.ini "$PPSSPP_SYS/controls.ini" &&
+    echo "[seed-emulators] installed full PPSSPP control map"
+fi
+
+# PPSSPP memory stick: report 1 GB. Bigger sticks overflow the signed 32-bit
+# free-space math some games do ("not enough space" in Sonic Rivals 2).
+INI="$PPSSPP_SYS/ppsspp.ini"
+if ! grep -q '^MemStickSize' "$INI" 2>/dev/null; then
+  mkdir_abc "$PPSSPP_SYS"
+  touch "$INI"
+  if grep -q '^\[SystemParam\]' "$INI"; then
+    sed -i '/^\[SystemParam\]/a MemStickSize = 1' "$INI"
+  else
+    printf '\n[SystemParam]\nMemStickSize = 1\n' >>"$INI"
+  fi
+  chown abc:abc "$INI"
+  echo "[seed-emulators] set PPSSPP MemStickSize = 1"
+fi

@@ -297,6 +297,21 @@ deploy-jellyfin:
         - hosts/jellyfin/compose/jellyfin.yml
         - hosts/jellyfin/scripts/deploy.sh
 
+# RomM emulator streaming (webstation). Own script, so changing it never re-runs
+# deploy-arr / deploy-jellyfin (see the header of deploy-webstation.sh).
+deploy-webstation:
+  stage: deploy
+  tags: ["jellyfin"]
+  script:
+    - bash hosts/jellyfin/scripts/deploy-webstation.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/jellyfin/compose/webstation.yml
+        - hosts/jellyfin/secrets/webstation.env.sops
+        - hosts/jellyfin/config/webstation/**/*
+        - hosts/jellyfin/scripts/deploy-webstation.sh
+
 # ============================================================
 # Monitoring Host (Wolverine LXC 302) — single tightly-coupled stack
 # ============================================================

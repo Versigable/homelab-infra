@@ -59,6 +59,10 @@ services:
       # Scan automation:
       ENABLE_SCHEDULED_RESCAN: ${ENABLE_SCHEDULED_RESCAN:-false}
       ENABLE_RESCAN_ON_FILESYSTEM_CHANGE: ${ENABLE_RESCAN_ON_FILESYSTEM_CHANGE:-false}
+      # Emulator streaming: shared secret for the webstation broker on jf
+      # (BROKER_SECRET in hosts/jellyfin/secrets/webstation.env.sops). It wins over
+      # broker_secret in config.yml, which therefore stays secret-free.
+      STREAMING_BROKER_SECRET: ${STREAMING_BROKER_SECRET:-}
     volumes:
       - ../data/resources:/romm/resources
       - ../data/redis:/redis-data # internal valkey runs with --dir /redis-data
