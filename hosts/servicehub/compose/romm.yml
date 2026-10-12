@@ -28,7 +28,7 @@ services:
         max-file: "3"
 
   romm:
-    image: rommapp/romm:4.8.1
+    image: rommapp/romm:5.4.0
     container_name: romm
     restart: unless-stopped
     depends_on:
