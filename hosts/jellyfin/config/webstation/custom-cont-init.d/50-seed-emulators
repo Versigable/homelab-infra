@@ -93,10 +93,14 @@ fi
 # Complex 4627 is the flash image proven to boot Halo on jf. The HDD is xemu's
 # official blank image (xemu-hdd-image 1.0); the broker converts it to raw in
 # place on first launch so it can reach saves through FATX. xemu creates the
-# EEPROM itself. Port 1 is bound to the virtual pad's SDL GUID (see Azahar below).
+# EEPROM itself. Port 1 is bound to the virtual pad's SDL GUID,
+# 030081b85e0400008e02000014010000 (what the container's SDL 2.32.10 reports).
 XEMU_DIR=/config/xemu
 XEMU_TOML=/config/.local/share/xemu/xemu/xemu.toml
 mkdir_abc "$XEMU_DIR"
+# xemu's config dirs once came up root-owned 0700 (holding an empty xemu.toml),
+# which abc can't read: xemu then aborts in xemu_settings_get_base_path().
+[[ -d /config/.local/share/xemu ]] && chown -R abc:abc /config/.local/share/xemu
 if [[ ! -e "$XEMU_DIR/xbox_hdd.qcow2" ]]; then
   python3 - /seed/xemu-xbox_hdd.qcow2.zip "$XEMU_DIR" <<'PY' &&
 import sys, zipfile
@@ -105,7 +109,9 @@ with zipfile.ZipFile(sys.argv[1]) as z:
 PY
     chown abc:abc "$XEMU_DIR/xbox_hdd.qcow2" && echo "[seed-emulators] installed blank Xbox HDD"
 fi
-if [[ ! -f "$XEMU_TOML" ]]; then
+# Missing or empty: on jf an empty, root-owned xemu.toml appeared before xemu
+# ever ran, and an existence check left it unconfigured.
+if [[ ! -s "$XEMU_TOML" ]]; then
   mkdir_abc "${XEMU_TOML%/*}"
   cat >"$XEMU_TOML" <<'TOML'
 [general]
@@ -128,33 +134,6 @@ TOML
   echo "[seed-emulators] wrote xemu.toml"
 elif ! grep -q '^bootrom_path' "$XEMU_TOML"; then
   echo "[seed-emulators] $XEMU_TOML exists without [sys.files]; left alone"
-fi
-
-# 3DS (Azahar). The broker forces three UI keys in qt-config.ini and nothing
-# else, leaving the controls on Azahar's keyboard defaults. Bind profile 1 to
-# the virtual SDL pad by its GUID, 030081b85e0400008e02000014010000: the value
-# the container's SDL 2.32.10 reports, which is also the SDL Azahar builds in.
-# Merged key-wise, like the broker does, so Azahar's own settings survive.
-AZ_CFG=/config/.config/azahar-emu/qt-config.ini
-if ! grep -q 'engine:sdl' "$AZ_CFG" 2>/dev/null; then
-  mkdir_abc "${AZ_CFG%/*}"
-  python3 - /seed/azahar-controls.ini "$AZ_CFG" <<'PY' &&
-import configparser, os, sys
-def load(path):
-    p = configparser.RawConfigParser(delimiters=("=",))
-    p.optionxform = str  # keys are case-sensitive QSettings names
-    if os.path.exists(path):
-        p.read(path, encoding="utf-8")
-    return p
-seed, cfg = load(sys.argv[1]), load(sys.argv[2])
-if not cfg.has_section("Controls"):
-    cfg.add_section("Controls")
-for key, value in seed.items("Controls"):
-    cfg.set("Controls", key, value)
-with open(sys.argv[2], "w", encoding="utf-8") as f:
-    cfg.write(f, space_around_delimiters=False)
-PY
-    chown abc:abc "$AZ_CFG" && echo "[seed-emulators] bound Azahar controls to the virtual pad"
 fi
 
 # PPSSPP controls. The broker writes controls.ini with only its Save/Load State

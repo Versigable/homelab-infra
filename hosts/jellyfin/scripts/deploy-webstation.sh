@@ -58,7 +58,7 @@ sudo /usr/bin/install -m 0644 -o root -g root "$SRC_COMPOSE" "${LIVE_COMPOSE_DIR
 )
 
 # LinuxServer runs custom-cont-init.d and custom-services.d only if root owns them
-# and nobody else can write them. They are read at container start, so a change
+# and nobody else can write them; bin/ holds launch wrappers the broker execs. They are read at container start, so a change
 # here needs a restart even when the compose file is unchanged.
 RESTART=0
 sync_file() { # sync_file <src> <dest> <mode>
@@ -68,7 +68,7 @@ sync_file() { # sync_file <src> <dest> <mode>
     RESTART=1
   fi
 }
-for d in custom-cont-init.d custom-services.d seed; do
+for d in custom-cont-init.d custom-services.d seed bin; do
   sudo /usr/bin/install -d -m 0755 -o root -g root "${STACK_DIR}/${d}"
   mode=0755
   [[ "$d" == seed ]] && mode=0644

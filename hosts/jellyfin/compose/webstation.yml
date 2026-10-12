@@ -44,6 +44,9 @@ services:
       # PCSX2's patches.zip is installed by custom-cont-init.d/50-seed-emulators;
       # the broker's own refresh needs sudo, which DISABLE_SUDO blocks.
       - PCSX2_PATCHES_FETCH=false
+      # Azahar's bundled Qt picks native Wayland, where frames never reach the
+      # window on NVIDIA; the wrapper forces XWayland (see config/webstation/bin).
+      - AZAHAR_BIN=/opt/webstation-bin/azahar-xcb
     volumes:
       - ../config:/config
       - /mnt/gameroom:/romm/library:ro
@@ -52,6 +55,7 @@ services:
       # Clears PPSSPP's stale instance counter (secondary instances mute themselves).
       - ../custom-services.d:/custom-services.d:ro
       - ../seed:/seed:ro
+      - ../bin:/opt/webstation-bin:ro
     ports:
       - "10.0.1.8:3010:3000" # HTTP: RomM broker calls and the Traefik /streaming route
     shm_size: "1gb"
