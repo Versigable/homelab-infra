@@ -55,6 +55,12 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=utility
+    # Explicit, like webstation.yml and jellyfin.yml: hook-granted nodes vanish
+    # when systemd rebuilds the scope's device rules (NVML then reports
+    # "Failed to initialize NVML: Unknown Error").
+    devices:
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia0:/dev/nvidia0
     cap_drop: [ALL]
     read_only: true
     ports:
