@@ -312,6 +312,19 @@ deploy-webstation:
         - hosts/jellyfin/config/webstation/**/*
         - hosts/jellyfin/scripts/deploy-webstation.sh
 
+# Metrics exporters on jf (cAdvisor, nvidia_gpu_exporter) for the Wolverine
+# Prometheus. Own script, so changing it never re-runs deploy-arr / deploy-jellyfin.
+deploy-exporters:
+  stage: deploy
+  tags: ["jellyfin"]
+  script:
+    - bash hosts/jellyfin/scripts/deploy-exporters.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/jellyfin/compose/exporters.yml
+        - hosts/jellyfin/scripts/deploy-exporters.sh
+
 # ============================================================
 # Monitoring Host (Wolverine LXC 302) — single tightly-coupled stack
 # ============================================================

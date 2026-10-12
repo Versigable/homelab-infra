@@ -56,6 +56,11 @@ scrape_configs:
         labels:
           instance: rogue
           site: x-mansion
+      # jf (VM 108): prometheus-node-exporter from apt, like phoenix and rogue.
+      - targets: ['10.0.1.8:9100']
+        labels:
+          instance: jf
+          site: x-mansion
 
   # ============================================================
   # Per-app exporters (Phase 2)
@@ -89,6 +94,27 @@ scrape_configs:
       - targets: ['10.0.1.8:8001']
         labels:
           instance: qbittorrent
+          site: x-mansion
+
+  # Containers on jf via cAdvisor (hosts/jellyfin/compose/exporters.yml):
+  # Jellyfin, the arr stack and the three RomM webstations. Port 8098 because
+  # qBittorrent's web UI holds 8080 on jf. Series carry `name` (container) and
+  # the compose project/service labels.
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['10.0.1.8:8098']
+        labels:
+          instance: jf
+          site: x-mansion
+
+  # jf's RTX 3060 Ti via nvidia_gpu_exporter (same compose file): GPU and
+  # NVENC use, VRAM, encoder sessions, power, temperature. Shared by Jellyfin,
+  # the RomM webstations and Sunshine.
+  - job_name: 'nvidia-gpu'
+    static_configs:
+      - targets: ['10.0.1.8:9835']
+        labels:
+          instance: jf
           site: x-mansion
 
   # ============================================================
