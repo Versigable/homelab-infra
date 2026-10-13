@@ -70,18 +70,7 @@ services:
     image: cloudflare/cloudflared:2025.8.1
     container_name: ninjaprivacy_org
     restart: unless-stopped
-    # Experiment (2026-10-12): the tunnel over TCP (HTTP/2) instead of the default
-    # QUIC, with BBR congestion control in this container's network namespace.
-    # RomM's Selkies streams (WebSocket over TCP) show brief freezes on every client
-    # and path while the server keeps sending: the pattern of loss on the upload
-    # holding up a TCP stream. BBR paces packets instead of bursting, which can get
-    # under an upload policer; kernel congestion control can't act on QUIC.
-    # Needs the tcp_bbr module on the VM (/etc/modules-load.d/bbr.conf), or the
-    # container won't start. Over HTTP/2, WARP private routing carries TCP only.
-    # Revert both lines if streams don't improve.
-    command: ["tunnel","--no-autoupdate","--protocol","http2","--config","/etc/cloudflared/config.yml","run"]
-    sysctls:
-      net.ipv4.tcp_congestion_control: bbr
+    command: ["tunnel","--no-autoupdate","--config","/etc/cloudflared/config.yml","run"]
     volumes:
       - ../data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
       - ../data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
