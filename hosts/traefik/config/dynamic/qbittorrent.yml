@@ -4,8 +4,7 @@ http:
       rule: "Host(`qbit.ninjaprivacy.org`)"
       service: qbit-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
   services:

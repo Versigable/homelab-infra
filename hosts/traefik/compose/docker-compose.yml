@@ -1,7 +1,7 @@
 services:
   # Kannis test
   traefik:
-    image: traefik:latest
+    image: traefik:v3.7.14
     container_name: traefik1
     restart: unless-stopped
     ports:

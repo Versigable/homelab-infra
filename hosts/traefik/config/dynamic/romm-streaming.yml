@@ -22,8 +22,7 @@ http:
       priority: 100
       service: romm-webstation-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - romm-session-auth
         - games-coop-coep@file
@@ -33,8 +32,7 @@ http:
       priority: 100
       service: romm-webstation-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - romm-session-auth
         - games-coop-coep@file
@@ -44,8 +42,7 @@ http:
       priority: 200
       service: romm-webstation-2-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - romm-session-auth
         - games-coop-coep@file
@@ -55,8 +52,7 @@ http:
       priority: 200
       service: romm-webstation-2-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - romm-session-auth
         - games-coop-coep@file
@@ -66,8 +62,7 @@ http:
       priority: 200
       service: romm-webstation-3-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - romm-session-auth
         - games-coop-coep@file
@@ -77,8 +72,7 @@ http:
       priority: 200
       service: romm-webstation-3-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - romm-session-auth
         - games-coop-coep@file

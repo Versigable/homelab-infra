@@ -4,8 +4,7 @@ http:
       rule: "Host(`arcade.ninjaprivacy.org`)"
       service: romm-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       # No authentik-forward — RomM uses its own native login (bcrypt
       # passwords, session cookies, CSRF). Same pattern as jellyfin
       # and jellyseerr (see reference_jf-vm).

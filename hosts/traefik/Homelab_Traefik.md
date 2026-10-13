@@ -35,31 +35,32 @@
   chmod 750 data/cloudflared data/cloudflared/creds
   chmod 640 data/cloudflared/config.yml data/cloudflared/creds/*.json
   ```
-- **ACME:** `data/acme/acme.json` → **600**.
+- **ACME:** Traefik creates its storage files itself (mode 600); don't pre-create
+  them, because the setgid/default-ACL dir would make them 660/664, which Traefik
+  refuses. `data/acme/acme.json` is a stale 2025 leftover (664) that nothing uses.
 
-## TLS (Origin) Canary Plan (wiki only)
-1) Add to static config (`config/static/traefik.yml`):
-```yaml
-certificatesResolvers:
-  cf-dns:
-    acme:
-      email: "Paris-chose-venus@pm.me"
-      storage: /etc/traefik/acme/acme.json
-      dnsChallenge:
-        provider: cloudflare
-```
-2) Put `CF_DNS_API_TOKEN=...` in `compose/.env` (zone-scope: DNS:Edit).
-3) In wiki router (dynamic), set `tls.certResolver: cf-dns`.
-4) In cloudflared `data/cloudflared/config.yml`, for wiki:
-```yaml
-ingress:
-  - hostname: wiki.ninjaprivacy.org
-    service: https://traefik:443
-    originRequest:
-      originServerName: wiki.ninjaprivacy.org
-```
-5) Apply: `docker compose up -d traefik && docker compose restart cloudflared`.
-**Rollback:** revert wiki to `http://traefik:80` and remove the `tls:` block.
+## TLS (origin certificate)
+One Let's Encrypt wildcard, `*.ninjaprivacy.org`, via Cloudflare DNS-01:
+- `config/static/traefik.yml` defines resolver `letsencrypt` (lego `cloudflare`
+  provider, reads `CF_DNS_API_TOKEN` from `compose/.env`, which deploy.sh decrypts
+  from `secrets/compose.env.sops`; the token needs Zone:Read + DNS:Edit).
+- `config/dynamic/tls.yml` orders the wildcard once through
+  `tls.stores.default.defaultGeneratedCert`. Traefik picks it by SNI for every router.
+- **Routers use `tls: {}` and never name `certResolver`.** A router with
+  `certResolver` orders its own per-host cert, which publishes that hostname in
+  public Certificate Transparency logs and gets renewed forever.
+- Rollout: staging first (`caServer` = LE staging, storage `acme-staging.json`),
+  then go-live removes `caServer` and switches storage to a new `acme-prod.json`.
+- Check issuance on the VM (it runs in the background; log.level ERROR hides success):
+  `openssl s_client -connect 127.0.0.1:443 -servername probe.ninjaprivacy.org </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -enddate`
+  and `sudo docker logs --since 15m traefik1 2>&1 | grep -iE 'acme|resolver|certificate'`.
+  A failed first order is retried only after `sudo docker restart traefik1`.
+- cloudflared still uses `noTLSVerify` towards `https://traefik1`, so the public
+  path never depended on this cert. Direct access (LAN, Tailscale route to
+  10.0.2.5) does.
+- Any change to `config/static/traefik.yml` (outside comments/blank lines) now
+  recreates traefik1 on deploy (deploy.sh hashes it into the env), dropping all
+  proxied sessions for a few seconds; batch static edits.
 
 ## Routing Notes
 - **CouchDB (`brain.ninjaprivacy.org`)** uses a split-router pattern:

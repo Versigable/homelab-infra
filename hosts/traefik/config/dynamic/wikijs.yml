@@ -4,8 +4,7 @@ http:
       rule: "Host(`wiki.ninjaprivacy.org`)"
       service: wikijs-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
 

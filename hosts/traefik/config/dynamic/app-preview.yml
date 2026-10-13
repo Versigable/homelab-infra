@@ -4,8 +4,7 @@ http:
       rule: "Host(`app-preview.ninjaprivacy.org`)"
       service: app-preview-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
 
