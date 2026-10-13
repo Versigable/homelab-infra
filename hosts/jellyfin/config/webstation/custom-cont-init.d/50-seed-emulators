@@ -279,21 +279,28 @@ if ! grep -q '^MemStickSize' "$INI" 2>/dev/null; then
   echo "[seed-emulators] set PPSSPP MemStickSize = 1"
 fi
 
-# Selkies gamepad shim. Chrome gives some controllers no standard layout, and for
-# those the Selkies client turns raw axes 4/5 into the d-pad and ignores hats: a
-# PowerA GameCube-style pad loses its d-pad and its C-stick drives it instead. The
-# shim rewrites known pads to the standard layout before the client reads them, so
-# Dolphin's GameCube map (and every other emulator's) sees an Xbox-layout pad. The
+# Selkies page scripts, loaded from index.html ahead of the client's own bundle. The
 # web root sits in the container layer, so this runs on every start.
+# - gamepad-shim.js: Chrome gives some controllers no standard layout, and for those
+#   the Selkies client turns raw axes 4/5 into the d-pad and ignores hats: a PowerA
+#   GameCube-style pad loses its d-pad and its C-stick drives it instead. The shim
+#   rewrites known pads to the standard layout before the client reads them, so
+#   Dolphin's GameCube map (and every other emulator's) sees an Xbox-layout pad.
+# - video-sink.js: in Chromium browsers the client decodes on the page and feeds a
+#   MediaStreamTrackGenerator -> <video>, and streams froze there for about a second
+#   at a time. Hiding the generator makes Chromium decode and draw in the client's
+#   video worker, the path Firefox takes.
 SELKIES_WEB=/usr/share/selkies/web
 if [[ -f "$SELKIES_WEB/index.html" ]]; then
-  install -m 0644 -o root -g root /seed/selkies-gamepad-shim.js "$SELKIES_WEB/gamepad-shim.js"
-  if ! grep -q 'gamepad-shim.js' "$SELKIES_WEB/index.html"; then
-    sed -i 's|<head>|<head><script src="./gamepad-shim.js"></script>|' "$SELKIES_WEB/index.html"
-    if grep -q 'gamepad-shim.js' "$SELKIES_WEB/index.html"; then
-      echo "[seed-emulators] loaded the gamepad shim into the Selkies page"
-    else
-      echo "[seed-emulators] Selkies index.html has no <head>; gamepad shim not loaded"
+  for page_js in gamepad-shim video-sink; do
+    install -m 0644 -o root -g root "/seed/selkies-$page_js.js" "$SELKIES_WEB/$page_js.js" || continue
+    if ! grep -q "$page_js.js" "$SELKIES_WEB/index.html"; then
+      sed -i "s|<head>|<head><script src=\"./$page_js.js\"></script>|" "$SELKIES_WEB/index.html"
+      if grep -q "$page_js.js" "$SELKIES_WEB/index.html"; then
+        echo "[seed-emulators] loaded $page_js.js into the Selkies page"
+      else
+        echo "[seed-emulators] Selkies index.html has no <head>; $page_js.js not loaded"
+      fi
     fi
-  fi
+  done
 fi
