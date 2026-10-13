@@ -49,8 +49,10 @@ One Let's Encrypt wildcard, `*.ninjaprivacy.org`, via Cloudflare DNS-01:
 - **Routers use `tls: {}` and never name `certResolver`.** A router with
   `certResolver` orders its own per-host cert, which publishes that hostname in
   public Certificate Transparency logs and gets renewed forever.
-- Rollout: staging first (`caServer` = LE staging, storage `acme-staging.json`),
-  then go-live removes `caServer` and switches storage to a new `acme-prod.json`.
+- Rollout (2026-10-12): staging first (MR !133: `caServer` = LE staging, storage
+  `acme-staging.json`, issued OK), then production (no `caServer`, storage
+  `acme-prod.json`). `acme-staging.json` and the old `acme.json` are unused leftovers;
+  `acme.json` holds 2025 private keys at mode 664, so move it somewhere root-only.
 - Check issuance on the VM (it runs in the background; log.level ERROR hides success):
   `openssl s_client -connect 127.0.0.1:443 -servername probe.ninjaprivacy.org </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -enddate`
   and `sudo docker logs --since 15m traefik1 2>&1 | grep -iE 'acme|resolver|certificate'`.

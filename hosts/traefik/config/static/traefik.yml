@@ -96,17 +96,17 @@ certificatesResolvers:
   letsencrypt:
     acme:
       email: "Paris-chose-venus@pm.me"
-      # STAGING first. Go-live = delete caServer AND point storage at a NEW
-      # file, /etc/traefik/acme/acme-prod.json, so the untrusted staging cert
-      # isn't kept and renewed. Not the existing acme.json: it's a stale 2025
-      # leftover with mode 664, and Traefik refuses a storage file that is
-      # readable by group or others ("permissions ... are too open, please use
-      # 600"). Let Traefik create these files; it makes them 0600 itself.
+      # Production Let's Encrypt (the default CA; staging was verified first,
+      # 2026-10-12, MR !133). Storage is a file of its own, so the untrusted
+      # staging cert in acme-staging.json isn't kept and renewed; that file is
+      # now unused. Not the old acme.json either: it's a stale 2025 leftover with
+      # mode 664, and Traefik refuses a storage file that is readable by group or
+      # others ("permissions ... are too open, please use 600"). Let Traefik
+      # create its storage file; it makes it 0600 itself.
       # Issuance runs in the background and log.level is ERROR, so a green
       # deploy doesn't mean the cert was issued, and a failed first order isn't
       # retried until traefik1 restarts.
-      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
-      storage: /etc/traefik/acme/acme-staging.json
+      storage: /etc/traefik/acme/acme-prod.json
       dnsChallenge:
         provider: cloudflare
         # Public resolvers find the zone and its nameservers (not the VM's own,
