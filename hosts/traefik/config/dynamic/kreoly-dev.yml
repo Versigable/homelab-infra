@@ -4,8 +4,7 @@ http:
       rule: "Host(`kreoly.ninjaprivacy.org`)"
       service: kreoly-dev-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       # No authentik-forward middleware: the dev site is public so Stripe test
       # webhooks can POST to /api/webhooks/stripe. The app enforces its own
       # NextAuth login + Turnstile.

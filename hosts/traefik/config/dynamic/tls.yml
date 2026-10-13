@@ -1,0 +1,13 @@
+# Origin wildcard certificate for every *.ninjaprivacy.org router.
+# The `letsencrypt` resolver (static traefik.yml) orders it once via DNS-01.
+# Traefik picks certificates by SNI from the default store, so every TLS router
+# (all of them use `tls: {}`) gets it, and it is also the default cert for
+# SNI-less or unknown-name requests. The bare apex isn't routed, so it isn't
+# ordered (one DNS-01 challenge instead of two on the same TXT name).
+tls:
+  stores:
+    default:
+      defaultGeneratedCert:
+        resolver: letsencrypt
+        domain:
+          main: "*.ninjaprivacy.org"

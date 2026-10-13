@@ -4,8 +4,7 @@ http:
       rule: "Host(`sunshine.ninjaprivacy.org`)"
       service: sunshine-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
 

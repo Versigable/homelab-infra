@@ -4,8 +4,7 @@ http:
       rule: "Host(`jellyfin.ninjaprivacy.org`)"
       service: jellyfin-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
   services:
     jellyfin-svc:
       loadbalancer:

@@ -3,8 +3,7 @@ http:
     truenas:
       rule: Host(`truenas.ninjaprivacy.org`)
       entryPoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
       service: truenas

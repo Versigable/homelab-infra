@@ -4,8 +4,7 @@ http:
       rule: "Host(`prowlarr.ninjaprivacy.org`)"
       service: prowlarr-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
   services:

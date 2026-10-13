@@ -4,8 +4,7 @@ http:
       rule: "Host(`requests.ninjaprivacy.org`)"
       service: jellyseerr-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
   services:
     jellyseerr-svc:
       loadbalancer:

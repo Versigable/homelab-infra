@@ -3,8 +3,7 @@ http:
     gitlab-router:
       rule: "Host(`gitlab.ninjaprivacy.org`)"
       entryPoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       service: gitlab-svc
       # no forwardAuth here; GitLab handles OIDC itself
 

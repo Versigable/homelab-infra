@@ -4,8 +4,7 @@ http:
       rule: "Host(`n8n.ninjaprivacy.org`)"
       service: n8n-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
 

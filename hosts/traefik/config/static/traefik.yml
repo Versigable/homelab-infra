@@ -85,3 +85,34 @@ metrics:
     addEntryPointsLabels: true
     addServicesLabels: true
     addRoutersLabels: true
+
+# ACME via Cloudflare DNS-01 (lego "cloudflare" reads CF_DNS_API_TOKEN from
+# compose/.env; the token needs Zone:Zone:Read + Zone:DNS:Edit on the zone).
+# Exactly one wildcard cert is ordered, by tls.stores.default.defaultGeneratedCert
+# in dynamic/tls.yml. Routers carry `tls: {}` and must NOT name this resolver:
+# a router with certResolver orders its own per-host cert unless a covering
+# cert is already stored (first start races).
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "Paris-chose-venus@pm.me"
+      # STAGING first. Go-live = delete caServer AND point storage at a NEW
+      # file, /etc/traefik/acme/acme-prod.json, so the untrusted staging cert
+      # isn't kept and renewed. Not the existing acme.json: it's a stale 2025
+      # leftover with mode 664, and Traefik refuses a storage file that is
+      # readable by group or others ("permissions ... are too open, please use
+      # 600"). Let Traefik create these files; it makes them 0600 itself.
+      # Issuance runs in the background and log.level is ERROR, so a green
+      # deploy doesn't mean the cert was issued, and a failed first order isn't
+      # retried until traefik1 restarts.
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      storage: /etc/traefik/acme/acme-staging.json
+      dnsChallenge:
+        provider: cloudflare
+        # Public resolvers find the zone and its nameservers (not the VM's own,
+        # possibly split-horizon DNS). lego then checks the TXT record directly
+        # on Cloudflare's authoritative nameservers, so the VM needs outbound
+        # port 53 to *.ns.cloudflare.com.
+        resolvers:
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"

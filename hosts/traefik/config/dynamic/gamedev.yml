@@ -4,8 +4,7 @@ http:
       rule: "Host(`gamedev.ninjaprivacy.org`)"
       service: gamedev-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       # Operator-only Game Dev surface (board, scoped management API,
       # trusted launcher, versioned ZIP downloads). Same operator backend
       # as app-preview (10.1.0.3:4175); the app scopes routes by Host.

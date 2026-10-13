@@ -32,7 +32,8 @@ LIVE_COMPOSE="${LIVE_STACK_DIR}/docker-compose.yml"
 REPO_CFG_DIR="${REPO_DIR}/hosts/traefik/config"
 LIVE_CFG_DIR="/home/traefik/traefik-hub/config"
 
-[[ -f "$REPO_COMPOSE" ]] || di:contentReference[oaicite:8]{index=8}s:contentReference[oaicite:9]{index=9}-d "$REPO_CFG_DIR"  ]] || die "missing repo config dir: $REPO_CFG_DIR"
+[[ -f "$REPO_COMPOSE" ]] || die "missing repo compose: $REPO_COMPOSE"
+[[ -d "$REPO_CFG_DIR"  ]] || die "missing repo config dir: $REPO_CFG_DIR"
 
 log "Syncing compose -> live"
 sudo /usr/bin/install -m 0644 -o root -g root "$REPO_COMPOSE" "$LIVE_COMPOSE"
@@ -53,6 +54,13 @@ sops -d --input-type dotenv --output-type dotenv "${SOPS_ENV_FILE}" > "${TMP_ENV
 
 grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}" \
   || die "decrypted env empty/invalid (expected KEY=VALUE)"
+
+# Traefik reads its static config only at startup, and `compose up -d` does not
+# notice a changed bind-mounted file. Carrying the file's hash in the env makes a
+# static edit change the service config, so compose recreates traefik1, which
+# drops every proxied session for a few seconds. Comments and blank lines are
+# left out of the hash, so editing only those doesn't cause that.
+echo "TRAEFIK_STATIC_SHA=$(grep -vE '^[[:space:]]*(#|$)' "${REPO_CFG_DIR}/static/traefik.yml" | sha256sum | cut -d' ' -f1)" >> "${TMP_ENV}"
 
 log "Installing live env: ${LIVE_ENV_FILE}"
 sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"

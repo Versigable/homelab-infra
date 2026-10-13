@@ -4,8 +4,7 @@ http:
       rule: "Host(`grafana.ninjaprivacy.org`)"
       service: grafana-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
 

@@ -4,8 +4,7 @@ http:
       rule: "Host(`sonarr.ninjaprivacy.org`)"
       service: sonarr-svc
       entrypoints: [websecure]
-      tls:
-        certResolver: letsencrypt
+      tls: {}
       middlewares:
         - authentik-forward
   services:
