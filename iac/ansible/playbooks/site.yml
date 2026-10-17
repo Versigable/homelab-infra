@@ -26,3 +26,4 @@
     - gitlab_runner
     - sops_age
     - service_layout
+    - pg_backup

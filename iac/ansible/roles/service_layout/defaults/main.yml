@@ -6,3 +6,9 @@ service_layout_subdirs:
   - logs
   - backups
 service_layout_runner_user: gitlab-runner
+# What deploy.sh may run as root: install root-owned files (.env is root 0600), run
+# docker compose, and set ACLs. The same set as the monitoring host.
+service_layout_runner_sudo:
+  - /usr/bin/docker
+  - /usr/bin/install
+  - /usr/bin/setfacl
