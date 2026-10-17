@@ -1,0 +1,22 @@
+# ntfy push notifications (monitoring stack on Wolverine LXC 302).
+#
+# DELIBERATELY NOT behind authentik-forward. The ntfy Android app and every
+# publisher (Alertmanager, Sonarr/Radarr, agent scripts) can't complete an
+# Authentik forward-auth login. ntfy enforces its own auth instead:
+# auth-default-access deny-all plus declared users and tokens.
+# See 5-Decisions/2026-10-16_ntfy-push-notifications.
+http:
+  routers:
+    ntfy-router:
+      rule: "Host(`ntfy.ninjaprivacy.org`)"
+      service: ntfy-svc
+      entrypoints: [websecure]
+      tls: {}
+
+  services:
+    ntfy-svc:
+      loadbalancer:
+        servers:
+          # Monitoring LXC 302 on wolverine, cross-site through the WG tunnel
+          - url: http://10.1.0.5:2586
+        passHostHeader: true
