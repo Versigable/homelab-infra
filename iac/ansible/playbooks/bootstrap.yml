@@ -1,0 +1,22 @@
+# First contact with a new Terraform-built guest, as root with the homelab-iac key that
+# Terraform put there. Installs Python, then the base role creates the ansible user and
+# turns off root SSH. Run it through `iac.sh bootstrap <guest>`; afterwards use site.yml.
+- name: Bootstrap new guests
+  hosts: lxc_guests
+  gather_facts: false
+  vars:
+    ansible_user: root
+  tasks:
+    - name: Python and sudo, so Ansible modules can run
+      ansible.builtin.raw: >-
+        if [ -x /usr/bin/python3 ] && command -v sudo >/dev/null; then echo present;
+        else apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 sudo && echo installed; fi
+      register: bootstrap_python
+      changed_when: "'installed' in bootstrap_python.stdout"
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Base setup (creates the ansible user, then turns off root SSH)
+      ansible.builtin.include_role:
+        name: base

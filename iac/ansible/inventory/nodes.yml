@@ -1,0 +1,11 @@
+# Proxmox nodes. Terraform doesn't manage these; Ansible only applies the settings that
+# Proxmox reserves for root (templates, NFS mounts, root-only container options).
+# The pilot reaches them as claude-agent; the IaC standard picks the long-term account.
+# Guests come from inventory/guests.yml, which `iac.sh inventory` writes from Terraform.
+proxmox_nodes:
+  hosts:
+    phoenix:
+      ansible_host: 10.0.1.2
+  vars:
+    ansible_user: claude-agent
+    ansible_ssh_private_key_file: ~/.ssh/claude-agent

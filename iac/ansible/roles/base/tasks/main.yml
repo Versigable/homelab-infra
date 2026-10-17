@@ -1,0 +1,49 @@
+- name: Base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Time zone
+  community.general.timezone:
+    name: "{{ base_timezone }}"
+
+- name: Admin user for Ansible
+  ansible.builtin.user:
+    name: "{{ base_admin_user }}"
+    shell: /bin/bash
+    create_home: true
+
+- name: Admin user's key (the homelab-iac key, nothing else)
+  ansible.posix.authorized_key:
+    user: "{{ base_admin_user }}"
+    key: "{{ base_admin_pubkey }}"
+    exclusive: true
+
+- name: Admin user can sudo without a password
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ base_admin_user }}"
+    content: "{{ base_admin_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
+
+# Applied last, after the admin user works: from here on nobody logs in as root over SSH.
+- name: SSH keys only, no root login
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-iac.conf
+    content: |
+      # Managed by homelab-infra iac/ansible (role base).
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload ssh
+
+- name: Daily package lists and unattended security upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"

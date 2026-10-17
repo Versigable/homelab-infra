@@ -1,0 +1,8 @@
+service_layout_name: "{{ inventory_hostname }}"
+service_layout_subdirs:
+  - compose
+  - config
+  - data
+  - logs
+  - backups
+service_layout_runner_user: gitlab-runner

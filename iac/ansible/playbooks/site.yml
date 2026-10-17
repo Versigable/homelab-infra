@@ -1,0 +1,28 @@
+# Everything after `terraform apply` and bootstrap. Safe to rerun; a clean second run
+# reports changed=0.
+
+- name: Root-only container settings on the Proxmox nodes
+  hosts: proxmox_nodes
+  become: true
+  roles:
+    - pve_lxc_rootonly
+
+- name: Base setup on every Terraform-built guest
+  hosts: lxc_guests
+  become: true
+  roles:
+    - base
+
+- name: Docker hosts
+  hosts: docker_hosts
+  become: true
+  roles:
+    - docker
+
+- name: Nextcloud host platform (the app itself is deployed by GitOps CI from hosts/nextcloud)
+  hosts: nextcloud
+  become: true
+  roles:
+    - gitlab_runner
+    - sops_age
+    - service_layout

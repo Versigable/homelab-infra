@@ -1,0 +1,32 @@
+variable "proxmox_endpoint" {
+  type    = string
+  default = "https://10.0.1.2:8006/"
+}
+
+variable "proxmox_insecure" {
+  description = "The X-Mansion nodes serve Proxmox's self-signed certificate."
+  type        = bool
+  default     = true
+}
+
+variable "lxc_template" {
+  description = "Downloaded to each node by the pve-templates.yml playbook before apply."
+  type        = string
+  default     = "local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst"
+}
+
+variable "gateway" {
+  type    = string
+  default = "10.0.1.1"
+}
+
+variable "dns_servers" {
+  type    = list(string)
+  default = ["10.0.1.1", "1.1.1.1"]
+}
+
+variable "ssh_public_key_file" {
+  description = "The homelab-iac key Ansible uses for first contact."
+  type        = string
+  default     = "~/.ssh/homelab-iac.pub"
+}

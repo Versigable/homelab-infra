@@ -1,0 +1,17 @@
+# Proxmox refuses some container settings to API tokens (features other than nesting,
+# bind mounts), so the node applies them as root. Terraform ignores these attributes.
+- name: Find the Terraform-built guests on this node
+  ansible.builtin.set_fact:
+    pve_lxc_rootonly_guests: >-
+      {{ groups['lxc_guests'] | default([])
+         | map('extract', hostvars)
+         | selectattr('pve_node', 'defined')
+         | selectattr('pve_node', 'equalto', inventory_hostname)
+         | list }}
+
+- name: Apply root-only settings per guest
+  ansible.builtin.include_tasks: guest.yml
+  loop: "{{ pve_lxc_rootonly_guests }}"
+  loop_control:
+    loop_var: guest
+    label: "{{ guest.inventory_hostname }} ({{ guest.vmid }})"

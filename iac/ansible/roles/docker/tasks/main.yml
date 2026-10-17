@@ -1,0 +1,53 @@
+- name: Keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Docker's apt signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Docker's apt repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: https://download.docker.com/linux/debian
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: stable
+    architectures: amd64
+    signed_by: /etc/apt/keyrings/docker.asc
+
+- name: Docker Engine and Compose, pinned
+  ansible.builtin.apt:
+    name:
+      - "docker-ce={{ docker_version }}"
+      - "docker-ce-cli={{ docker_version }}"
+      - containerd.io
+      - "docker-compose-plugin={{ docker_compose_version }}"
+    update_cache: true
+    allow_change_held_packages: true
+
+- name: Hold the pinned packages so apt upgrades don't move them
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - docker-ce
+    - docker-ce-cli
+    - docker-compose-plugin
+
+- name: Daemon log limits
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ {'log-driver': 'json-file', 'log-opts': {'max-size': docker_log_max_size, 'max-file': docker_log_max_file}} | to_nice_json }}\n"
+    mode: "0644"
+  notify: Restart docker
+
+- name: Docker running and enabled
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
