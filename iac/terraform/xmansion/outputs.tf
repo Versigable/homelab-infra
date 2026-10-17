@@ -6,6 +6,7 @@ output "guests" {
       vmid   = module.lxc[name].vmid
       node   = module.lxc[name].node
       groups = g.groups
+      tags   = sort(distinct(concat(["iac"], g.tags)))
     }
   }
 }

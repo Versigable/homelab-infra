@@ -2,6 +2,7 @@ locals {
   # Every Terraform-managed LXC on X-Mansion. Ansible's guest inventory is generated
   # from the `guests` output (iac.sh inventory), so this is the only list to edit.
   # groups: Ansible groups the guest joins, which pick its playbook roles.
+  # tags: Proxmox tags ("iac" is always added); applied by Ansible, see modules/lxc.
   lxc_guests = {
     nextcloud = {
       vmid        = 110
@@ -26,7 +27,6 @@ module "lxc" {
   node            = each.value.node
   vmid            = each.value.vmid
   description     = each.value.description
-  tags            = each.value.tags
   cores           = each.value.cores
   memory          = each.value.memory
   swap            = each.value.swap
