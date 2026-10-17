@@ -23,12 +23,6 @@ variable "description" {
   default = ""
 }
 
-variable "tags" {
-  description = "Extra tags. \"iac\" is always added."
-  type        = list(string)
-  default     = []
-}
-
 variable "cores" {
   type = number
 }

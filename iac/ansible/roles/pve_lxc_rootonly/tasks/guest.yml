@@ -45,6 +45,15 @@
   register: pve_lxc_rootonly_mounts
   changed_when: true
 
+- name: Tags of {{ guest.inventory_hostname }}
+  ansible.builtin.command: "pct set {{ guest.vmid }} --tags {{ guest.pve_tags | join(';') }}"
+  vars:
+    current: "{{ pve_lxc_rootonly_config.stdout | regex_search('^tags: (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
+  when:
+    - guest.pve_tags is defined
+    - (current.split(';') | reject('equalto', '') | sort) != (guest.pve_tags | sort)
+  changed_when: true
+
 - name: Restart so the changes take effect for {{ guest.inventory_hostname }}
   ansible.builtin.command: "pct reboot {{ guest.vmid }}"
   when: pve_lxc_rootonly_features is changed or pve_lxc_rootonly_mounts is changed

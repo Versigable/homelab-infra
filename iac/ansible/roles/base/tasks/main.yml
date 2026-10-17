@@ -27,6 +27,24 @@
     mode: "0440"
     validate: visudo -cf %s
 
+# The Proxmox Debian 13 template enables ssh.socket (Accept=no), which hands port 22 to
+# ssh.service. Stopping the socket doesn't take the port back from the running daemon,
+# and a reload (a re-exec that keeps the inherited port) can't bind it again and exits.
+# Keep one listener, the plain service, and restart it rather than reload it: with
+# KillMode=process, open sessions (including Ansible's) survive a restart.
+- name: SSH is not socket-activated
+  ansible.builtin.systemd_service:
+    name: ssh.socket
+    state: stopped
+    enabled: false
+  notify: Restart ssh
+
+- name: SSH runs as a plain service
+  ansible.builtin.systemd_service:
+    name: ssh.service
+    state: started
+    enabled: true
+
 # Applied last, after the admin user works: from here on nobody logs in as root over SSH.
 - name: SSH keys only, no root login
   ansible.builtin.copy:
@@ -38,7 +56,7 @@
       KbdInteractiveAuthentication no
     mode: "0644"
     validate: /usr/sbin/sshd -t -f %s
-  notify: Reload ssh
+  notify: Restart ssh
 
 - name: Daily package lists and unattended security upgrades
   ansible.builtin.copy:

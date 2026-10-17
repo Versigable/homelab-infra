@@ -8,13 +8,15 @@
     home: "/home/{{ service_layout_name }}"
     create_home: true
 
+# On the compose dir the group bits double as the ACL mask, so 0750 there would cut the
+# runner's rwx entry below down to r-x on every run; 0770 keeps the two in agreement.
 - name: Service directories
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: "{{ service_layout_name }}"
     group: "{{ service_layout_name }}"
-    mode: "0750"
+    mode: "{{ '0770' if item is search('/compose$') else '0750' }}"
   loop: "{{ ['/home/' ~ service_layout_name, '/home/' ~ service_layout_name ~ '/' ~ service_layout_name ~ '-hub']
             + service_layout_subdirs | map('regex_replace', '^', '/home/' ~ service_layout_name ~ '/' ~ service_layout_name ~ '-hub/') | list }}"
 
