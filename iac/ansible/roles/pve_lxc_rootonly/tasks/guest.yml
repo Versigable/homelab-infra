@@ -21,6 +21,13 @@
 - name: Flush handlers so new automounts exist before the container uses them
   ansible.builtin.meta: flush_handlers
 
+- name: Mounts the hookscript waits for, for {{ guest.inventory_hostname }}
+  ansible.builtin.copy:
+    dest: "/etc/iac/lxc-wait-mounts/{{ guest.vmid }}"
+    content: "{{ guest.lxc_wait_mounts | join('\n') }}\n"
+    mode: "0644"
+  when: guest.lxc_wait_mounts | default([]) | length > 0
+
 - name: Read the container config of {{ guest.inventory_hostname }}
   ansible.builtin.command: "pct config {{ guest.vmid }}"
   register: pve_lxc_rootonly_config
@@ -37,11 +44,12 @@
   changed_when: true
 
 - name: Bind mounts of {{ guest.inventory_hostname }}
-  ansible.builtin.command: "pct set {{ guest.vmid }} --{{ item.id }} {{ item.host_path }},mp={{ item.guest_path }}"
+  ansible.builtin.command: "pct set {{ guest.vmid }} --{{ item.id }} {{ desired }}"
   vars:
+    desired: "{{ item.host_path ~ ',mp=' ~ item.guest_path ~ ((',' ~ item.options) if item.options is defined else '') }}"
     current: "{{ pve_lxc_rootonly_config.stdout | regex_search('^' ~ item.id ~ ': (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
   loop: "{{ guest.lxc_bind_mounts | default([]) }}"
-  when: current != item.host_path ~ ',mp=' ~ item.guest_path
+  when: current != desired
   register: pve_lxc_rootonly_mounts
   changed_when: true
 
@@ -52,6 +60,15 @@
   when:
     - guest.pve_tags is defined
     - (current.split(';') | reject('equalto', '') | sort) != (guest.pve_tags | sort)
+  changed_when: true
+
+- name: Hookscript of {{ guest.inventory_hostname }}
+  ansible.builtin.command: "pct set {{ guest.vmid }} --hookscript local:snippets/iac-lxc-wait-mounts.sh"
+  vars:
+    current: "{{ pve_lxc_rootonly_config.stdout | regex_search('^hookscript: (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
+  when:
+    - guest.lxc_wait_mounts | default([]) | length > 0
+    - current != 'local:snippets/iac-lxc-wait-mounts.sh'
   changed_when: true
 
 - name: Restart so the changes take effect for {{ guest.inventory_hostname }}

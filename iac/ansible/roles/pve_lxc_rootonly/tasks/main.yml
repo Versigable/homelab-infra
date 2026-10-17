@@ -1,5 +1,17 @@
 # Proxmox refuses some container settings to API tokens (features other than nesting,
 # bind mounts), so the node applies them as root. Terraform ignores these attributes.
+- name: Hookscript that waits for a guest's NFS mounts before it starts
+  ansible.builtin.copy:
+    src: iac-lxc-wait-mounts.sh
+    dest: /var/lib/vz/snippets/iac-lxc-wait-mounts.sh
+    mode: "0755"
+
+- name: Directory for the per-guest wait lists
+  ansible.builtin.file:
+    path: /etc/iac/lxc-wait-mounts
+    state: directory
+    mode: "0755"
+
 - name: Find the Terraform-built guests on this node
   ansible.builtin.set_fact:
     pve_lxc_rootonly_guests: >-

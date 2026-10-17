@@ -2,17 +2,24 @@
 # keyctl is for Docker inside the unprivileged container.
 lxc_features: nesting=1,keyctl=1
 
-# Nextcloud's files live on TrueNAS Twelve_TB_RAIDZ1/nextcloud, which exists only after
-# the 12 TB pool rebuild (vault: 5-Decisions/2026-10-17_twelve-tb-pool-raidz1-via-liberry).
-# Set this to true once the dataset and its NFS export are in place.
-nextcloud_storage_ready: false
+# Nextcloud's files live on TrueNAS <pool>/nextcloud. Until the 12 TB pool is rebuilt
+# as RAIDZ1 that's Twelve_TB_Mirror; the dataset moves with the pool (zfs send -R), and
+# afterwards only nextcloud_nfs_pool changes to Twelve_TB_RAIDZ1
+# (vault: 5-Decisions/2026-10-17_twelve-tb-pool-raidz1-via-liberry).
+# nextcloud_storage_ready: false detaches nothing by itself; it only stops Ansible from
+# adding the mounts.
+nextcloud_storage_ready: true
+nextcloud_nfs_pool: Twelve_TB_Mirror
 
 lxc_node_nfs_mounts: >-
-  {{ [{'src': '10.0.1.7:/mnt/Twelve_TB_RAIDZ1/nextcloud', 'path': '/mnt/nextcloud-data'}]
+  {{ [{'src': '10.0.1.7:/mnt/' ~ nextcloud_nfs_pool ~ '/nextcloud', 'path': '/mnt/nextcloud-data'}]
      if nextcloud_storage_ready else [] }}
+# shared=1: the same NFS path exists on every node, so the LXC can migrate (as ServiceHub).
 lxc_bind_mounts: >-
-  {{ [{'id': 'mp0', 'host_path': '/mnt/nextcloud-data', 'guest_path': '/srv/nextcloud-data'}]
+  {{ [{'id': 'mp0', 'host_path': '/mnt/nextcloud-data', 'guest_path': '/srv/nextcloud-data', 'options': 'shared=1'}]
      if nextcloud_storage_ready else [] }}
+# The pre-start hookscript waits for these before the container may start.
+lxc_wait_mounts: "{{ ['/mnt/nextcloud-data'] if nextcloud_storage_ready else [] }}"
 
 service_layout_name: nextcloud
 
