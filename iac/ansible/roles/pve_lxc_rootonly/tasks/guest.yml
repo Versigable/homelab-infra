@@ -1,0 +1,51 @@
+- name: NFS mount points on the node for {{ guest.inventory_hostname }}
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ guest.lxc_node_nfs_mounts | default([]) }}"
+
+# Same options as the gameroom mount: automount, so a node boot never waits on TrueNAS
+# (which boots on the same node), and a hard mount, so a NAS restart pauses I/O instead
+# of failing it.
+- name: NFS mounts in fstab for {{ guest.inventory_hostname }}
+  ansible.posix.mount:
+    src: "{{ item.src }}"
+    path: "{{ item.path }}"
+    fstype: nfs4
+    opts: rw,relatime,vers=4.2,hard,proto=tcp,_netdev,nofail,x-systemd.automount
+    state: present
+  loop: "{{ guest.lxc_node_nfs_mounts | default([]) }}"
+  notify: Activate new automounts
+
+- name: Flush handlers so new automounts exist before the container uses them
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the container config of {{ guest.inventory_hostname }}
+  ansible.builtin.command: "pct config {{ guest.vmid }}"
+  register: pve_lxc_rootonly_config
+  changed_when: false
+
+- name: Feature flags of {{ guest.inventory_hostname }}
+  ansible.builtin.command: "pct set {{ guest.vmid }} --features {{ guest.lxc_features }}"
+  vars:
+    current: "{{ pve_lxc_rootonly_config.stdout | regex_search('^features: (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
+  when:
+    - guest.lxc_features is defined
+    - (current.split(',') | sort) != (guest.lxc_features.split(',') | sort)
+  register: pve_lxc_rootonly_features
+  changed_when: true
+
+- name: Bind mounts of {{ guest.inventory_hostname }}
+  ansible.builtin.command: "pct set {{ guest.vmid }} --{{ item.id }} {{ item.host_path }},mp={{ item.guest_path }}"
+  vars:
+    current: "{{ pve_lxc_rootonly_config.stdout | regex_search('^' ~ item.id ~ ': (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
+  loop: "{{ guest.lxc_bind_mounts | default([]) }}"
+  when: current != item.host_path ~ ',mp=' ~ item.guest_path
+  register: pve_lxc_rootonly_mounts
+  changed_when: true
+
+- name: Restart so the changes take effect for {{ guest.inventory_hostname }}
+  ansible.builtin.command: "pct reboot {{ guest.vmid }}"
+  when: pve_lxc_rootonly_features is changed or pve_lxc_rootonly_mounts is changed
+  changed_when: true

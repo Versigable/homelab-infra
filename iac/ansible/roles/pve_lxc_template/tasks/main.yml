@@ -1,0 +1,18 @@
+- name: Check which templates are already on the node
+  ansible.builtin.stat:
+    path: "/var/lib/vz/template/cache/{{ item }}"
+  loop: "{{ pve_lxc_template_files }}"
+  register: pve_lxc_template_stat
+
+- name: Refresh the template index
+  ansible.builtin.command: pveam update
+  when: pve_lxc_template_stat.results | rejectattr('stat.exists') | list | length > 0
+  changed_when: false
+
+- name: Download missing templates to local storage
+  ansible.builtin.command: "pveam download local {{ item.item }}"
+  loop: "{{ pve_lxc_template_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists
+  changed_when: true

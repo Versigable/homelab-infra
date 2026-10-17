@@ -1,0 +1,88 @@
+- name: Keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: GitLab Runner's apt signing key
+  ansible.builtin.get_url:
+    url: https://packages.gitlab.com/runner/gitlab-runner/gpgkey
+    dest: /etc/apt/keyrings/gitlab-runner.asc
+    mode: "0644"
+
+- name: GitLab Runner's apt repository
+  ansible.builtin.deb822_repository:
+    name: gitlab-runner
+    types: deb
+    uris: https://packages.gitlab.com/runner/gitlab-runner/debian/
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: main
+    signed_by: /etc/apt/keyrings/gitlab-runner.asc
+
+- name: GitLab Runner, pinned
+  ansible.builtin.apt:
+    name:
+      - "gitlab-runner={{ gitlab_runner_version }}"
+      - "gitlab-runner-helper-images={{ gitlab_runner_version }}"
+    update_cache: true
+    allow_change_held_packages: true
+
+- name: Hold the pinned packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - gitlab-runner
+    - gitlab-runner-helper-images
+
+# deploy.sh runs docker compose as gitlab-runner, as on the monitoring host.
+- name: Runner can use Docker
+  ansible.builtin.user:
+    name: gitlab-runner
+    groups: docker
+    append: true
+  when: "'docker_hosts' in group_names"
+  notify: Restart gitlab-runner
+
+- name: Is the runner registered?
+  ansible.builtin.command: grep -q '^\[\[runners\]\]' /etc/gitlab-runner/config.toml
+  register: gitlab_runner_registered
+  changed_when: false
+  failed_when: false
+
+- name: Register the runner (shell executor, LAN URLs)
+  ansible.builtin.command:
+    argv:
+      - gitlab-runner
+      - register
+      - --non-interactive
+      - --url
+      - "{{ gitlab_runner_url }}"
+      - --clone-url
+      - "{{ gitlab_runner_url }}"
+      - --token
+      - "{{ gitlab_runner_token }}"
+      - --executor
+      - shell
+      - --description
+      - "{{ gitlab_runner_description }}"
+  when:
+    - gitlab_runner_registered.rc != 0
+    - gitlab_runner_token | length > 0
+  no_log: true
+  changed_when: true
+
+- name: Say so when registration is still waiting for a token
+  ansible.builtin.debug:
+    msg: >-
+      Runner not registered: create the project runner in GitLab and put its token in the
+      token file as GITLAB_RUNNER_TOKEN_{{ inventory_hostname | upper | replace('-', '_') }}.
+  when:
+    - gitlab_runner_registered.rc != 0
+    - gitlab_runner_token | length == 0
+
+- name: Runner running and enabled
+  ansible.builtin.service:
+    name: gitlab-runner
+    state: started
+    enabled: true

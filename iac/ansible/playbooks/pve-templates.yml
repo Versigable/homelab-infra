@@ -1,0 +1,6 @@
+# Run before `terraform apply`: puts the LXC templates the guests use on each node.
+- name: LXC templates on the Proxmox nodes
+  hosts: proxmox_nodes
+  become: true
+  roles:
+    - pve_lxc_template

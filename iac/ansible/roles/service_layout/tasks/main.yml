@@ -1,0 +1,40 @@
+# The same layout as every GitOps host: /home/<svc>/<svc>-hub/{compose,config,data,...},
+# owned by a nologin service user, with the runner allowed to write the compose dir.
+- name: Service user
+  ansible.builtin.user:
+    name: "{{ service_layout_name }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "/home/{{ service_layout_name }}"
+    create_home: true
+
+- name: Service directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ service_layout_name }}"
+    group: "{{ service_layout_name }}"
+    mode: "0750"
+  loop: "{{ ['/home/' ~ service_layout_name, '/home/' ~ service_layout_name ~ '/' ~ service_layout_name ~ '-hub']
+            + service_layout_subdirs | map('regex_replace', '^', '/home/' ~ service_layout_name ~ '/' ~ service_layout_name ~ '-hub/') | list }}"
+
+- name: Runner can reach the hub
+  ansible.posix.acl:
+    path: "{{ item }}"
+    entity: "{{ service_layout_runner_user }}"
+    etype: user
+    permissions: rx
+    state: present
+  loop:
+    - "/home/{{ service_layout_name }}"
+    - "/home/{{ service_layout_name }}/{{ service_layout_name }}-hub"
+
+- name: Runner can write the compose dir (now and for new files)
+  ansible.posix.acl:
+    path: "/home/{{ service_layout_name }}/{{ service_layout_name }}-hub/compose"
+    entity: "{{ service_layout_runner_user }}"
+    etype: user
+    permissions: rwx
+    default: "{{ item }}"
+    state: present
+  loop: [false, true]

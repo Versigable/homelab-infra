@@ -1,0 +1,41 @@
+- name: Install age
+  ansible.builtin.apt:
+    name: age
+
+- name: Install sops, checked against the release's checksum file
+  ansible.builtin.get_url:
+    url: "https://github.com/getsops/sops/releases/download/v{{ sops_age_sops_version }}/sops-v{{ sops_age_sops_version }}.linux.amd64"
+    checksum: "sha256:https://github.com/getsops/sops/releases/download/v{{ sops_age_sops_version }}/sops-v{{ sops_age_sops_version }}.checksums.txt"
+    dest: /usr/local/bin/sops
+    mode: "0755"
+
+- name: Key directory
+  ansible.builtin.file:
+    path: "{{ sops_age_dir }}"
+    state: directory
+    owner: root
+    group: "{{ sops_age_group }}"
+    mode: "0750"
+
+# The private key is made here and never leaves the host. A rebuilt guest gets a new
+# key, so its secrets files have to be re-encrypted to the new public key.
+- name: Host age key
+  ansible.builtin.command: "age-keygen -o {{ sops_age_dir }}/keys.txt"
+  args:
+    creates: "{{ sops_age_dir }}/keys.txt"
+
+- name: Key permissions
+  ansible.builtin.file:
+    path: "{{ sops_age_dir }}/keys.txt"
+    owner: root
+    group: "{{ sops_age_group }}"
+    mode: "0640"
+
+- name: Read the public key
+  ansible.builtin.command: "age-keygen -y {{ sops_age_dir }}/keys.txt"
+  register: sops_age_public_key
+  changed_when: false
+
+- name: Public key for .sops.yaml
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: {{ sops_age_public_key.stdout }}"

@@ -1,0 +1,6 @@
+# Pinned to releases at least two weeks old; bump through an MR.
+docker_version: "5:29.8.2-1~debian.13~trixie"
+docker_compose_version: "5.6.0-1~debian.13~trixie"
+# Same log limits as the compose files in hosts/*/compose.
+docker_log_max_size: 10m
+docker_log_max_file: "3"

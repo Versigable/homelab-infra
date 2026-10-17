@@ -1,0 +1,12 @@
+base_admin_user: ansible
+base_admin_pubkey: "{{ lookup('ansible.builtin.file', '~/.ssh/homelab-iac.pub') }}"
+base_timezone: America/Denver
+base_packages:
+  - acl
+  - ca-certificates
+  - curl
+  - gnupg
+  - python3
+  - python3-debian
+  - sudo
+  - unattended-upgrades

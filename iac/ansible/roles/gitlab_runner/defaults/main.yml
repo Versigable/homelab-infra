@@ -1,0 +1,10 @@
+# Same minor as the monitoring runner. gitlab-runner depends on the exact same
+# gitlab-runner-helper-images version, so both are pinned together.
+gitlab_runner_version: "18.11.4-1"
+# LAN URL for both job polling and git clone, so CI never goes through Cloudflare.
+gitlab_runner_url: http://10.0.1.13:8081
+gitlab_runner_description: "{{ inventory_hostname }} LXC ({{ vmid }} on {{ pve_node }})"
+# The runner is created in GitLab first (project runner, protected, tagged). Its glrt-
+# token reaches this role only through the environment; iac.sh exports it from the
+# token file as GITLAB_RUNNER_TOKEN_<HOSTNAME>. Without it, registration is skipped.
+gitlab_runner_token: "{{ lookup('ansible.builtin.env', 'GITLAB_RUNNER_TOKEN_' ~ (inventory_hostname | upper | replace('-', '_'))) }}"

@@ -1,0 +1,5 @@
+# .sops.yaml lists age keys as YAML sequences, which needs sops 3.11 or later.
+sops_age_sops_version: "3.13.3"
+sops_age_dir: /etc/sops/age
+# deploy.sh decrypts as gitlab-runner, so the key is group-readable by it (as on Traefik).
+sops_age_group: gitlab-runner

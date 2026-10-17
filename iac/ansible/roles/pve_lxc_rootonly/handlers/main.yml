@@ -1,0 +1,5 @@
+- name: Activate new automounts
+  ansible.builtin.systemd_service:
+    name: remote-fs.target
+    state: restarted
+    daemon_reload: true

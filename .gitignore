@@ -21,3 +21,10 @@ hosts/**/secrets/*
 
 # Claude Code local settings
 .claude/
+
+# iac/: Terraform working files and the generated Ansible guest inventory
+iac/**/.terraform/
+iac/**/*.tfstate
+iac/**/*.tfstate.*
+iac/**/*.tfplan
+iac/ansible/inventory/guests.yml
