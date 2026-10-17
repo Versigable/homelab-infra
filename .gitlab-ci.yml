@@ -344,4 +344,5 @@ deploy-monitoring:
         - hosts/monitoring/compose/monitoring.yml
         - hosts/monitoring/config/**/*
         - hosts/monitoring/secrets/monitoring.env.sops
+        - hosts/monitoring/secrets/ntfy.env.sops
         - hosts/monitoring/scripts/deploy.sh

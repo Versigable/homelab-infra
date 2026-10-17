@@ -5,8 +5,11 @@ set -euo pipefail
 # deploy.sh (Monitoring) — Model B GitOps
 #
 # Deploys the homelab monitoring stack:
-#   Prometheus + Grafana + Alertmanager + heartbeat sidecar
+#   Prometheus + Grafana + Alertmanager + heartbeat sidecar + ntfy
 # to /home/monitoring/monitoring-hub/.
+#
+# Secrets: monitoring.env.sops + ntfy.env.sops are decrypted and concatenated
+# into the live compose .env (root 0600).
 #
 # Usage:
 #   deploy.sh             — Deploy the monitoring stack
@@ -17,6 +20,7 @@ set -euo pipefail
 #   - mkdir -p /home/monitoring/monitoring-hub/{compose,config/{prometheus/alerts,alertmanager},data/{prometheus,grafana,alertmanager}}
 #   - chown -R 65534:65534 /home/monitoring/monitoring-hub/data/{prometheus,alertmanager}
 #   - chown 472:472 /home/monitoring/monitoring-hub/data/grafana
+#   - (data/ntfy is created by ensure_data_dirs on every deploy, 65534:65534)
 #   - apt install gettext-base acl
 #   - setfacl -m u:gitlab-runner:rx /home/monitoring{,/monitoring-hub}
 #   - setfacl -R -m u:gitlab-runner:rwx /home/monitoring/monitoring-hub/{compose,config}
@@ -53,6 +57,7 @@ LIVE_CONFIG_DIR="${LIVE_HUB}/config"
 REPO_COMPOSE="${REPO_DIR}/hosts/monitoring/compose/monitoring.yml"
 REPO_CONFIG_DIR="${REPO_DIR}/hosts/monitoring/config"
 REPO_SOPS_ENV="${REPO_DIR}/hosts/monitoring/secrets/monitoring.env.sops"
+REPO_NTFY_SOPS_ENV="${REPO_DIR}/hosts/monitoring/secrets/ntfy.env.sops"
 REPO_AMGR_TMPL="${REPO_CONFIG_DIR}/alertmanager/alertmanager.yml.tmpl"
 
 log_info "REPO_DIR=${REPO_DIR}"
@@ -68,6 +73,7 @@ sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD
 [[ -f "${SOPS_AGE_KEY_FILE}" && -r "${SOPS_AGE_KEY_FILE}" ]] || die "sops age key not readable: ${SOPS_AGE_KEY_FILE}"
 [[ -f "${REPO_COMPOSE}" ]]   || die "missing compose: ${REPO_COMPOSE}"
 [[ -f "${REPO_SOPS_ENV}" ]]  || die "missing encrypted env: ${REPO_SOPS_ENV}"
+[[ -f "${REPO_NTFY_SOPS_ENV}" ]] || die "missing encrypted env: ${REPO_NTFY_SOPS_ENV}"
 [[ -f "${REPO_AMGR_TMPL}" ]] || die "missing alertmanager template: ${REPO_AMGR_TMPL}"
 [[ -d "${LIVE_HUB}" ]]       || die "missing live hub: ${LIVE_HUB} (run one-time bootstrap on the LXC)"
 
@@ -142,20 +148,33 @@ decrypt_and_render() {
     set +x
     sops -d --input-type dotenv --output-type dotenv "${REPO_SOPS_ENV}" > "${tmp_env}"
     grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${tmp_env}" || die "decrypted env empty/invalid"
+    # ntfy secrets live in their own file. Its NTFY_AUTH_* values are
+    # single-quoted, so bcrypt's `$` survives both `. tmp_env` here and
+    # compose's .env parsing.
+    printf '\n' >> "${tmp_env}"
+    sops -d --input-type dotenv --output-type dotenv "${REPO_NTFY_SOPS_ENV}" >> "${tmp_env}"
+    grep -qE '^NTFY_AUTH_USERS=' "${tmp_env}" || die "decrypted ntfy env empty/invalid"
 
     set -a
     # shellcheck source=/dev/null
     . "${tmp_env}"
     set +a
 
-    # Whitelist substitution: only ${DISCORD_WEBHOOK_URL} is replaced;
-    # any other ${...} in the template (Alertmanager has none today, but
-    # this protects future edits from accidental substitution) passes through.
-    envsubst '${DISCORD_WEBHOOK_URL}' < "${REPO_AMGR_TMPL}" > "${tmp_amgr}"
+    # Whitelist substitution: only ${DISCORD_WEBHOOK_URL} and
+    # ${NTFY_ALERTMANAGER_TOKEN} are replaced; any other ${...} in the
+    # template passes through, which protects future edits from accidental
+    # substitution.
+    envsubst '${DISCORD_WEBHOOK_URL} ${NTFY_ALERTMANAGER_TOKEN}' < "${REPO_AMGR_TMPL}" > "${tmp_amgr}"
 
     sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}"  "${LIVE_COMPOSE_DIR}/.env"
     sudo /usr/bin/install -m 0644 -o root -g root "${tmp_amgr}" "${LIVE_CONFIG_DIR}/alertmanager/alertmanager.yml"
   )
+}
+
+# -------- Data dirs for services added after the one-time bootstrap --------
+ensure_data_dirs() {
+  log_info "Ensuring data dirs"
+  sudo /usr/bin/install -d -m 0750 -o 65534 -g 65534 "${LIVE_HUB}/data/ntfy"
 }
 
 # -------- Compose up --------
@@ -207,6 +226,7 @@ ensure_runner_acls
 sync_compose
 sync_static_configs
 decrypt_and_render
+ensure_data_dirs
 compose_up
 
 # Reload prometheus + alertmanager so config-file-only changes (alert rule

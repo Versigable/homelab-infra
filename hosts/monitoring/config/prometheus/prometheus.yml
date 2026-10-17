@@ -28,6 +28,12 @@ scrape_configs:
     static_configs:
       - targets: ['alertmanager:9093']
 
+  # ntfy metrics listener (separate port from the public API). If ntfy goes
+  # down, ScrapeTargetDown reports it to Discord.
+  - job_name: 'ntfy'
+    static_configs:
+      - targets: ['ntfy:9095']
+
   - job_name: 'grafana'
     static_configs:
       - targets: ['grafana:3000']
