@@ -40,3 +40,13 @@
     default: "{{ item }}"
     state: present
   loop: [false, true]
+
+- name: Runner may run the deploy commands as root
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/gitlab-runner-deploy
+    content: |
+      # Managed by homelab-infra iac/ansible (role service_layout).
+      Defaults:{{ service_layout_runner_user }} !requiretty
+      {{ service_layout_runner_user }} ALL=(root) NOPASSWD: {{ service_layout_runner_sudo | join(', ') }}
+    mode: "0440"
+    validate: visudo -cf %s

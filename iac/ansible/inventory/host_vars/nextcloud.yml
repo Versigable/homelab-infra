@@ -15,3 +15,10 @@ lxc_bind_mounts: >-
      if nextcloud_storage_ready else [] }}
 
 service_layout_name: nextcloud
+
+pg_backup_jobs:
+  - name: nextcloud
+    container: nextcloud-db
+    database: nextcloud
+    user: nextcloud
+    dir: /home/nextcloud/nextcloud-hub/backups

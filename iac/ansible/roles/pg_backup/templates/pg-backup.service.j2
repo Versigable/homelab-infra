@@ -1,0 +1,11 @@
+# Managed by homelab-infra iac/ansible (role pg_backup).
+[Unit]
+Description=pg_dump of {{ item.container }} ({{ item.database }})
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Skip quietly (no failed unit) until the stack has been deployed.
+ExecCondition=/usr/bin/docker inspect --type container {{ item.container }}
+ExecStart=/usr/local/sbin/pg-container-backup {{ item.container }} {{ item.database }} {{ item.user }} {{ item.dir }} {{ pg_backup_keep_days }}

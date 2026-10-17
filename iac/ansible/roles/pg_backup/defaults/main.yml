@@ -1,0 +1,10 @@
+# Nightly pg_dump of Postgres containers. 01:30 local runs before the 02:00 PBS job,
+# so the guest backup always carries a fresh logical dump next to the raw data dir.
+#   - name: nextcloud              unit name: pg-backup-<name>.{service,timer}
+#     container: nextcloud-db
+#     database: nextcloud
+#     user: nextcloud
+#     dir: /home/nextcloud/nextcloud-hub/backups
+pg_backup_jobs: []
+pg_backup_on_calendar: "*-*-* 01:30:00"
+pg_backup_keep_days: 30

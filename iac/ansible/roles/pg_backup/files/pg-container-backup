@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# pg-container-backup <container> <database> <user> <dir> <keep_days>
+#
+# pg_dump in custom format (-Fc, compressed) from inside a Postgres container, over
+# its local socket, so no password is needed. Keeps <keep_days> days of dumps.
+# Restore: docker exec -i <container> pg_restore -U <user> -d <database> --clean < <file>
+# Managed by homelab-infra iac/ansible (role pg_backup).
+set -euo pipefail
+
+container=$1 database=$2 user=$3 dir=$4 keep_days=$5
+
+install -d -m 0750 "$dir"
+out="${dir}/${database}-$(date -u +%Y%m%dT%H%M%SZ).dump"
+
+docker exec "$container" pg_dump -U "$user" -d "$database" -Fc > "${out}.partial"
+if [[ ! -s "${out}.partial" ]]; then
+  rm -f "${out}.partial"
+  echo "pg-container-backup: empty dump from ${container}/${database}" >&2
+  exit 1
+fi
+mv "${out}.partial" "$out"
+
+find "$dir" -maxdepth 1 -name "${database}-*.dump" -mtime +"$keep_days" -delete
+echo "pg-container-backup: wrote ${out} ($(stat -c %s "$out") bytes)"
