@@ -1,0 +1,43 @@
+# Nextcloud + Collabora on LXC 110 (phoenix). Vault: 1-Projects/nextcloud.
+#
+# DELIBERATELY NOT behind authentik-forward. The desktop/phone sync apps, WebDAV,
+# CalDAV/CardDAV and Collabora's WOPI calls can't complete a forward-auth login.
+# People sign in to Nextcloud itself through Authentik OIDC (user_oidc), and
+# Collabora only opens documents with a WOPI token issued by Nextcloud.
+# The one exception is Collabora's admin console, which does get authentik-forward.
+# See 5-Decisions/2026-10-17_nextcloud-deployment.
+http:
+  routers:
+    nextcloud-router:
+      rule: "Host(`cloud.ninjaprivacy.org`)"
+      service: nextcloud-svc
+      entrypoints: [websecure]
+      tls: {}
+
+    collabora-router:
+      rule: "Host(`office.ninjaprivacy.org`)"
+      service: collabora-svc
+      entrypoints: [websecure]
+      tls: {}
+
+    collabora-admin-router:
+      rule: "Host(`office.ninjaprivacy.org`) && (PathPrefix(`/browser/dist/admin`) || PathPrefix(`/cool/adminws`) || PathPrefix(`/cool/getMetrics`))"
+      service: collabora-svc
+      entrypoints: [websecure]
+      tls: {}
+      priority: 100
+      middlewares:
+        - authentik-forward
+
+  services:
+    nextcloud-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.10:8080
+        passHostHeader: true
+
+    collabora-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.10:9980
+        passHostHeader: true

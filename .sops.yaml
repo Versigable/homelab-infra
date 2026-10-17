@@ -32,6 +32,12 @@ creation_rules:
   # Monitoring host (Wolverine LXC 302, 10.1.0.5)
   - path_regex: ^hosts/monitoring/secrets/.*\.env\.sops$
     age: ["age1ln833f9r64gjahe6ktjz968frcxkk7l0sgech65m7xac57f9eqsqa7ghek"]
+
+  # Nextcloud host (LXC 110 on phoenix, built by iac/). iac/ansible role sops_age
+  # makes the key on the host; a rebuilt LXC gets a new one, so after a rebuild
+  # update this key and re-encrypt hosts/nextcloud/secrets/*.
+  - path_regex: ^hosts/nextcloud/secrets/.*\.env\.sops$
+    age: ["age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================
