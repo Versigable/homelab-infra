@@ -1,8 +1,9 @@
+# Create only. Once the share is mounted, this path is the dataset's root on TrueNAS,
+# and Mapall makes root its owner, so a mode set here would chmod the share itself.
 - name: NFS mount points on the node for {{ guest.inventory_hostname }}
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    state: directory
-    mode: "0755"
+  ansible.builtin.command: "mkdir -p {{ item.path }}"
+  args:
+    creates: "{{ item.path }}"
   loop: "{{ guest.lxc_node_nfs_mounts | default([]) }}"
 
 # Same options as the gameroom mount: automount, so a node boot never waits on TrueNAS
