@@ -156,13 +156,39 @@ wait_ready() {
     body=$(curl -fsS -m 5 -H "Host: cloud.ninjaprivacy.org" "${STATUS_URL}" 2>/dev/null || true)
     if [[ "$body" == *'"installed":true'* && "$body" == *'"maintenance":false'* ]]; then
       log_success "Nextcloud is up: ${body}"
-      sudo /usr/bin/docker logs nextcloud-app 2>&1 | grep -E "settings hook finished|WARN" | tail -10 || true
       return 0
     fi
     sleep 5
   done
   sudo /usr/bin/docker logs --tail 40 nextcloud-app 2>&1 || true
   die "Nextcloud did not report installed:true within 10 minutes"
+}
+
+# -------- Settings hooks --------
+# The image runs config/hooks/before-starting on every start of nextcloud-app. When this
+# deploy didn't (re)start the container (no image or compose change), run the hooks here
+# so a settings change still takes effect. Hooks only warn, because a failing hook stops
+# the container; this job fails on those warnings instead, with Nextcloud still up.
+apply_settings() {
+  local started output hook
+  started=$(date -d "$(sudo /usr/bin/docker inspect -f '{{.State.StartedAt}}' nextcloud-app)" +%s)
+  if (( started >= DEPLOY_START )); then
+    log_info "nextcloud-app started during this deploy, so its settings hooks already ran"
+    output=$(sudo /usr/bin/docker logs --since "${DEPLOY_START}" nextcloud-app 2>&1 | grep '^==> ' || true)
+  else
+    log_info "Running the settings hooks in nextcloud-app"
+    output=$(
+      for hook in "${LIVE_CONFIG_DIR}/hooks/before-starting"/*.sh; do
+        sudo /usr/bin/docker exec -u www-data nextcloud-app \
+          "/docker-entrypoint-hooks.d/before-starting/$(basename "$hook")" 2>&1 || true
+      done
+    )
+  fi
+  echo "${output}" | grep -E 'WARN|hook finished' || true
+  grep -q 'settings hook finished' <<<"${output}" || die "the settings hook didn't run"
+  if grep -q 'WARN' <<<"${output}"; then
+    die "Nextcloud is up, but the settings hook warned (above). Fix it, or rerun this job to retry."
+  fi
 }
 
 log_info "========================================"
@@ -172,6 +198,8 @@ ensure_runner_acls
 sync_files
 decrypt_env
 ensure_data_dirs
+DEPLOY_START=$(date +%s)
 compose_up
 wait_ready
+apply_settings
 log_success "Nextcloud deployed"
