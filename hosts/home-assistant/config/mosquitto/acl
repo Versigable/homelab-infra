@@ -1,0 +1,10 @@
+# Mosquitto topic access. Reloaded on every deploy (SIGHUP).
+
+# Home Assistant reads and drives everything.
+user homeassistant
+topic readwrite #
+
+# Zigbee2MQTT owns its base topic and publishes discovery for Home Assistant.
+user zigbee2mqtt
+topic readwrite zigbee2mqtt/#
+topic readwrite homeassistant/#

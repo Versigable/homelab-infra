@@ -1,0 +1,73 @@
+name: home-assistant
+
+# Home Assistant + Mosquitto (+ Zigbee2MQTT once the radio is in) on LXC 112 (phoenix).
+# The LXC itself is built by iac/ (Terraform + Ansible); this stack is deployed by
+# hosts/home-assistant/scripts/deploy.sh. Vault: 1-Projects/home-assistant.
+#   Home Assistant   10.0.1.12:8123  host network
+#   Mosquitto        127.0.0.1:1883  Home Assistant only; Zigbee2MQTT uses the bridge
+#   Zigbee2MQTT UI   10.0.1.12:8080  profile "zigbee", off until config/zigbee.env names the radio
+#
+# Everything lives under ../data on the LXC disk, which PBS backs up nightly.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.10.2
+    container_name: home-assistant
+    restart: unless-stopped
+    logging: *logging
+    # Home Assistant opens connections to devices (the Voice PEs' ESPHome API) and hands
+    # them URLs on its own address, so it shares the LXC's network.
+    network_mode: host
+    depends_on: [mosquitto]
+    volumes:
+      - ../data/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+    # Root in the container, but with no capabilities: no raw sockets or interface changes
+    # on the host network. (DHCP discovery needs NET_RAW and stays off; the lab has no DHCP.)
+    cap_drop: [ALL]
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    container_name: home-assistant-mosquitto
+    restart: unless-stopped
+    logging: *logging
+    networks: [home-assistant-net]
+    # The image's own uid, so its entrypoint skips the chown and needs no capabilities.
+    user: "1883:1883"
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      # mosquitto.conf, acl and passwd, written by deploy.sh
+      - ../config/mosquitto:/mosquitto/config:ro
+      - ../data/mosquitto:/mosquitto/data
+    cap_drop: [ALL]
+
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:2.14.2
+    container_name: home-assistant-zigbee2mqtt
+    profiles: [zigbee]
+    restart: unless-stopped
+    logging: *logging
+    networks: [home-assistant-net]
+    depends_on: [mosquitto]
+    # No user in this LXC has 1884 (1000 is ansible). The radio is on the network, so no
+    # device or dialout group is needed.
+    user: "1884:1884"
+    ports:
+      - "10.0.1.12:8080:8080"
+    volumes:
+      - ../data/zigbee2mqtt:/app/data
+    cap_drop: [ALL]
+
+networks:
+  home-assistant-net:
+    name: home-assistant-net
+    ipam:
+      config:
+        - subnet: 172.30.112.0/24

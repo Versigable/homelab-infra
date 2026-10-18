@@ -1,0 +1,31 @@
+# Zigbee2MQTT's configuration, seeded by deploy.sh on the first start only (the @...@
+# values come from config/zigbee.env). After that Zigbee2MQTT owns this file: it writes
+# device names and options into it, so later changes here don't reach the live copy.
+# The secrets live in secret.yaml next to it, which deploy.sh rewrites from SOPS.
+version: 5
+
+homeassistant:
+  enabled: true
+
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://mosquitto:1883
+  user: zigbee2mqtt
+  password: "!secret.yaml mqtt_password"
+
+# The SLZB-MR1's Zigbee radio (CC2652P7) over TCP.
+serial:
+  port: tcp://@ZIGBEE_COORDINATOR@
+  adapter: zstack
+
+advanced:
+  channel: @ZIGBEE_CHANNEL@
+  pan_id: @ZIGBEE_PAN_ID@
+  ext_pan_id: @ZIGBEE_EXT_PAN_ID@
+  network_key: "!secret.yaml network_key"
+  log_output: [console]
+
+frontend:
+  enabled: true
+  port: 8080
+  auth_token: "!secret.yaml frontend_auth_token"
