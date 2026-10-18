@@ -73,6 +73,7 @@ resource "proxmox_virtual_environment_container" "this" {
       features,
       mount_point,
       tags,
+      hook_script_file_id,
       # Creation-time inputs. A new template or a rotated bootstrap key must not
       # replace a running container; Ansible manages access after bootstrap.
       operating_system[0].template_file_id,
