@@ -362,3 +362,19 @@ deploy-nextcloud:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/nextcloud/**/*
+
+# ============================================================
+# Home Assistant (LXC 112 on phoenix, built by iac/)
+# ============================================================
+.home-assistant-deploy:
+  stage: deploy
+  tags: ["home-assistant"]
+  script:
+    - bash hosts/home-assistant/scripts/deploy.sh
+
+deploy-home-assistant:
+  extends: .home-assistant-deploy
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/home-assistant/**/*

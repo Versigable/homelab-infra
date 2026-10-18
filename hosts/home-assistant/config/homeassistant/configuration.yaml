@@ -1,0 +1,19 @@
+# Home Assistant's core configuration (LXC 112). deploy.sh checks it with check_config,
+# installs it as /config/configuration.yaml and restarts Home Assistant when it changes.
+# Everything set up in the UI lives in /config/.storage and in the three included files,
+# which deploy.sh creates when missing and never overwrites.
+
+# The standard integrations: frontend, history, logbook, energy, zeroconf and so on.
+default_config:
+
+# Written by the UI editors.
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+logger:
+  default: warning
+  logs:
+    # DHCP discovery needs raw sockets, which the container doesn't get (and the lab has
+    # no DHCP), so the error its watcher logs at every start is expected.
+    aiodhcpwatcher: critical

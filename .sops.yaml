@@ -38,6 +38,12 @@ creation_rules:
   # update this key and re-encrypt hosts/nextcloud/secrets/*.
   - path_regex: ^hosts/nextcloud/secrets/.*\.env\.sops$
     age: ["age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l"]
+
+  # Home Assistant host (LXC 112 on phoenix, built by iac/). Same as Nextcloud: after a
+  # rebuild, update this key and re-encrypt hosts/home-assistant/secrets/* from the
+  # operator copies.
+  - path_regex: ^hosts/home-assistant/secrets/.*\.env\.sops$
+    age: ["age1sdmvge7wd0j823ex6ljp84r9cjnyhcypvt0xy26mggpnlc3l0e4qfdfqj6"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================
