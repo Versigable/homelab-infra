@@ -16,6 +16,20 @@ locals {
       groups      = ["docker_hosts", "nextcloud"]
       description = "Nextcloud + Collabora. App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
     }
+    # No USB or Bluetooth passthrough: the Zigbee radio is on the network, so this
+    # guest can move between nodes. Not on rogue, which hosts the studio cells.
+    "home-assistant" = {
+      vmid        = 112
+      node        = "phoenix"
+      ip          = "10.0.1.12"
+      cores       = 2
+      memory      = 4096
+      swap        = 1024
+      disk        = 32
+      tags        = ["home-assistant"]
+      groups      = ["docker_hosts", "home_assistant"]
+      description = "Home Assistant (Container) + Mosquitto + Zigbee2MQTT. App: homelab-infra hosts/home-assistant (GitOps). Vault: 1-Projects/home-assistant."
+    }
   }
 }
 

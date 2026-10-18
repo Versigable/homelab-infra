@@ -1,0 +1,8 @@
+# Root-only container options, applied on the node by pve_lxc_rootonly.
+# keyctl is for Docker inside the unprivileged container.
+lxc_features: nesting=1,keyctl=1
+
+# No NFS or bind mounts: Home Assistant keeps its state on the LXC disk, and its own
+# backups are copied off the box by the app (hosts/home-assistant).
+
+service_layout_name: home-assistant
