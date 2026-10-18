@@ -24,6 +24,8 @@ run() {
 # rewrites X-Forwarded-For to the cloudflared hop, so the real client IP (needed for
 # brute-force throttling) comes from CF-Connecting-IP, as for ntfy.
 run "trusted domain"  occ config:system:set trusted_domains 0 --value=cloud.ninjaprivacy.org
+# The first install also wrote it at index 1; deleting a missing entry is a no-op.
+run "trusted domain"  occ config:system:delete trusted_domains 1
 run "trusted proxy"   occ config:system:set trusted_proxies 0 --value=10.0.2.5
 run "trusted proxy"   occ config:system:set trusted_proxies 1 --value=172.30.110.0/24
 run "client IP"       occ config:system:set forwarded_for_headers 0 --value=HTTP_CF_CONNECTING_IP
@@ -33,12 +35,51 @@ run "phone region"    occ config:system:set default_phone_region --value=US
 # Heavy background jobs start at 08:00 UTC (02:00 MDT).
 run "maint. window"   occ config:system:set maintenance_window_start --type=integer --value=8
 run "cron"            occ background:cron
+# One server, so any id in 0-511 will do.
+run "server id"       occ config:system:set serverid --type=integer --value=1
+
+# --- Repairs after an install or upgrade ------------------------------------------
+# Mimetype migrations and missing DB indices are left to the admin after each new
+# version. Run them once per version.
+version=$(occ config:system:get version)
+if [ "$(occ config:app:get homelab repaired_version 2>/dev/null)" != "$version" ]; then
+    before=$failures
+    run "repair"          occ maintenance:repair --include-expensive
+    run "db indices"      occ db:add-missing-indices
+    if [ "$failures" -eq "$before" ]; then
+        run "repair marker" occ config:app:set homelab repaired_version --value="$version"
+    fi
+fi
 
 # --- Apps -------------------------------------------------------------------
-# Photos ships with the server; the others come from the app store.
-for app in calendar contacts tasks richdocuments user_oidc photos; do
-    occ app:enable "$app" >/dev/null 2>&1 || run "install ${app}" occ app:install "$app"
+# Photos and TOTP ship with the server; the others come from the app store, which
+# app:enable downloads from. The store's index is large and sometimes very slow; after
+# a failed fetch Nextcloud won't try again for 5 minutes, so clear that and retry.
+missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp"
+for attempt in 1 2 3; do
+    still=""
+    for app in $missing; do
+        if ! out=$(occ app:enable "$app" 2>&1); then
+            still="$still $app"
+            last_error=$out
+        fi
+    done
+    missing=$still
+    if [ -z "$missing" ] || [ "$attempt" -eq 3 ]; then
+        break
+    fi
+    occ config:app:delete settings appstore-fetcher-lastFailure >/dev/null 2>&1
+    sleep 15
 done
+for app in $missing; do
+    echo "==> WARN: install ${app} failed after 3 attempts: ${last_error}"
+    failures=$((failures + 1))
+done
+
+# Not using External Apps (Ex-Apps), so AppAPI's deploy daemon warning is noise.
+if occ app:list --enabled | grep -q -- '- app_api:'; then
+    run "disable app_api" occ app:disable app_api
+fi
 
 # --- Quotas and sharing defaults ------------------------------------------------
 run "default quota"   occ config:app:set files default_quota --value="1 TB"
@@ -63,6 +104,16 @@ if [ -n "${NEXTCLOUD_OIDC_CLIENT_ID:-}" ]; then
         failures=$((failures + 1))
     fi
     run "OIDC only"   occ config:app:set user_oidc allow_multiple_user_backends --value=0
+fi
+
+# --- Break-glass admin ------------------------------------------------------------
+# Its /login?direct=1 form is public, so it gets a second factor: Nextcloud makes it set
+# up TOTP at its next login. People sign in through Authentik and aren't in this group.
+# Recovery if the TOTP device is lost: `occ twofactorauth:disable <user> totp`.
+if [ -n "${NEXTCLOUD_ADMIN_USER:-}" ]; then
+    occ group:info breakglass >/dev/null 2>&1 || run "breakglass group" occ group:add breakglass
+    run "breakglass member" occ group:adduser breakglass "$NEXTCLOUD_ADMIN_USER"
+    run "breakglass 2FA"    occ twofactorauth:enforce --on --group=breakglass
 fi
 
 # --- Collabora ------------------------------------------------------------------
