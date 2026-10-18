@@ -346,3 +346,19 @@ deploy-monitoring:
         - hosts/monitoring/secrets/monitoring.env.sops
         - hosts/monitoring/secrets/ntfy.env.sops
         - hosts/monitoring/scripts/deploy.sh
+
+# ============================================================
+# Nextcloud (LXC 110 on phoenix, built by iac/)
+# ============================================================
+.nextcloud-deploy:
+  stage: deploy
+  tags: ["nextcloud"]
+  script:
+    - bash hosts/nextcloud/scripts/deploy.sh
+
+deploy-nextcloud:
+  extends: .nextcloud-deploy
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/nextcloud/**/*
