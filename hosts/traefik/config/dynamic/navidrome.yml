@@ -1,0 +1,15 @@
+http:
+  routers:
+    navidrome-router:
+      rule: "Host(`navidrome.ninjaprivacy.org`)"
+      service: navidrome-svc
+      entrypoints: [websecure]
+      tls: {}
+      # No authentik-forward: Subsonic apps log in to Navidrome directly, and the
+      # gate only admits Hokagis. Navidrome's own accounts are the access control.
+  services:
+    navidrome-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.14:4533
+        passHostHeader: true
