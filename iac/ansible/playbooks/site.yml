@@ -35,3 +35,11 @@
     - gitlab_runner
     - sops_age
     - service_layout
+
+- name: Navidrome host platform (the app itself is deployed by GitOps CI from hosts/navidrome)
+  hosts: navidrome
+  become: true
+  roles:
+    - gitlab_runner
+    - sops_age
+    - service_layout
