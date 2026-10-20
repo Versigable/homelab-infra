@@ -378,3 +378,16 @@ deploy-home-assistant:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/home-assistant/**/*
+
+# ============================================================
+# Navidrome (LXC 114 on phoenix, built by iac/)
+# ============================================================
+deploy-navidrome:
+  stage: deploy
+  tags: ["navidrome"]
+  script:
+    - bash hosts/navidrome/scripts/deploy.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/navidrome/**/*
