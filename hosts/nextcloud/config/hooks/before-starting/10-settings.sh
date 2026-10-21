@@ -55,7 +55,9 @@ fi
 # Photos and TOTP ship with the server; the others come from the app store, which
 # app:enable downloads from. The store's index is large and sometimes very slow; after
 # a failed fetch Nextcloud won't try again for 5 minutes, so clear that and retry.
-missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp"
+# end_to_end_encryption only lets the desktop and mobile clients encrypt folders; people
+# opt in per folder, and the server never sees their keys.
+missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp end_to_end_encryption"
 for attempt in 1 2 3; do
     still=""
     for app in $missing; do
