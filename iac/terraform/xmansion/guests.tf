@@ -30,6 +30,20 @@ locals {
       groups      = ["docker_hosts", "home_assistant"]
       description = "Home Assistant (Container) + Mosquitto + Zigbee2MQTT. App: homelab-infra hosts/home-assistant (GitOps). Vault: 1-Projects/home-assistant."
     }
+    # On phoenix, next to TrueNAS, so the music never leaves the host. 111 is reserved
+    # for mail-relay; 114 keeps the VMID matching the last octet.
+    navidrome = {
+      vmid        = 114
+      node        = "phoenix"
+      ip          = "10.0.1.14"
+      cores       = 1
+      memory      = 1024
+      swap        = 512
+      disk        = 16
+      tags        = ["navidrome"]
+      groups      = ["docker_hosts", "navidrome"]
+      description = "Navidrome (private music, 3 accounts). App: homelab-infra hosts/navidrome (GitOps). Vault: 1-Projects/navidrome-music."
+    }
   }
 }
 

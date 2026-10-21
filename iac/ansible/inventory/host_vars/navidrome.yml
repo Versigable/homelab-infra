@@ -1,0 +1,22 @@
+# Root-only container options, applied on the node by pve_lxc_rootonly.
+# keyctl is for Docker inside the unprivileged container.
+lxc_features: nesting=1,keyctl=1
+
+# The music lives on TrueNAS Liberry/kannis-music (its own dataset, outside Liberry/media, so
+# the RAIDZ1 project's rename never touches it). The node mounts it read-write so the
+# collection can be loaded from a USB drive on phoenix; the container only gets it
+# read-only.
+lxc_node_nfs_mounts:
+  - src: 10.0.1.7:/mnt/Liberry/kannis-music
+    path: /mnt/kannis-music
+# shared=1: the same NFS path exists on every node, so the LXC can migrate (as Nextcloud).
+lxc_bind_mounts:
+  - id: mp0
+    host_path: /mnt/kannis-music
+    guest_path: /srv/kannis-music
+    options: shared=1,ro=1
+# The pre-start hookscript waits for these before the container may start.
+lxc_wait_mounts:
+  - /mnt/kannis-music
+
+service_layout_name: navidrome
