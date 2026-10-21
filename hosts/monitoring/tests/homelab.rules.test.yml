@@ -1,0 +1,65 @@
+# promtool unit tests for config/prometheus/alerts/homelab.rules.yml.
+# Lives outside config/ so deploy.sh never syncs it into Prometheus.
+# Run from this directory, with the image the stack runs:
+#   docker run --rm -v "$PWD/..:/m:ro" -w /m/tests --entrypoint promtool prom/prometheus:v3.0.1 test rules homelab.rules.test.yml
+rule_files:
+  - ../config/prometheus/alerts/homelab.rules.yml
+evaluation_interval: 30s
+tests:
+  # jf down, phoenix up: pages after 15m
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node", instance="jf", site="x-mansion"}'
+        values: '1 0x30'
+      - series: 'up{job="node", instance="phoenix", site="x-mansion"}'
+        values: '1x31'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: JfHostDown
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: JfHostDown
+        exp_alerts:
+          - exp_labels: {job: node, instance: jf, site: x-mansion, severity: critical, service: jf}
+            exp_annotations:
+              summary: "jf (Jellyfin + arr stack) unreachable for 15+ minutes"
+              description: |-
+                node_exporter on jf (VM 108, phoenix, 10.0.1.8) has not answered for
+                15+ minutes while other X-Mansion hosts are up. Jellyfin, Seerr,
+                Sonarr, Radarr, Prowlarr and qBittorrent are all on jf, so expect 502s.
+                First check on phoenix: `qm status 108`. If it says running but the
+                guest is dead, take a console screendump via `qm monitor 108`. A hung
+                shutdown (nvidia-modeset errors) needs `qm stop 108 && qm start 108`.
+  # 10-minute reboot blip: no page
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node", instance="jf", site="x-mansion"}'
+        values: '1 0x9 1x20'
+      - series: 'up{job="node", instance="phoenix", site="x-mansion"}'
+        values: '1x31'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: JfHostDown
+        exp_alerts: []
+  # whole site down (WG tunnel): JfHostDown stays quiet, WGTunnelLikelyDown pages
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node", instance="jf", site="x-mansion"}'
+        values: '1 0x30'
+      - series: 'up{job="node", instance="phoenix", site="x-mansion"}'
+        values: '1 0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: JfHostDown
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: WGTunnelLikelyDown
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "All X-Mansion node targets unreachable — WG tunnel suspected"
+              description: |-
+                No X-Mansion node_exporter targets have been reachable from the
+                monitoring LXC for 5+ minutes. This pattern points at the WG
+                site-to-site tunnel rather than individual host outages.
+                (Individual host scrape failures fire ScrapeTargetDown instead.)
