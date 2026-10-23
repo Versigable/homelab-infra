@@ -1,0 +1,2 @@
+# always | defer | defer+madvise | madvise | never. See tasks/main.yml for why not madvise.
+pve_node_thp_defrag: defer
