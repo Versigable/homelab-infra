@@ -5,6 +5,7 @@
   hosts: proxmox_nodes
   become: true
   roles:
+    - pve_node_tuning
     - pve_lxc_rootonly
 
 - name: Base setup on every Terraform-built guest

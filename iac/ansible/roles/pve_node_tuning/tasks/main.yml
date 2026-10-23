@@ -1,0 +1,25 @@
+# Kernel settings on the Proxmox nodes themselves.
+#
+# THP defrag = defer: a vCPU thread never compacts memory itself; kcompactd does it in the
+# background. On 2026-10-23 TrueNAS (VM 107 on phoenix) froze for about 30 minutes: its vCPU
+# thread was compacting memory for a huge page, hit a dirty page of the node's own NFS mount of
+# TrueNAS, and waited for an NFS COMMIT that only the frozen VM could answer. With direct
+# compaction off, that wait can only happen in kcompactd, which TrueNAS doesn't depend on.
+# Vault: 1-Projects/navidrome-music/tasks.md (phase 6 incident).
+- name: THP defrag mode at boot
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/iac-thp-defrag.conf
+    content: |
+      # Managed by homelab-infra iac/ansible (role pve_node_tuning).
+      w /sys/kernel/mm/transparent_hugepage/defrag - - - - {{ pve_node_thp_defrag }}
+    mode: "0644"
+
+- name: Read the current THP defrag mode
+  ansible.builtin.slurp:
+    src: /sys/kernel/mm/transparent_hugepage/defrag
+  register: pve_node_thp_defrag_current
+
+- name: THP defrag mode now
+  ansible.builtin.shell: "echo {{ pve_node_thp_defrag }} > /sys/kernel/mm/transparent_hugepage/defrag"
+  when: ("[" ~ pve_node_thp_defrag ~ "]") not in (pve_node_thp_defrag_current.content | b64decode)
+  changed_when: true
