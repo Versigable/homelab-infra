@@ -1,0 +1,59 @@
+# The cloud-init template Terraform clones VMs from (modules/vm). Built once per node; an
+# existing template is left alone, so bumping the image means removing the old template first.
+# It sits in the iac pool so the IaC token may clone it.
+- name: Is the VM template already there?
+  ansible.builtin.stat:
+    path: "/etc/pve/qemu-server/{{ pve_vm_template_vmid }}.conf"
+  register: pve_vm_template_conf
+
+- name: Build the VM template
+  when: not pve_vm_template_conf.stat.exists
+  block:
+    - name: Directory for the cloud image
+      ansible.builtin.file:
+        path: /var/lib/vz/import
+        state: directory
+        mode: "0755"
+
+    - name: Debian cloud image, checksum-verified
+      ansible.builtin.get_url:
+        url: "{{ pve_vm_template_url }}"
+        dest: "/var/lib/vz/import/{{ pve_vm_template_image }}"
+        checksum: "sha512:{{ pve_vm_template_sha512 }}"
+        mode: "0644"
+
+    - name: Create the VM with the image as its disk and a cloud-init drive
+      ansible.builtin.command:
+        argv:
+          - qm
+          - create
+          - "{{ pve_vm_template_vmid }}"
+          - --name
+          - "{{ pve_vm_template_name }}"
+          - --pool
+          - "{{ pve_vm_template_pool }}"
+          - --ostype
+          - l26
+          - --cpu
+          - x86-64-v2-AES
+          - --memory
+          - "1024"
+          - --net0
+          - virtio,bridge=vmbr0,firewall=1
+          - --scsihw
+          - virtio-scsi-single
+          - --scsi0
+          - "{{ pve_vm_template_datastore }}:0,import-from=/var/lib/vz/import/{{ pve_vm_template_image }},discard=on,iothread=1"
+          - --ide2
+          - "{{ pve_vm_template_datastore }}:cloudinit"
+          - --boot
+          - order=scsi0
+          - --serial0
+          - socket
+          - --vga
+          - serial0
+      changed_when: true
+
+    - name: Turn it into a template
+      ansible.builtin.command: "qm template {{ pve_vm_template_vmid }}"
+      changed_when: true

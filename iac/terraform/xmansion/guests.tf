@@ -45,6 +45,25 @@ locals {
       description = "Navidrome (private music, 3 accounts). App: homelab-infra hosts/navidrome (GitOps). Vault: 1-Projects/navidrome-music."
     }
   }
+
+  # Every Terraform-managed VM on X-Mansion, cloned from the cloud-init template
+  # (var.vm_template_vmid, built by pve-templates.yml). Same fields as lxc_guests, minus swap.
+  # Guests that write to TrueNAS over NFS are VMs (vault: 5-Decisions/2026-10-23_nextcloud-vm-instead-of-lxc).
+  vm_guests = {
+    # Replaces LXC 110 (vault: 1-Projects/nextcloud/notes/vm-migration-plan). Mounts the
+    # TrueNAS nextcloud share itself; phoenix never mounts it once the cutover is done.
+    "nextcloud-vm" = {
+      vmid        = 116
+      node        = "phoenix"
+      ip          = "10.0.1.16"
+      cores       = 4
+      memory      = 6144
+      disk        = 40
+      tags        = ["nextcloud"]
+      groups      = ["docker_hosts", "nextcloud"]
+      description = "Nextcloud + Collabora (VM, replaces LXC 110). App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
+    }
+  }
 }
 
 module "lxc" {
@@ -61,6 +80,24 @@ module "lxc" {
   disk            = each.value.disk
   ip              = each.value.ip
   template        = var.lxc_template
+  gateway         = var.gateway
+  dns_servers     = var.dns_servers
+  ssh_public_keys = [trimspace(file(pathexpand(var.ssh_public_key_file)))]
+}
+
+module "vm" {
+  source   = "../modules/vm"
+  for_each = local.vm_guests
+
+  hostname        = each.key
+  node            = each.value.node
+  vmid            = each.value.vmid
+  template_vmid   = var.vm_template_vmid
+  description     = each.value.description
+  cores           = each.value.cores
+  memory          = each.value.memory
+  disk            = each.value.disk
+  ip              = each.value.ip
   gateway         = var.gateway
   dns_servers     = var.dns_servers
   ssh_public_keys = [trimspace(file(pathexpand(var.ssh_public_key_file)))]

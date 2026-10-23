@@ -22,10 +22,22 @@ module ignores those attributes so the two never fight.
 ```
 iac/
   terraform/modules/lxc/   reusable unprivileged LXC
+  terraform/modules/vm/    reusable VM, cloned from the node's cloud-init template
   terraform/xmansion/      root module for X-Mansion (phoenix + rogue); guests.tf is the guest list
   ansible/                 inventory (nodes.yml static, guests.yml generated), roles, playbooks
   scripts/iac.sh           runs everything with the right credentials and settings
 ```
+
+## LXC or VM
+
+A guest that **writes to TrueNAS over NFS is a VM**. An LXC's NFS mount is the node's own NFS
+client, and TrueNAS runs on that node: on 2026-10-23 a node-side writer deadlocked TrueNAS for
+about 30 minutes. A VM's NFS client keeps its dirty pages in guest RAM. Everything else can be
+an LXC (cheaper), including guests that only read from TrueNAS (their node mount is `ro: true`).
+
+VMs are cloned from template 9000 (Debian 13 cloud image, built by `pve-templates.yml`).
+cloud-init creates the `ansible` user with the homelab-iac key, so a VM skips `iac.sh bootstrap`.
+It mounts its own shares (role `nfs_client`), and Docker waits for them (`RequiresMountsFor`).
 
 ## Access and state
 

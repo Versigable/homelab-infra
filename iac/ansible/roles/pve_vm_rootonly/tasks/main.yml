@@ -1,0 +1,30 @@
+# Tags on the Terraform-built VMs of this node. The pool-scoped IaC token can't tag a guest
+# (see modules/lxc), so the node does it as root, as pve_lxc_rootonly does for containers.
+- name: Find the Terraform-built VMs on this node
+  ansible.builtin.set_fact:
+    pve_vm_rootonly_guests: >-
+      {{ groups['vm_guests'] | default([])
+         | map('extract', hostvars)
+         | selectattr('pve_node', 'defined')
+         | selectattr('pve_node', 'equalto', inventory_hostname)
+         | list }}
+
+- name: Read the VM configs
+  ansible.builtin.command: "qm config {{ item.vmid }}"
+  loop: "{{ pve_vm_rootonly_guests }}"
+  loop_control:
+    label: "{{ item.inventory_hostname }} ({{ item.vmid }})"
+  register: pve_vm_rootonly_configs
+  changed_when: false
+
+- name: Tags
+  ansible.builtin.command: "qm set {{ item.item.vmid }} --tags {{ item.item.pve_tags | join(';') }}"
+  vars:
+    current: "{{ item.stdout | regex_search('^tags: (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
+  loop: "{{ pve_vm_rootonly_configs.results }}"
+  loop_control:
+    label: "{{ item.item.inventory_hostname }}"
+  when:
+    - item.item.pve_tags is defined
+    - (current.split(';') | reject('equalto', '') | sort) != (item.item.pve_tags | sort)
+  changed_when: true
