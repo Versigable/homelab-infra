@@ -1,0 +1,5 @@
+# NFS shares a VM mounts itself: [{src, path, ro (optional, default false)}].
+nfs_client_mounts: []
+# Docker won't start until these paths are mounted, so a stack can never start on an empty
+# directory (the VM equivalent of the LXC wait-mounts hookscript).
+nfs_client_docker_requires: []

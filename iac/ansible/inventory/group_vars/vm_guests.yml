@@ -1,0 +1,4 @@
+# cloud-init creates the ansible user with the homelab-iac key (modules/vm), so VMs need no
+# bootstrap.yml: site.yml reaches them as ansible from the first run.
+ansible_user: ansible
+ansible_ssh_private_key_file: ~/.ssh/homelab-iac

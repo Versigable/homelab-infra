@@ -1,0 +1,9 @@
+# Keep pve_vm_template_vmid in step with var.vm_template_vmid in iac/terraform/<site>/variables.tf.
+pve_vm_template_vmid: 9000
+pve_vm_template_name: debian-13-cloud
+# A dated Debian build, not "latest", so a rebuild gets the same image. Bump both together.
+pve_vm_template_image: debian-13-genericcloud-amd64-20261021-2638.qcow2
+pve_vm_template_url: "https://cloud.debian.org/images/cloud/trixie/20261021-2638/{{ pve_vm_template_image }}"
+pve_vm_template_sha512: 16e0965312c56feb331049d45d2b1b5778f3f942a33d4300eedbb97527707f2bea87c0006f3e4cc7a25fadbff739c4e235a51fb9bcd1b66fd554f7f8e80ba45c
+pve_vm_template_datastore: local-lvm
+pve_vm_template_pool: iac

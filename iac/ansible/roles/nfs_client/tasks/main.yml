@@ -1,0 +1,47 @@
+# In-guest NFS mounts, for VMs. Same options as the node mounts in pve_lxc_rootonly: automount,
+# so boot never waits on TrueNAS, and hard, so a NAS restart pauses I/O instead of failing it.
+- name: NFS client
+  ansible.builtin.apt:
+    name: nfs-common
+    update_cache: true
+    cache_valid_time: 3600
+
+# Create only: once mounted, the path is the dataset's root on TrueNAS, and Mapall makes the
+# client's root its owner, so a mode set here would chmod the share itself (vault: nextcloud
+# iac-pilot-log, lesson 25).
+- name: Mount points
+  ansible.builtin.command: "mkdir -p {{ item.path }}"
+  args:
+    creates: "{{ item.path }}"
+  loop: "{{ nfs_client_mounts }}"
+
+- name: NFS mounts in fstab
+  ansible.posix.mount:
+    src: "{{ item.src }}"
+    path: "{{ item.path }}"
+    fstype: nfs4
+    opts: "{{ 'ro' if item.ro | default(false) else 'rw' }},relatime,vers=4.2,hard,proto=tcp,_netdev,nofail,x-systemd.automount"
+    state: present
+  loop: "{{ nfs_client_mounts }}"
+  notify: Activate new automounts
+
+- name: Directory for Docker's drop-ins
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+  when: nfs_client_docker_requires | length > 0
+
+- name: Docker waits for the NFS mounts
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/10-nfs-mounts.conf
+    content: |
+      # Managed by homelab-infra iac/ansible (role nfs_client).
+      [Unit]
+      RequiresMountsFor={{ nfs_client_docker_requires | join(' ') }}
+    mode: "0644"
+  when: nfs_client_docker_requires | length > 0
+  notify: Activate new automounts
+
+- name: Flush handlers so the mounts exist before Docker is set up
+  ansible.builtin.meta: flush_handlers

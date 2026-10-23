@@ -7,12 +7,20 @@
   roles:
     - pve_node_tuning
     - pve_lxc_rootonly
+    - pve_vm_rootonly
 
 - name: Base setup on every Terraform-built guest
-  hosts: lxc_guests
+  hosts: lxc_guests:vm_guests
   become: true
   roles:
     - base
+
+# Before Docker, so Docker's unit already waits for the mounts when it first starts.
+- name: NFS mounts inside VM guests
+  hosts: vm_guests
+  become: true
+  roles:
+    - nfs_client
 
 - name: Docker hosts
   hosts: docker_hosts

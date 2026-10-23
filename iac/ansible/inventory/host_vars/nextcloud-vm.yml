@@ -1,0 +1,20 @@
+# Nextcloud as a VM (replaces LXC 110; vault: 1-Projects/nextcloud/notes/vm-migration-plan).
+# The VM mounts its TrueNAS share itself (role nfs_client), at the same path the LXC had, so
+# hosts/nextcloud's compose file and deploy.sh don't change. No node mount, bind mount,
+# hookscript or uid mapping.
+nextcloud_nfs_pool: Twelve_TB_Mirror
+
+nfs_client_mounts:
+  - src: "10.0.1.7:/mnt/{{ nextcloud_nfs_pool }}/nextcloud"
+    path: /srv/nextcloud-data
+nfs_client_docker_requires:
+  - /srv/nextcloud-data
+
+service_layout_name: nextcloud
+
+pg_backup_jobs:
+  - name: nextcloud
+    container: nextcloud-db
+    database: nextcloud
+    user: nextcloud
+    dir: /home/nextcloud/nextcloud-hub/backups
