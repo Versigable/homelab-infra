@@ -8,13 +8,15 @@
 
 # Same options as the gameroom mount: automount, so a node boot never waits on TrueNAS
 # (which boots on the same node), and a hard mount, so a NAS restart pauses I/O instead
-# of failing it.
+# of failing it. A mount with `ro: true` is read-only on the node: a node-side NFS client holding
+# dirty pages for TrueNAS (a VM on the same node) can deadlock it, as on 2026-10-23, so mounts
+# the node never needs to write are read-only.
 - name: NFS mounts in fstab for {{ guest.inventory_hostname }}
   ansible.posix.mount:
     src: "{{ item.src }}"
     path: "{{ item.path }}"
     fstype: nfs4
-    opts: rw,relatime,vers=4.2,hard,proto=tcp,_netdev,nofail,x-systemd.automount
+    opts: "{{ 'ro' if item.ro | default(false) else 'rw' }},relatime,vers=4.2,hard,proto=tcp,_netdev,nofail,x-systemd.automount"
     state: present
   loop: "{{ guest.lxc_node_nfs_mounts | default([]) }}"
   notify: Activate new automounts

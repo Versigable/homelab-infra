@@ -3,12 +3,13 @@
 lxc_features: nesting=1,keyctl=1
 
 # The music lives on TrueNAS Liberry/kannis-music (its own dataset, outside Liberry/media, so
-# the RAIDZ1 project's rename never touches it). The node mounts it read-write so the
-# collection can be loaded from a USB drive on phoenix; the container only gets it
-# read-only.
+# the RAIDZ1 project's rename never touches it). Read-only on the node too: the library is
+# loaded from a guest (jf, 2026-10-23), never from phoenix, because phoenix writing into an
+# NFS share of TrueNAS (its own VM) froze TrueNAS on 2026-10-23.
 lxc_node_nfs_mounts:
   - src: 10.0.1.7:/mnt/Liberry/kannis-music
     path: /mnt/kannis-music
+    ro: true
 # shared=1: the same NFS path exists on every node, so the LXC can migrate (as Nextcloud).
 lxc_bind_mounts:
   - id: mp0
