@@ -52,3 +52,12 @@
     - gitlab_runner
     - sops_age
     - service_layout
+
+- name: Ente host platform (the app itself is deployed by GitOps CI from hosts/ente)
+  hosts: ente
+  become: true
+  roles:
+    - gitlab_runner
+    - sops_age
+    - service_layout
+    - pg_backup
