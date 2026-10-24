@@ -48,6 +48,32 @@ locals {
       groups      = ["docker_hosts", "navidrome"]
       description = "Navidrome (private music, 3 accounts). App: homelab-infra hosts/navidrome (GitOps). Vault: 1-Projects/navidrome-music."
     }
+    # One per node, each running a replica of both cloudflared tunnels (main + tunnel B), so
+    # WARP and breakglass survive either node going down. Vault: 1-Projects/tunnel-redundancy.
+    "cf-tunnel-1" = {
+      vmid        = 117
+      node        = "phoenix"
+      ip          = "10.0.1.17"
+      cores       = 1
+      memory      = 512
+      swap        = 256
+      disk        = 8
+      tags        = ["cloudflared"]
+      groups      = ["docker_hosts", "cf_tunnel"]
+      description = "cloudflared replicas of ninjaprivacy_org and ninjaprivacy_us (phoenix). App: homelab-infra hosts/cf-tunnel (GitOps). Vault: 1-Projects/tunnel-redundancy."
+    }
+    "cf-tunnel-2" = {
+      vmid        = 118
+      node        = "rogue"
+      ip          = "10.0.1.18"
+      cores       = 1
+      memory      = 512
+      swap        = 256
+      disk        = 8
+      tags        = ["cloudflared"]
+      groups      = ["docker_hosts", "cf_tunnel"]
+      description = "cloudflared replicas of ninjaprivacy_org and ninjaprivacy_us (rogue). App: homelab-infra hosts/cf-tunnel (GitOps). Vault: 1-Projects/tunnel-redundancy."
+    }
   }
 
   # Every Terraform-managed VM on X-Mansion, cloned from the cloud-init template

@@ -6,6 +6,8 @@ proxmox_nodes:
   hosts:
     phoenix:
       ansible_host: 10.0.1.2
+    rogue:
+      ansible_host: 10.0.2.1
   vars:
     ansible_user: claude-agent
     ansible_ssh_private_key_file: ~/.ssh/claude-agent

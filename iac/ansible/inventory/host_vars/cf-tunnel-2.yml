@@ -1,0 +1,8 @@
+# Root-only container options, applied on the node by pve_lxc_rootonly.
+# keyctl is for Docker inside the unprivileged container.
+lxc_features: nesting=1,keyctl=1
+
+# No NFS or bind mounts: cloudflared keeps nothing but its config and the tunnel secrets,
+# which the app deploys from SOPS (hosts/cf-tunnel).
+
+service_layout_name: cf-tunnel
