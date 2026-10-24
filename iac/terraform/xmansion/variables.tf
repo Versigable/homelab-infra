@@ -30,9 +30,3 @@ variable "dns_servers" {
   type    = list(string)
   default = ["10.0.1.1", "1.1.1.1"]
 }
-
-variable "ssh_public_key_file" {
-  description = "The homelab-iac key Ansible uses for first contact."
-  type        = string
-  default     = "~/.ssh/homelab-iac.pub"
-}

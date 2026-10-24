@@ -1,5 +1,6 @@
 base_admin_user: ansible
-base_admin_pubkey: "{{ lookup('ansible.builtin.file', '~/.ssh/homelab-iac.pub') }}"
+# Every operator's public key (iac/keys/*.pub). The admin user accepts exactly these.
+base_admin_keys_dir: "{{ role_path }}/../../../keys"
 base_timezone: America/Denver
 base_packages:
   - acl

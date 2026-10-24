@@ -36,7 +36,7 @@ about 30 minutes. A VM's NFS client keeps its dirty pages in guest RAM. Everythi
 an LXC (cheaper), including guests that only read from TrueNAS (their node mount is `ro: true`).
 
 VMs are cloned from template 9000 (Debian 13 cloud image, built by `pve-templates.yml`).
-cloud-init creates the `ansible` user with the homelab-iac key, so a VM skips `iac.sh bootstrap`.
+cloud-init creates the `ansible` user with the operators' keys, so a VM skips `iac.sh bootstrap`.
 It mounts its own shares (role `nfs_client`), and Docker waits for them (`RequiresMountsFor`).
 
 ## Access and state
@@ -47,17 +47,17 @@ It mounts its own shares (role `nfs_client`), and Docker waits for them (`Requir
 - **Terraform state:** GitLab-managed, one state per site, in a state-only GitLab project.
   Writing state needs the Maintainer role, and homelab-infra's agent token is
   deliberately only a Developer, so only humans can merge to `main`.
-- **Ansible:** reaches guests as `ansible` with the `homelab-iac` key (root SSH is off after
+- **Ansible:** reaches guests as `ansible` with the operator's own key (`iac/keys`, one per control node; `IAC_SSH_KEY` picks the private key, default `~/.ssh/homelab-iac`) (root SSH is off after
   bootstrap), and reaches nodes as `claude-agent` for the pilot.
 - **Nothing secret lives in this directory.** The repo has a public mirror.
 
 ## Control node setup (once per operator)
 
 - terraform ≥ 1.9 and an Ansible venv (`ansible-galaxy collection install -r ansible/requirements.yml`)
-- `~/.config/homelab-iac/pve-token` (0600): `iac@pve!infra=<secret>`
+- `~/.config/homelab-iac/pve-token` (0600): `iac@pve!<token>=<secret>` (one token per control node: `infra` on MetaVersig's WSL, `infra-fk` on fk-claude, same ACLs)
 - `~/.config/homelab-iac/state.env`: `GITLAB_URL=http://10.0.1.13:8081` and `IAC_STATE_PROJECT=<id>`
 - `GITLAB_TOKEN_FILE` pointing at an env file with `GITLAB_TOKEN_IACSTATE=...` (and runner tokens)
-- `~/.ssh/homelab-iac` (the guests' key) and `~/.ssh/claude-agent` (the nodes' key)
+- your own guest key (its `.pub` committed in `iac/keys`, then `site.yml` run once by an operator who already has access) and `~/.ssh/claude-agent` (the nodes' key)
 
 ## Building a guest
 
