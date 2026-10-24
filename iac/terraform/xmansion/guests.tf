@@ -17,7 +17,7 @@ locals {
       swap        = 1024
       disk        = 40
       tags        = ["nextcloud"]
-      groups      = ["docker_hosts", "nextcloud"]
+      groups      = ["docker_hosts", "nextcloud_hosts"]
       description = "Nextcloud + Collabora. App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
     }
     # No USB or Bluetooth passthrough: the Zigbee radio is on the network, so this
@@ -64,7 +64,7 @@ locals {
       memory      = 6144
       disk        = 40
       tags        = ["nextcloud"]
-      groups      = ["docker_hosts", "nextcloud"]
+      groups      = ["docker_hosts", "nextcloud_hosts"]
       description = "Nextcloud + Collabora (VM, replaces LXC 110). App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
     }
   }
