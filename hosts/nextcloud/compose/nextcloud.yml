@@ -1,7 +1,8 @@
 name: nextcloud
 
-# Nextcloud + Collabora on LXC 110 (phoenix). The LXC itself is built by iac/
-# (Terraform + Ansible); this stack is deployed by hosts/nextcloud/scripts/deploy.sh.
+# Nextcloud + Collabora on LXC 110 (phoenix), moving to VM 116. The guest is built by
+# iac/ (Terraform + Ansible); this stack is deployed by hosts/nextcloud/scripts/deploy.sh,
+# which writes NC_BIND_IP and NC_DATA_DIR for the host into .env.
 # Vault: 1-Projects/nextcloud. Routes: hosts/traefik/config/dynamic/nextcloud.yml
 #   cloud.ninjaprivacy.org  -> web        10.0.1.10:8080
 #   office.ninjaprivacy.org -> collabora  10.0.1.10:9980
@@ -23,7 +24,7 @@ x-nextcloud: &nextcloud
   networks: [nextcloud-net1]
   volumes:
     - ../data/html:/var/www/html
-    - /srv/nextcloud-data:/var/www/data
+    - ${NC_DATA_DIR:?}:/var/www/data
   # The entrypoint copies the app into /var/www/html as root, then drops to www-data.
   cap_drop: [ALL]
   cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
@@ -95,7 +96,7 @@ services:
       NEXTCLOUD_OIDC_CLIENT_SECRET: ${NEXTCLOUD_OIDC_CLIENT_SECRET}
     volumes:
       - ../data/html:/var/www/html
-      - /srv/nextcloud-data:/var/www/data
+      - ${NC_DATA_DIR:?}:/var/www/data
       - ../config/hooks:/docker-entrypoint-hooks.d:ro
 
   cron:
@@ -112,7 +113,7 @@ services:
     networks: [nextcloud-net1]
     depends_on: [app]
     ports:
-      - "10.0.1.10:8080:8080"
+      - "${NC_BIND_IP:?}:8080:8080"
     volumes:
       - ../config/nginx/nextcloud.conf:/etc/nginx/conf.d/default.conf:ro
       - ../data/html:/var/www/html:ro
@@ -127,7 +128,7 @@ services:
     logging: *logging
     networks: [nextcloud-net1]
     ports:
-      - "10.0.1.10:9980:9980"
+      - "${NC_BIND_IP:?}:9980:9980"
     environment:
       aliasgroup1: https://cloud.ninjaprivacy.org:443
       server_name: office.ninjaprivacy.org

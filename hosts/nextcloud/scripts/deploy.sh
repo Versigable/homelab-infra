@@ -4,12 +4,20 @@ set -euo pipefail
 # ============================================================
 # deploy.sh (Nextcloud) — Model B GitOps
 #
-# Deploys Nextcloud + Collabora to /home/nextcloud/nextcloud-hub on LXC 110.
-# There is no manual bootstrap: the LXC, its runner, the runner's sudoers, the
+# Deploys Nextcloud + Collabora to /home/nextcloud/nextcloud-hub on LXC 110, or on
+# VM 116 during the move (1-Projects/nextcloud/notes/vm-migration-plan).
+# There is no manual bootstrap: the guest, its runner, the runner's sudoers, the
 # SOPS age key and the directory layout all come from iac/ (Terraform + Ansible).
 #
 # Refuses to run unless the TrueNAS share is mounted at /srv/nextcloud-data.
-# Without it the installer would put user files on the LXC's root disk.
+# Without it the installer would put user files on the guest's root disk.
+#
+# The CI job sets the host-specific values (defaults: the live LXC 110):
+#   NC_BIND_IP    address the web and Collabora ports listen on
+#   NC_DATA_DIR   user files; the live share unless NC_REHEARSAL=1
+#   NC_REHEARSAL  1 = throwaway install on local disk with its own empty database.
+#                 It may never use the live share: two Nextclouds on one data dir
+#                 corrupt it.
 #
 # Usage: deploy.sh [nextcloud]
 # ============================================================
@@ -39,7 +47,10 @@ LIVE_HUB="/home/nextcloud/nextcloud-hub"
 LIVE_COMPOSE_DIR="${LIVE_HUB}/compose"
 LIVE_CONFIG_DIR="${LIVE_HUB}/config"
 DATA_MOUNT="/srv/nextcloud-data"
-STATUS_URL="http://10.0.1.10:8080/status.php"
+NC_BIND_IP="${NC_BIND_IP:-10.0.1.10}"
+NC_DATA_DIR="${NC_DATA_DIR:-${DATA_MOUNT}}"
+NC_REHEARSAL="${NC_REHEARSAL:-0}"
+STATUS_URL="http://${NC_BIND_IP}:8080/status.php"
 
 REPO_HOST_DIR="${REPO_DIR}/hosts/nextcloud"
 REPO_COMPOSE="${REPO_HOST_DIR}/compose/nextcloud.yml"
@@ -67,8 +78,16 @@ for f in "${REPO_COMPOSE}" "${REPO_NGINX}" "${REPO_SOPS_ENV}"; do
   [[ -f "$f" ]] || die "missing: $f"
 done
 [[ -d "${LIVE_HUB}" ]] || die "missing live hub: ${LIVE_HUB} (run iac/ansible site.yml)"
-mountpoint -q "${DATA_MOUNT}" \
-  || die "${DATA_MOUNT} is not mounted. The TrueNAS share must be in place first (nextcloud_storage_ready in iac/ansible host_vars)."
+if [[ "${NC_REHEARSAL}" == "1" ]]; then
+  case "$(realpath -m "${NC_DATA_DIR}")/" in
+    "${DATA_MOUNT}/"*) die "a rehearsal must not use the live share: NC_DATA_DIR=${NC_DATA_DIR}" ;;
+  esac
+  log_warn "REHEARSAL: throwaway install, user files in ${NC_DATA_DIR}"
+else
+  [[ "${NC_DATA_DIR}" == "${DATA_MOUNT}" ]] || die "NC_DATA_DIR must be ${DATA_MOUNT} outside a rehearsal"
+  mountpoint -q "${DATA_MOUNT}" \
+    || die "${DATA_MOUNT} is not mounted. The TrueNAS share must be in place first (nextcloud_storage_ready in iac/ansible host_vars)."
+fi
 
 git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
 echo
@@ -121,17 +140,23 @@ decrypt_env() {
     for key in "${REQUIRED_KEYS[@]}"; do
       grep -qE "^${key}=." "${tmp_env}" || die "decrypted env is missing ${key}"
     done
+    # Host-specific values for the compose file.
+    printf 'NC_BIND_IP=%s\nNC_DATA_DIR=%s\n' "${NC_BIND_IP}" "${NC_DATA_DIR}" >> "${tmp_env}"
     sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}" "${LIVE_COMPOSE_DIR}/.env"
   )
 }
 
-# -------- Data dirs on the LXC disk --------
+# -------- Data dirs on the guest disk --------
 ensure_data_dirs() {
   log_info "Ensuring data dirs"
   # html: app code + config.php, owned by www-data (33); nginx (101) reads it.
   sudo /usr/bin/install -d -m 0755 -o 33 -g 33 "${LIVE_HUB}/data/html"
   # postgres: the alpine image's postgres user is 70.
   sudo /usr/bin/install -d -m 0700 -o 70 -g 70 "${LIVE_HUB}/data/postgres"
+  # A rehearsal's user files: local disk, www-data, 0770 as Nextcloud requires.
+  if [[ "${NC_REHEARSAL}" == "1" ]]; then
+    sudo /usr/bin/install -d -m 0770 -o 33 -g 33 "${NC_DATA_DIR}"
+  fi
 }
 
 # -------- Compose up --------

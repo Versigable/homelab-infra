@@ -363,6 +363,21 @@ deploy-nextcloud:
       changes:
         - hosts/nextcloud/**/*
 
+# VM 116 rehearsal (1-Projects/nextcloud/notes/vm-migration-plan, step 3): a throwaway
+# install on the VM's own disk with an empty database, never the live share. Manual only;
+# removed at the cutover, when deploy-nextcloud moves to the VM.
+rehearse-nextcloud-vm:
+  extends: .nextcloud-deploy
+  tags: ["nextcloud-vm"]
+  variables:
+    NC_BIND_IP: "10.0.1.16"
+    NC_DATA_DIR: /home/nextcloud/nextcloud-hub/data/rehearsal-files
+    NC_REHEARSAL: "1"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+
 # ============================================================
 # Home Assistant (LXC 112 on phoenix, built by iac/)
 # ============================================================

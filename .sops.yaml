@@ -33,11 +33,15 @@ creation_rules:
   - path_regex: ^hosts/monitoring/secrets/.*\.env\.sops$
     age: ["age1ln833f9r64gjahe6ktjz968frcxkk7l0sgech65m7xac57f9eqsqa7ghek"]
 
-  # Nextcloud host (LXC 110 on phoenix, built by iac/). iac/ansible role sops_age
-  # makes the key on the host; a rebuilt LXC gets a new one, so after a rebuild
-  # update this key and re-encrypt hosts/nextcloud/secrets/*.
+  # Nextcloud hosts, built by iac/: LXC 110 (live until the cutover) and VM 116 (the
+  # move, 1-Projects/nextcloud/notes/vm-migration-plan). iac/ansible role sops_age
+  # makes each key on its host; a rebuilt guest gets a new one, so after a rebuild
+  # update its key and run `sops updatekeys` on a host that can still decrypt.
+  # LXC 110's key comes out in the cutover cleanup.
   - path_regex: ^hosts/nextcloud/secrets/.*\.env\.sops$
-    age: ["age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l"]
+    age: >-
+      age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l,
+      age15awta4pt3vp6r4swn7psu7qjdx8n80rlhanf6ckm72uujzdz8yaq2ql2zn
 
   # Home Assistant host (LXC 112 on phoenix, built by iac/). Same as Nextcloud: after a
   # rebuild, update this key and re-encrypt hosts/home-assistant/secrets/* from the
