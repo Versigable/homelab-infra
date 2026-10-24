@@ -1,0 +1,11 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://photos.ninjaprivacy.org", "https://albums.ninjaprivacy.org"],
+      "AllowedMethods": ["GET", "HEAD", "POST", "PUT", "DELETE"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["Etag"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}

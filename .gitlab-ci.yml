@@ -378,3 +378,19 @@ deploy-home-assistant:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/home-assistant/**/*
+
+# ============================================================
+# Ente Photos (VM 115 on phoenix, built by iac/)
+# ============================================================
+.ente-deploy:
+  stage: deploy
+  tags: ["ente"]
+  script:
+    - bash hosts/ente/scripts/deploy.sh
+
+deploy-ente:
+  extends: .ente-deploy
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/ente/**/*
