@@ -39,6 +39,13 @@ creation_rules:
   - path_regex: ^hosts/nextcloud/secrets/.*\.env\.sops$
     age: ["age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l"]
 
+  # Ente host (VM 115 on phoenix, built by iac/). iac/ansible role sops_age makes the key
+  # on the host; a rebuilt VM gets a new one, so after a rebuild update this key and
+  # re-encrypt hosts/ente/secrets/* from the copy in Bitwarden. ENTE_KEY_ENCRYPTION and
+  # ENTE_KEY_HASH must never change (vault: 1-Projects/ente-photos).
+  - path_regex: ^hosts/ente/secrets/.*\.env\.sops$
+    age: ["age1q22q2m7ax2g7js5tj9yjmhe7qawg3s5mdzg9m90yfzzsg4ynjvaqllxrt2"]
+
   # Home Assistant host (LXC 112 on phoenix, built by iac/). Same as Nextcloud: after a
   # rebuild, update this key and re-encrypt hosts/home-assistant/secrets/* from the
   # operator copies.
