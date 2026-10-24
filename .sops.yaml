@@ -48,6 +48,11 @@ creation_rules:
   # operator copies.
   - path_regex: ^hosts/home-assistant/secrets/.*\.env\.sops$
     age: ["age1sdmvge7wd0j823ex6ljp84r9cjnyhcypvt0xy26mggpnlc3l0e4qfdfqj6"]
+  # Navidrome host (LXC 114 on phoenix, built by iac/). Same as Home Assistant: after a
+  # rebuild, update this key and make a new hosts/navidrome/secrets/navidrome.env.sops
+  # (no operator copy; a new ND_PASSWORDENCRYPTIONKEY means users reset their passwords).
+  - path_regex: ^hosts/navidrome/secrets/.*\.env\.sops$
+    age: ["age184nehpc5mxw5r9pl5mrc7tjlmxkguvpk7tdrxn4lz0rpyq9ke99sug8u3p"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================

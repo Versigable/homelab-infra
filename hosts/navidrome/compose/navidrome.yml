@@ -1,0 +1,44 @@
+# Navidrome: private music server (navidrome.ninjaprivacy.org) for MetaVersig,
+# Firekube and Kannis only. Own accounts, no Authentik forward-auth: Subsonic
+# apps (Amperfy, play:Sub, Substreamer) log in to Navidrome directly, and the
+# forward-auth gate only admits Hokagis. Deployed by scripts/deploy.sh.
+name: navidrome
+
+services:
+  navidrome:
+    # PINNED. Upgrade deliberately, in its own MR. ghcr.io, not Docker Hub,
+    # whose anonymous pull limit already failed arr pipelines #222 and #226.
+    image: ghcr.io/navidrome/navidrome:0.64.2
+    container_name: navidrome
+    # The navidrome service user from iac/ (role service_layout), which owns the
+    # data dir. deploy.sh writes its uid and gid into .env.
+    user: "${NAVIDROME_UID}:${NAVIDROME_GID}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "4533:4533"
+    env_file:
+      # ND_PASSWORDENCRYPTIONKEY, from secrets/navidrome.env.sops. Set before the
+      # first start: Navidrome stores Subsonic passwords reversibly, and changing
+      # the key later breaks every existing login.
+      - .env
+    environment:
+      - ND_MUSICFOLDER=/kannis-music
+      - ND_DATAFOLDER=/data
+      - ND_LOGLEVEL=info
+      # The library is static, and inotify doesn't see changes made on the NFS
+      # server, so a periodic scan is the only way new files show up.
+      - ND_SCANNER_SCHEDULE=@every 6h
+      # Defaults to true: public share links would put the library outside the
+      # three accounts.
+      - ND_ENABLESHARING=false
+      # Anonymous usage statistics to navidrome.org; on by default.
+      - ND_ENABLEINSIGHTSCOLLECTOR=false
+    volumes:
+      # SQLite database and caches, on the LXC disk. Never NFS (SQLite locking).
+      - /home/navidrome/navidrome-hub/data:/data
+      # Liberry/kannis-music: NFS on phoenix, bind-mounted read-only into the LXC.
+      - /srv/kannis-music:/kannis-music:ro
+    restart: unless-stopped
