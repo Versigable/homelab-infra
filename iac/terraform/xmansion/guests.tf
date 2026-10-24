@@ -1,4 +1,8 @@
 locals {
+  # Every operator's public key (iac/keys/*.pub); new guests accept all of them. Ansible's base
+  # role keeps the same list on existing guests.
+  operator_keys = [for f in sort(fileset("${path.module}/../../keys", "*.pub")) : trimspace(file("${path.module}/../../keys/${f}"))]
+
   # Every Terraform-managed LXC on X-Mansion. Ansible's guest inventory is generated
   # from the `guests` output (iac.sh inventory), so this is the only list to edit.
   # groups: Ansible groups the guest joins, which pick its playbook roles.
@@ -82,7 +86,7 @@ module "lxc" {
   template        = var.lxc_template
   gateway         = var.gateway
   dns_servers     = var.dns_servers
-  ssh_public_keys = [trimspace(file(pathexpand(var.ssh_public_key_file)))]
+  ssh_public_keys = local.operator_keys
 }
 
 module "vm" {
@@ -100,5 +104,5 @@ module "vm" {
   ip              = each.value.ip
   gateway         = var.gateway
   dns_servers     = var.dns_servers
-  ssh_public_keys = [trimspace(file(pathexpand(var.ssh_public_key_file)))]
+  ssh_public_keys = local.operator_keys
 }

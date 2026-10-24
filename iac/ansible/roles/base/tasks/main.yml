@@ -14,10 +14,20 @@
     shell: /bin/bash
     create_home: true
 
-- name: Admin user's key (the homelab-iac key, nothing else)
+- name: Operators' public keys
+  ansible.builtin.set_fact:
+    base_admin_pubkey_files: "{{ query('ansible.builtin.fileglob', base_admin_keys_dir ~ '/*.pub') | sort }}"
+
+# exclusive: true below drops every key not listed, so an empty list would lock Ansible out.
+- name: There is at least one operator key
+  ansible.builtin.assert:
+    that: base_admin_pubkey_files | length > 0
+    fail_msg: "No *.pub files in {{ base_admin_keys_dir }}"
+
+- name: Admin user's keys (the operators' keys in iac/keys, nothing else)
   ansible.posix.authorized_key:
     user: "{{ base_admin_user }}"
-    key: "{{ base_admin_pubkey }}"
+    key: "{% for f in base_admin_pubkey_files %}{{ lookup('ansible.builtin.file', f) }}\n{% endfor %}"
     exclusive: true
 
 - name: Admin user can sudo without a password

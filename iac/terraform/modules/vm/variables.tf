@@ -76,7 +76,7 @@ variable "admin_user" {
 }
 
 variable "ssh_public_keys" {
-  description = "Keys for admin_user at creation (the homelab-iac key)."
+  description = "Keys for admin_user at creation (the operators' keys, iac/keys)."
   type        = list(string)
 }
 

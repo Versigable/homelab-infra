@@ -4,7 +4,7 @@
 # guest RAM. A node-side NFS client (an LXC's bind mount) can deadlock TrueNAS, which runs on
 # the same node (2026-10-23). Guests that write to TrueNAS are VMs for that reason.
 #
-# cloud-init creates the ansible user with the homelab-iac key, so a VM needs no root bootstrap:
+# cloud-init creates the ansible user with the operators' keys (iac/keys), so a VM needs no root bootstrap:
 # site.yml reaches it directly. Tags are applied by Ansible (pve_vm_rootonly), for the same
 # pool-permission reason as for containers (see modules/lxc).
 resource "proxmox_virtual_environment_vm" "this" {
