@@ -1,0 +1,21 @@
+# Ente Photos as a VM (vault: 1-Projects/ente-photos). Garage writes every encrypted file to
+# TrueNAS <pool>/ente, so the VM mounts the share itself (role nfs_client): no node mount,
+# bind mount or uid mapping. The share maps every write to entedata (101000). Like
+# Nextcloud's, the dataset moves with the 12 TB pool's RAIDZ1 rebuild, and afterwards only
+# ente_nfs_pool changes to Twelve_TB_RAIDZ1.
+ente_nfs_pool: Twelve_TB_Mirror
+
+nfs_client_mounts:
+  - src: "10.0.1.7:/mnt/{{ ente_nfs_pool }}/ente"
+    path: /srv/ente-data
+nfs_client_docker_requires:
+  - /srv/ente-data
+
+service_layout_name: ente
+
+pg_backup_jobs:
+  - name: ente
+    container: ente-db
+    database: ente_db
+    user: ente
+    dir: /home/ente/ente-hub/backups

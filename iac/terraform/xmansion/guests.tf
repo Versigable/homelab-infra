@@ -67,6 +67,19 @@ locals {
       groups      = ["docker_hosts", "nextcloud"]
       description = "Nextcloud + Collabora (VM, replaces LXC 110). App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
     }
+    # Ente Photos: every photo is written to TrueNAS (via Garage), so a VM that mounts its
+    # own share, not an LXC on a phoenix mount. 113 is skipped because .13 is GitLab.
+    ente = {
+      vmid        = 115
+      node        = "phoenix"
+      ip          = "10.0.1.15"
+      cores       = 2
+      memory      = 4096
+      disk        = 24
+      tags        = ["ente"]
+      groups      = ["docker_hosts", "ente"]
+      description = "Ente Photos (E2EE photos: museum, web, Postgres, Garage). App: homelab-infra hosts/ente (GitOps). Vault: 1-Projects/ente-photos."
+    }
   }
 }
 
