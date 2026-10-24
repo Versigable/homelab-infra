@@ -1,13 +1,17 @@
-# The cloud-init template Terraform clones VMs from (modules/vm). Built once per node; an
-# existing template is left alone, so bumping the image means removing the old template first.
+# The cloud-init template Terraform clones VMs from (modules/vm). VMIDs are cluster-wide, so
+# it is built once, on the first node that runs this; an existing template on any node is
+# left alone, so bumping the image means removing the old template first. It is on local-lvm,
+# so VMs are cloned only on the node that holds it (phoenix today).
 # It sits in the iac pool so the IaC token may clone it.
-- name: Is the VM template already there?
-  ansible.builtin.stat:
-    path: "/etc/pve/qemu-server/{{ pve_vm_template_vmid }}.conf"
+- name: Is the VM template already on any node?
+  ansible.builtin.find:
+    paths: /etc/pve/nodes
+    patterns: "{{ pve_vm_template_vmid }}.conf"
+    recurse: true
   register: pve_vm_template_conf
 
 - name: Build the VM template
-  when: not pve_vm_template_conf.stat.exists
+  when: pve_vm_template_conf.matched == 0
   block:
     - name: Directory for the cloud image
       ansible.builtin.file:

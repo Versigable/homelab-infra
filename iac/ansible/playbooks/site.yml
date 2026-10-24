@@ -63,3 +63,11 @@
     - sops_age
     - service_layout
     - pg_backup
+
+- name: cloudflared tunnel host platform (the app itself is deployed by GitOps CI from hosts/cf-tunnel)
+  hosts: cf_tunnel
+  become: true
+  roles:
+    - gitlab_runner
+    - sops_age
+    - service_layout
