@@ -52,7 +52,9 @@
     desired: "{{ item.host_path ~ ',mp=' ~ item.guest_path ~ ((',' ~ item.options) if item.options is defined else '') }}"
     current: "{{ pve_lxc_rootonly_config.stdout | regex_search('^' ~ item.id ~ ': (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
   loop: "{{ guest.lxc_bind_mounts | default([]) }}"
-  when: current != desired
+  # Proxmox stores the options in its own order (ro=1,shared=1 for shared=1,ro=1), so
+  # compare them as sets; a plain string compare restarted the guest on every run.
+  when: (current.split(',') | sort) != (desired.split(',') | sort)
   register: pve_lxc_rootonly_mounts
   changed_when: true
 
