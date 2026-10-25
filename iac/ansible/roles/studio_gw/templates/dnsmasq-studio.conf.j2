@@ -10,7 +10,13 @@ no-hosts
 no-poll
 domain-needed
 bogus-priv
-cache-size=1000
+# No cache: every answer comes whole from the upstream resolver. On 2026-10-25 lookups of
+# developer.download.nvidia.com (a CNAME chain into Akamai, TTLs 789/144/20 s) failed from
+# the Forge for several minutes with "no address". Upstream logged 0 failures for the 53
+# queries forwarded, while dnsmasq answered 780 from its cache. The exact trigger was not
+# reproduced; with the cache off, a partial or stale cached chain can't be served at all.
+# The nft sets still fill from every reply.
+cache-size=0
 {% if studio_gw_log_queries %}
 log-queries
 {% endif %}
