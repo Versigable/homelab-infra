@@ -1,0 +1,23 @@
+# A person's cell (design: engine-and-agent-runtime §2). Step 2a: its fixed machine identity.
+# Agents, the Unity toolchain and studio-agentd come with step 2c.
+
+- name: The machine-id is set for this cell
+  ansible.builtin.assert:
+    that: studio_cell_machine_id is match('^[0-9a-f]{32}$')
+    fail_msg: "Set studio_cell_machine_id (32 lowercase hex) in host_vars/{{ inventory_hostname }}.yml"
+    quiet: true
+
+# cloud-init's first boot generates a random one. Pinning it gives a rebuilt cell the same
+# identity (Unity licences are per machine); the reboot makes every service see it.
+- name: The cell's fixed machine-id
+  ansible.builtin.copy:
+    dest: /etc/machine-id
+    content: "{{ studio_cell_machine_id }}
+"
+    owner: root
+    group: root
+    mode: "0444"
+  notify: Reboot for the machine-id
+
+- name: Reboot now if the machine-id changed
+  ansible.builtin.meta: flush_handlers

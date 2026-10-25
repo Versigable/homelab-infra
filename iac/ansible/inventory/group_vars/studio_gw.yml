@@ -19,6 +19,21 @@ studio_gw_egress:
       # Selkies base image (forge_play); ghcr.io redirects blobs to the second name
       - ghcr.io
       - pkg-containers.githubusercontent.com
+  hub:
+    sources: [10.77.0.20]
+    ports: [80, 443]
+    names:
+      # OS packages and security updates; its services (step 2b) add their own
+      - deb.debian.org
+      - security.debian.org
+  # Every person's cell. The AI vendors, GitLab and Unity hosts are added with the cell's
+  # software (step 2c), found from Squid's access log (TCP_DENIED) rather than guessed.
+  cells:
+    sources: [10.77.0.60]
+    ports: [80, 443]
+    names:
+      - deb.debian.org
+      - security.debian.org
 
 # Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
 studio_gw_ingress:
@@ -31,3 +46,5 @@ studio_gw_ingress:
 studio_gw_hosts:
   - {name: studio-gw, ip: 10.77.0.1}
   - {name: studio-forge, ip: 10.77.0.10}
+  - {name: studio-hub, ip: 10.77.0.20}
+  - {name: cell-metaversig, ip: 10.77.0.60}

@@ -18,8 +18,8 @@ studio_proxy_env:
   https_proxy: "{{ studio_proxy_url }}"
   HTTP_PROXY: "{{ studio_proxy_url }}"
   HTTPS_PROXY: "{{ studio_proxy_url }}"
-  no_proxy: localhost,127.0.0.1,10.77.0.1,10.77.0.10,.studio
-  NO_PROXY: localhost,127.0.0.1,10.77.0.1,10.77.0.10,.studio
+  no_proxy: localhost,127.0.0.1,10.77.0.1,10.77.0.10,10.77.0.20,.studio
+  NO_PROXY: localhost,127.0.0.1,10.77.0.1,10.77.0.10,10.77.0.20,.studio
 
 # Checks in studio_guest: a name every class may reach, and one none may.
 studio_guest_check_allowed: https://deb.debian.org/debian/

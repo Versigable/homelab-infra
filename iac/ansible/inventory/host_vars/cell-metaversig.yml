@@ -1,0 +1,4 @@
+# MetaVersig's cell (VM 160). Its machine identity is fixed, because Unity licences are per
+# machine and a rebuilt cell must look like the same machine: this machine-id, plus the MAC
+# and SMBIOS UUID in terraform/xmansion/studio.tf. Not secret; never reuse for another guest.
+studio_cell_machine_id: 58426168ee0b4efe93b8787e5eac5ead

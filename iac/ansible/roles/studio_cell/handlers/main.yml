@@ -1,0 +1,5 @@
+# Every service picks up the new machine-id after a reboot.
+- name: Reboot for the machine-id
+  ansible.builtin.reboot:
+    msg: "studio_cell: fixed machine-id"
+    reboot_timeout: 600

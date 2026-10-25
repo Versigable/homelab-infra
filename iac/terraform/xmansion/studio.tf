@@ -5,9 +5,11 @@
 # on studio0 has a route to vmbr0; studio-gw is the network's only way in or out.
 #
 # Studio VMIDs are 150-169; studio0 addresses are 10.77.0.0/24.
-#   150 studio-gw     phoenix  router: egress allow-list, DNS, NTP, ingress for play streams
-#   155 studio-forge  phoenix  the GPU VM; holds the RTX 5070 Ti for good
-# Later: 151 studio-hub, 160/161 the cells, on rogue (template 9001).
+#   150 studio-gw        phoenix  router: Squid egress by hostname, DNS, NTP, play-stream ingress
+#   151 studio-hub       rogue    broker, depot, portal, publisher, chat bot (design step 2b)
+#   155 studio-forge     phoenix  the GPU VM; holds the RTX 5070 Ti for good
+#   160 cell-metaversig  rogue    MetaVersig's cell: his agents, games, Unity (design step 2c)
+# Later: 161 cell-kannis (rogue). Addresses: gw .1, Forge .10, hub .20, cells .60 and up.
 locals {
   studio_net = {
     bridge  = "studio0"
@@ -32,6 +34,22 @@ locals {
       node   = module.studio_forge.node
       groups = ["docker_hosts", "studio_forge", "studio_private"]
       tags   = ["gpu", "iac", "studio"]
+    }
+    "studio-hub" = {
+      kind   = "vm"
+      ip     = module.studio_hub.ip
+      vmid   = module.studio_hub.vmid
+      node   = module.studio_hub.node
+      groups = ["studio_hub", "studio_private"]
+      tags   = ["iac", "studio"]
+    }
+    "cell-metaversig" = {
+      kind   = "vm"
+      ip     = module.cell_metaversig.ip
+      vmid   = module.cell_metaversig.vmid
+      node   = module.cell_metaversig.node
+      groups = ["studio_cell", "studio_private"]
+      tags   = ["cell", "iac", "studio"]
     }
   }
 }
@@ -103,4 +121,63 @@ module "studio_forge" {
   # The VNet and the GPU mapping come from pve-cluster.yml, outside Terraform; studio-gw
   # must exist first so the Forge has DNS and a route when it boots.
   depends_on = [module.studio_gw]
+}
+
+# The hub: the Forge's broker, the depot, the portal, the release publisher and the chat bot
+# (design: architecture §5). Services come in step 2b; for now the VM and its network.
+module "studio_hub" {
+  source = "../modules/vm"
+
+  hostname      = "studio-hub"
+  node          = "rogue"
+  vmid          = 151
+  template_vmid = var.vm_template_vmids["rogue"]
+  description   = "Studio hub: broker, depot, portal, publisher, chat bot. Vault: 1-Projects/game-studio-platform/design/architecture."
+  cores         = 2
+  memory        = 3072
+  memory_min    = 2048
+  disk          = 64
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  ip          = "10.77.0.20"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
+}
+
+# MetaVersig's cell: his agents (his own Claude and ChatGPT sign-ins), his games and his Unity
+# editor (design: engine-and-agent-runtime §2). Ballooned 4-12 GiB: an idle cell gives RAM
+# back to rogue. Low CPU weight, so jf's streams and GamingHub win contention. x86-64-v3
+# because Claude Code needs AVX2.
+#
+# Fixed machine identity (MAC, SMBIOS UUID, and the machine-id in host_vars): Unity licences
+# are per machine, so a rebuilt cell must look like the same machine. Never clone a cell.
+module "cell_metaversig" {
+  source = "../modules/vm"
+
+  hostname      = "cell-metaversig"
+  node          = "rogue"
+  vmid          = 160
+  template_vmid = var.vm_template_vmids["rogue"]
+  description   = "Studio cell of MetaVersig: agents, games, Unity. Fixed identity; never clone. Vault: 1-Projects/game-studio-platform/design/engine-and-agent-runtime."
+  cores         = 6
+  cpu_type      = "x86-64-v3"
+  cpu_units     = 50
+  memory        = 12288
+  memory_min    = 4096
+  disk          = 150
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  mac_address = "BC:24:11:B0:64:29"
+  smbios_uuid = "f03a17f0-c387-4096-b72e-76f1f0c9bad6"
+  ip          = "10.77.0.60"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
 }
