@@ -51,6 +51,27 @@ groups:
             Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }}
             is critically full ({{ $value | humanizePercentage }} available).
 
+      # qBit's incomplete-download disk on jf (vault 1-Projects/qbit-local-incomplete).
+      # A full disk puts torrents into qBit's error state, which Sonarr and Radarr
+      # only show as a warning and never re-grab, so it needs a human well before
+      # DiskSpaceLow's 90 %. DiskSpaceLow/Critical still cover it as a backstop.
+      - alert: QbitIncompleteDiskFilling
+        expr: |-
+          (node_filesystem_avail_bytes{instance="jf", mountpoint="/home/jf/incomplete"}
+           /
+           node_filesystem_size_bytes{instance="jf", mountpoint="/home/jf/incomplete"}) < 0.20
+        for: 10m
+        labels:
+          severity: warning
+          service: jf
+        annotations:
+          summary: "jf /home/jf/incomplete >80% used"
+          description: |-
+            qBit's incomplete-download disk on jf has {{ $value | humanizePercentage }}
+            free. Check for big grabs piling up or torrents stuck in `moving`
+            (qBit WebUI, filter by sonarr/radarr). If it fills, those torrents go
+            to error and stay there until resumed.
+
       - alert: MemoryHigh
         expr: |-
           (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
