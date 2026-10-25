@@ -24,7 +24,8 @@ iac/
   terraform/modules/lxc/   reusable unprivileged LXC
   terraform/modules/vm/    reusable VM, cloned from the node's cloud-init template
   terraform/xmansion/      root module for X-Mansion (phoenix + rogue); guests.tf is the guest list
-  ansible/                 inventory (nodes.yml static, guests.yml generated), roles, playbooks
+  terraform/wolverine/     root module for wolverine (MetaVersig's house, LAB 10.1.0.0/16 on vmbr1)
+  ansible/                 inventory (nodes.yml static; guests.yml and guests-<site>.yml generated), roles, playbooks
   scripts/iac.sh           runs everything with the right credentials and settings
 ```
 
@@ -57,8 +58,9 @@ networking on every node, so that playbook stops until you re-run it with
 ## Access and state
 
 - **Proxmox:** user `iac@pve`, token `infra` (privilege-separated). Role `InfraIaC` on pool
-  `iac` and `local-lvm`; `PVEAuditor` on `local` and `/nodes/phoenix`; `PVESDNUser` on
-  `vmbr0` and the studio vnet `studio0`; `PVEMappingUser` on the PCI mapping `gpu-5070ti`.
+  `iac` and `local-lvm`; `PVEAuditor` on `local`, `/nodes/phoenix` and
+  `/nodes/wolverine`; `PVESDNUser` on `vmbr0`, `vmbr1` (wolverine's LAB; no other node has
+  one) and the studio vnet `studio0`; `PVEMappingUser` on the PCI mapping `gpu-5070ti`.
   It can't touch guests outside the `iac` pool.
 - **Terraform state:** GitLab-managed, one state per site, in a state-only GitLab project.
   Writing state needs the Maintainer role, and homelab-infra's agent token is
@@ -89,6 +91,10 @@ networking on every node, so that playbook stops until you re-run it with
    iac.sh play site.yml               # node plumbing + guest platform
    ```
 3. Run it again: `iac.sh tf plan` shows no changes and `site.yml` reports `changed=0`.
+
+For a site other than xmansion, prefix the `tf` and `inventory` steps with its name, e.g.
+`IAC_SITE=wolverine iac.sh tf apply`. Each site has its own state and its own inventory file;
+the playbooks run against all of them.
 
 After a rebuild the guest has a new SOPS age key, so its `.sops.yaml` rule and secrets
 files must be re-encrypted to the new public key. `site.yml` prints the key.
