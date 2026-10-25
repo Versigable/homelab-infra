@@ -1,0 +1,63 @@
+# Claude Code from Anthropic's signed apt repository, pinned and held (bumped by MR). The
+# package is the binary alone (/usr/bin/claude), with no maintainer scripts. The person signs
+# in with /login as the user agent.
+
+- name: Claude Code repository key
+  ansible.builtin.get_url:
+    url: https://downloads.claude.ai/keys/claude-code.asc
+    dest: /etc/apt/keyrings/claude-code.asc
+    checksum: "sha256:{{ studio_cell_claude_key_sha256 }}"
+    mode: "0644"
+  environment: "{{ studio_proxy_env }}"
+
+- name: Claude Code repository
+  ansible.builtin.deb822_repository:
+    name: claude-code
+    types: deb
+    uris: https://downloads.claude.ai/claude-code/apt/stable
+    suites: stable
+    components: main
+    signed_by: /etc/apt/keyrings/claude-code.asc
+
+- name: Claude Code, pinned
+  ansible.builtin.apt:
+    name: "claude-code={{ studio_cell_claude_version }}"
+    update_cache: true
+    allow_change_held_packages: true
+
+- name: Hold Claude Code
+  ansible.builtin.dpkg_selections:
+    name: claude-code
+    selection: hold
+
+- name: Managed settings directory
+  ansible.builtin.file:
+    path: /etc/claude-code
+    state: directory
+    mode: "0755"
+
+# Machine-wide, above anything in the agent's own settings. Connectors would let a session
+# reach the person's mail and drives from Anthropic's side, around the studio's egress list,
+# so they are off. Non-essential traffic (updater, telemetry, error reports) is off: apt
+# updates the binary, and Squid refuses the rest anyway.
+- name: Managed settings
+  ansible.builtin.copy:
+    dest: /etc/claude-code/managed-settings.json
+    content: "{{ studio_cell_claude_managed_settings | to_nice_json }}\n"
+    mode: "0644"
+  vars:
+    studio_cell_claude_managed_settings:
+      disableClaudeAiConnectors: true
+      env:
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        ENABLE_CLAUDEAI_MCP_SERVERS: "false"
+
+- name: Claude Code runs
+  ansible.builtin.command: claude --version
+  become: true
+  become_user: agent
+  register: studio_cell_claude_check
+  changed_when: false
+  failed_when: >-
+    studio_cell_claude_check.rc != 0
+    or studio_cell_claude_version.split('-')[0] not in studio_cell_claude_check.stdout

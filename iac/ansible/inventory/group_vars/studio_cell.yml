@@ -1,0 +1,25 @@
+# Every person's cell (role studio_cell). Pinned; bump through an MR.
+
+# Claude Code: Anthropic's signed apt repository, stable channel (about a week behind latest,
+# skipping releases with major regressions). Key "Anthropic Claude Code Release Signing",
+# fingerprint 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE.
+studio_cell_claude_version: "2.1.308-1"
+studio_cell_claude_key_sha256: bd70a5e4a268002704024ceba7f8446024114e94f3f0bdd11c23a9e592be81c6
+
+# Codex CLI: the static musl binary from GitHub Releases, fetched and checked on the control
+# node (so cells need no GitHub access). rust-v0.162.1 was released 2026-10-09.
+studio_cell_codex_version: rust-v0.162.1
+studio_cell_codex_sha256: 86f268d81b898f3e144c5ecff2ad2fda2c5802e042d6195b72538fe0fa125057
+
+# Unity CLI: Unity's signed apt repository; betas are in the unstable suite. Key "Unity
+# Technologies ApS", fingerprint A08C A7CD 4D00 6A41 28EC 2850 BE3E 6EA5 34E8 243F.
+studio_cell_unity_cli_version: "1.0.0~beta.14"
+studio_cell_unity_key_sha256: 50b6488eb573a02a96f897482fd190e965eaf58c60b7053aec31ab54bc63b726
+
+# Unity Editor, installed self-contained into /opt/unity/<version> by the Unity CLI. 27f1
+# updates the bundled FBX SDK (two buffer overflows in model import). Modules: IL2CPP for
+# Linux players, Mono for Windows players, Web, and the offline docs agents read with
+# `unity docs <topic> --content`.
+studio_cell_unity_editor_version: 6000.3.27f1
+studio_cell_unity_editor_changeset: 672d562a42a7
+studio_cell_unity_modules: [linux-il2cpp, windows-mono, webgl, documentation]

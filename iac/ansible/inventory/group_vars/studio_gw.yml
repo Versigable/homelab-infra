@@ -26,14 +26,41 @@ studio_gw_egress:
       # OS packages and security updates; its services (step 2b) add their own
       - deb.debian.org
       - security.debian.org
-  # Every person's cell. The AI vendors, GitLab and Unity hosts are added with the cell's
-  # software (step 2c), found from Squid's access log (TCP_DENIED) rather than guessed.
+  # Every person's cell (role studio_cell). Seeded from the vendors' docs; names a tool turns
+  # out to need come from Squid's access log (TCP_DENIED), never wildcards.
   cells:
     sources: [10.77.0.60]
     ports: [80, 443]
     names:
+      # OS packages and security updates
       - deb.debian.org
       - security.debian.org
+      # Claude Code: its apt repository, the API, and the person's sign-in
+      - downloads.claude.ai
+      - api.anthropic.com
+      - claude.ai
+      - platform.claude.com
+      # Codex: the API and the person's ChatGPT sign-in (the binary comes from the control node)
+      - api.openai.com
+      - auth.openai.com
+      - chatgpt.com
+      # Unity CLI apt repository (it redirects to the second name)
+      - hub.unity3d.com
+      - hub-dist.unity3d.com
+      # Unity Editor releases and downloads
+      - services.api.unity.com
+      - download.unity3d.com
+      - download.unity.com
+      # Unity sign-in and licensing (the person's, as the user unity)
+      - api.unity.com
+      - core.cloud.unity3d.com
+      - id.unity.com
+      - login.unity.com
+      - license.unity3d.com
+      - activation.unity3d.com
+      # Unity packages (the Editor's package manager)
+      - packages.unity.com
+      - download.packages.unity.com
 
 # Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
 studio_gw_ingress:

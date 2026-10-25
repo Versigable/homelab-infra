@@ -1,0 +1,148 @@
+# Unity CLI from Unity's signed apt repository, pinned and held, and the pinned Editor
+# installed by it, read-only under /opt/unity. The person does the rest as the user unity:
+# `unity auth login`, `unity license activate --personal --accept-eula` and
+# `unity terms accept <version>` (once per Editor version; the IaC never accepts for them).
+
+# The package can also set up a system-wide "hardened" sign-in broker (its own uid, polkit
+# consent per token grant). It enables that only when polkit is present; masking it keeps
+# every cell on the per-user broker whatever else gets installed, because a headless cell
+# has nobody to answer a polkit consent prompt and agents' Unity commands would hang.
+- name: No system-wide Unity sign-in broker (per-user broker only)
+  ansible.builtin.file:
+    src: /dev/null
+    dest: "/etc/systemd/system/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - unity-auth-broker.socket
+    - unity-auth-broker.service
+
+- name: Unity repository key
+  ansible.builtin.get_url:
+    url: https://hub.unity3d.com/linux/keys/public
+    dest: /etc/apt/keyrings/unity.asc
+    checksum: "sha256:{{ studio_cell_unity_key_sha256 }}"
+    mode: "0644"
+  environment: "{{ studio_proxy_env }}"
+
+# Named unity-cli on purpose: the package's postinst writes its own unity-cli.sources (and
+# runs apt-get update) only when that file doesn't exist yet.
+- name: Unity CLI repository (betas are in the unstable suite)
+  ansible.builtin.deb822_repository:
+    name: unity-cli
+    types: deb
+    uris: https://hub.unity3d.com/linux/repos/deb
+    suites: unstable
+    components: main
+    signed_by: /etc/apt/keyrings/unity.asc
+
+- name: Unity CLI, pinned
+  ansible.builtin.apt:
+    name: "unity-cli={{ studio_cell_unity_cli_version }}"
+    update_cache: true
+    allow_change_held_packages: true
+
+- name: Hold the Unity CLI
+  ansible.builtin.dpkg_selections:
+    name: unity-cli
+    selection: hold
+
+# --- The Editor --------------------------------------------------------------------------
+
+- name: Is the pinned Editor installed
+  ansible.builtin.stat:
+    path: "{{ studio_cell_unity_editor_dir }}/Editor/Unity"
+  register: studio_cell_unity_editor
+
+# Installed by root with -d (into a folder, without registering it anywhere), so the Editor
+# is read-only to the user unity and to the game code it runs. Into a .partial folder first,
+# moved into place only once complete, so an interrupted install is simply redone.
+#
+# Check mode can't predict an install, so it skips this block.
+- name: Install the pinned Editor
+  when: not studio_cell_unity_editor.stat.exists and not ansible_check_mode
+  block:
+    - name: No half-finished install left over
+      ansible.builtin.file:
+        path: "{{ studio_cell_unity_editor_dir }}.partial"
+        state: absent
+
+    - name: Editor directory's parent
+      ansible.builtin.file:
+        path: "{{ studio_cell_unity_editor_dir | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: The Editor and its modules (several GB through Squid)
+      ansible.builtin.command:
+        argv: >-
+          {{ ['unity', 'install', studio_cell_unity_editor_version,
+              '--changeset', studio_cell_unity_editor_changeset,
+              '--download-directory', studio_cell_unity_editor_dir ~ '.partial',
+              '--no-child-modules', '--non-interactive', '--format', 'json',
+              '--module'] + studio_cell_unity_modules }}
+      environment: "{{ studio_proxy_env | combine(studio_cell_unity_env) }}"
+      async: 7200
+      poll: 30
+      changed_when: true
+
+    # Where -d puts the binary isn't documented; find it rather than assume.
+    - name: Find the installed Editor binary
+      ansible.builtin.find:
+        paths: "{{ studio_cell_unity_editor_dir }}.partial"
+        patterns: Unity
+        file_type: file
+        recurse: true
+        depth: 3
+      register: studio_cell_unity_found
+
+    - name: Exactly one Editor binary, in an Editor folder
+      ansible.builtin.assert:
+        that:
+          - studio_cell_unity_found.files | length == 1
+          - studio_cell_unity_found.files[0].path | dirname | basename == 'Editor'
+        fail_msg: "Unexpected install layout under {{ studio_cell_unity_editor_dir }}.partial"
+        quiet: true
+
+    - name: Move the Editor into place
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ studio_cell_unity_found.files[0].path | dirname | dirname }}"
+          - "{{ studio_cell_unity_editor_dir }}"
+        creates: "{{ studio_cell_unity_editor_dir }}/Editor/Unity"
+
+    - name: No leftover install folder
+      ansible.builtin.file:
+        path: "{{ studio_cell_unity_editor_dir }}.partial"
+        state: absent
+
+# The user unity's CLI knows the Editor only once it is registered with `editors add`.
+- name: Editors the user unity's CLI knows
+  ansible.builtin.command: unity editors --installed --format json
+  become: true
+  become_user: unity
+  environment: "{{ studio_cell_unity_env }}"
+  register: studio_cell_unity_known
+  changed_when: false
+
+- name: Register the Editor for the user unity
+  ansible.builtin.command:
+    argv: [unity, editors, add, "{{ studio_cell_unity_editor_dir }}/Editor/Unity", --non-interactive]
+  become: true
+  become_user: unity
+  environment: "{{ studio_cell_unity_env }}"
+  when: studio_cell_unity_editor_dir not in studio_cell_unity_known.stdout | default('')
+  changed_when: true
+
+- name: The user unity's CLI lists the pinned Editor
+  ansible.builtin.command: unity editors --installed --format json
+  become: true
+  become_user: unity
+  environment: "{{ studio_cell_unity_env }}"
+  register: studio_cell_unity_listed
+  changed_when: false
+  failed_when: >-
+    studio_cell_unity_listed.rc != 0
+    or studio_cell_unity_editor_version not in studio_cell_unity_listed.stdout
+    or studio_cell_unity_editor_dir not in studio_cell_unity_listed.stdout

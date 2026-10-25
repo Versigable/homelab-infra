@@ -31,7 +31,7 @@
   roles:
     - base
 
-- name: Studio cells (machine identity check; agents and Unity come with step 2c)
+- name: Studio cells (owner login, Claude Code, Codex, Unity CLI and Editor)
   hosts: studio_cell
   become: true
   roles:

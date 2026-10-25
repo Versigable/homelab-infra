@@ -1,0 +1,55 @@
+- name: The cell has an owner
+  ansible.builtin.assert:
+    that:
+      - studio_cell_owner is defined
+      - studio_cell_owner is match('^[a-z][a-z0-9-]*$')
+      - studio_cell_owner_keys | default([]) | length > 0
+    fail_msg: "Set studio_cell_owner and studio_cell_owner_keys in host_vars/{{ inventory_hostname }}.yml"
+    quiet: true
+
+- name: Service users (no password, no sudo)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /bin/bash
+    create_home: true
+    password: "!"
+  loop: [agent, unity]
+
+- name: The owner's account
+  ansible.builtin.user:
+    name: "{{ studio_cell_owner }}"
+    shell: /bin/bash
+    create_home: true
+    password: "!"
+
+- name: The owner logs in with their own keys, nothing else
+  ansible.posix.authorized_key:
+    user: "{{ studio_cell_owner }}"
+    key: "{{ studio_cell_owner_keys | join('\n') }}"
+    exclusive: true
+
+# The owner acts as agent or unity to sign in and to work with their agents. No root.
+- name: The owner may act as agent and unity
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/studio-cell-owner
+    content: |
+      # Managed by Ansible (role studio_cell).
+      {{ studio_cell_owner }} ALL=(agent,unity) NOPASSWD: ALL
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+# Every login on the cell reaches the outside through Squid on studio-gw; Claude Code, Codex,
+# Git and the Unity Editor read the proxy variables, the Unity CLI its own (defaults/main.yml).
+# The Editor's folder is on the PATH for batch runs (`Unity -batchmode ...`).
+- name: Proxy and tool settings for every login
+  ansible.builtin.copy:
+    dest: /etc/profile.d/studio-cell.sh
+    content: |
+      # Managed by Ansible (role studio_cell).
+      {% for k, v in (studio_proxy_env | combine(studio_cell_unity_env)) | dictsort %}
+      export {{ k }}={{ v }}
+      {% endfor %}
+      export PATH="{{ studio_cell_unity_editor_dir }}/Editor:$PATH"
+    mode: "0644"
