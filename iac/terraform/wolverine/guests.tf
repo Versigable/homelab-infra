@@ -7,6 +7,9 @@ locals {
   # inventory` (IAC_SITE=wolverine) writes them to ansible/inventory/guests-wolverine.yml.
   # VMIDs are cluster-wide; wolverine's guests use the 30x series (300 pfSense, 301 openclaw,
   # 302 monitoring).
+  # mac_address: required here. Both control nodes reach these guests through pfSense, so a
+  # rebuild has to keep the MAC (see modules/lxc, variable mac_address). Pick one in Proxmox's
+  # BC:24:11 range that no other guest uses.
   lxc_guests = {
     # MetaVersig's own Home Assistant (vault: 1-Projects/home-assistant, phase 1b). Same
     # platform as X-Mansion's (LXC 112), so it joins the same Ansible groups and keeps the
@@ -14,6 +17,7 @@ locals {
     "home-assistant-wolverine" = {
       vmid        = 303
       ip          = "10.1.0.12"
+      mac_address = "BC:24:11:AD:81:57"
       cores       = 2
       memory      = 4096
       swap        = 1024
@@ -38,6 +42,7 @@ module "lxc" {
   swap            = each.value.swap
   disk            = each.value.disk
   ip              = each.value.ip
+  mac_address     = each.value.mac_address
   bridge          = var.bridge
   template        = var.lxc_template
   gateway         = var.gateway
