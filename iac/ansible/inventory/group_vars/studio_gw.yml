@@ -42,6 +42,26 @@ studio_gw_ingress:
     port: 3000
     to_ip: 10.77.0.10
     to_port: 3000
+  # The RomM webstation on the Forge (role forge_webstation): Traefik -> :3040 for players'
+  # streams, and RomM on ServiceHub (LXC 103) -> :3040 for the broker API it calls.
+  - name: forge-romm-stream
+    from: 10.0.2.5
+    port: 3040
+    to_ip: 10.77.0.10
+    to_port: 3040
+  - name: forge-romm-broker
+    from: 10.0.1.5
+    port: 3040
+    to_ip: 10.77.0.10
+    to_port: 3040
+
+# LAN services reached directly, not through Squid. The Forge's webstation reads the ROM
+# library from TrueNAS over NFSv4 (the gameroom share, mounted read-only by nfs_client).
+studio_gw_lan_access:
+  - name: forge-gameroom-nfs
+    from: 10.77.0.10
+    to_ip: 10.0.1.7
+    port: 2049
 
 studio_gw_hosts:
   - {name: studio-gw, ip: 10.77.0.1}

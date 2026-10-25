@@ -7,3 +7,7 @@ docker_daemon_extra:
     nvidia:
       path: nvidia-container-runtime
       args: []
+
+# Bridges whose containers can't open connections (role forge_play's host firewall): the play
+# lane's and the RomM webstation's (role forge_webstation).
+forge_play_locked_bridges: [br-play, br-romm]

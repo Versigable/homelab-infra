@@ -56,6 +56,24 @@ its own `SUBFOLDER` and Traefik routers rather than one load-balanced path.
 
 Changing any of these files restarts all three containers on deploy, ending any running sessions.
 
+## A fourth on the studio Forge
+
+`iac/ansible/roles/forge_webstation` runs one more webstation from these same files on the
+studio Forge (VM 155, RTX 5070 Ti), to compare emulation with jf's 3060 Ti: container
+`romm-webstation-forge`, player path `/streaming-forge`, broker `http://10.0.1.150:3040`
+(through studio-gw). A change to these files reaches it at the Forge's next `site.yml` run,
+not through deploy-webstation. RomM sends sessions to it only while its live `config.yml`
+lists it; during a comparison it goes first, so launches land there:
+
+```yaml
+- label: forge webstation
+  protocol: webstation
+  host: /streaming-forge
+  subfolder: /streaming-forge
+  broker_host: http://10.0.1.150:3040
+  platforms: { ... same as instance 1 ... }
+```
+
 PCSX2 reads `patches.zip` only from `/usr/share/PCSX2/resources/`. The broker's own refresh installs it with `sudo`, which `DISABLE_SUDO=true` blocks, so compose sets `PCSX2_PATCHES_FETCH=false` and the cont-init script fetches it as root. It sits in the container layer, so a recreate fetches it again.
 
 ## Emulator performance defaults

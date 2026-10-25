@@ -1,0 +1,72 @@
+# Managed by Ansible (role forge_webstation). A RomM webstation (Selkies desktop + romm-broker)
+# on the RTX 5070 Ti, patterned on instance 1 of hosts/jellyfin/compose/webstation.yml: the same
+# image, environment and seed files, so a session here differs from one on jf only in hardware.
+name: forge-romm
+
+networks:
+  # The host firewall refuses every connection its containers open. The broker needs none:
+  # RomM calls it, pushes saves in and pulls exports out. (Its own save push at exit fails
+  # at once, as it does on jf.)
+  romm:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: {{ forge_webstation_bridge }}
+
+services:
+  webstation:
+    image: "{{ forge_webstation_image }}"
+    container_name: romm-webstation-forge
+    runtime: nvidia
+    # Listed so they're in the container's DeviceAllow and survive systemd rebuilding the
+    # scope's device rules (seen on jf 2026-10-12); /dev/dri is nvidia-drm's render node.
+    devices:
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/dri:/dev/dri
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks: [romm]
+    restart: unless-stopped
+    shm_size: "1gb"
+    cpuset: "{{ forge_webstation_cpuset }}"
+    mem_limit: {{ forge_webstation_mem_limit }}
+    memswap_limit: {{ forge_webstation_mem_limit }}
+    # jf's environment, unchanged (see the comments there), plus this instance's path.
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      BROKER_SECRET: ${BROKER_SECRET}
+      HARDEN_DESKTOP: "true"
+      DISABLE_TERMINALS: "true"
+      DISABLE_SUDO: "true"
+      SELKIES_MANUAL_WIDTH: "1920"
+      SELKIES_MANUAL_HEIGHT: "1080"
+      SELKIES_SCALING_DPI: "96"
+      SELKIES_FRAMERATE: "60-60"
+      PCSX2_PATCHES_FETCH: "false"
+      AZAHAR_BIN: /opt/webstation-bin/azahar-xcb
+      SUBFOLDER: "{{ forge_webstation_path }}"
+    volumes:
+      - ./config:/config
+      - {{ forge_webstation_library }}:/romm/library:ro
+      - ./custom-cont-init.d:/custom-cont-init.d:ro
+      - ./custom-services.d:/custom-services.d:ro
+      - ./seed:/seed:ro
+      - ./bin:/opt/webstation-bin:ro
+      # jf's copy. The cont-init script's weekly refresh can't download here, so it keeps it.
+      - ./pcsx2-patches.zip:/usr/share/PCSX2/resources/patches.zip:ro
+    ports:
+      - "10.77.0.10:{{ forge_webstation_port }}:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,4 +1,15 @@
-# studio-forge (VM 155). Root-only node settings, applied by pve_vm_rootonly on phoenix.
-# phoenix's second CCD: CPUs 8-15 and their SMT siblings 24-31 (L3 index 1), away from
-# TrueNAS and GitLab. Takes effect at the VM's next start.
+# studio-forge (VM 155).
+
+# Root-only node settings, applied by pve_vm_rootonly on phoenix. phoenix's second CCD:
+# CPUs 8-15 and their SMT siblings 24-31 (L3 index 1), away from TrueNAS and GitLab. Takes
+# effect at the VM's next start.
 pve_affinity: "8-15,24-31"
+
+# The ROM library for the RomM webstation (role forge_webstation): TrueNAS's gameroom share,
+# read-only, the share jf's webstations mount. It goes through studio-gw (studio_gw_lan_access).
+# Docker doesn't wait for it (no nfs_client_docker_requires), so the play lane starts without
+# TrueNAS; the webstation's own start unit waits for it.
+nfs_client_mounts:
+  - src: 10.0.1.7:/mnt/Twelve_TB_RAIDZ1/gameroom
+    path: /mnt/gameroom
+    ro: true
