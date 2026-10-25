@@ -1,13 +1,21 @@
 # Proxmox nodes. Terraform doesn't manage these; Ansible only applies the settings that
 # Proxmox reserves for root (templates, NFS mounts, root-only container options).
 # The pilot reaches them as claude-agent; the IaC standard picks the long-term account.
-# Guests come from inventory/guests.yml, which `iac.sh inventory` writes from Terraform.
+# Guests come from inventory/guests*.yml, which `iac.sh inventory` writes from Terraform
+# (one file per site).
 proxmox_nodes:
   hosts:
     phoenix:
       ansible_host: 10.0.1.2
     rogue:
       ansible_host: 10.0.2.1
+    # MetaVersig's house (terraform/wolverine). Its LAB address, the one both control nodes can
+    # reach (over WARP or the site-to-site WireGuard); HOME 192.168.0.2 isn't routed off-site.
+    wolverine:
+      ansible_host: 10.1.0.2
+      # Keep the Proxmox default. defer exists for TrueNAS's NFS deadlock on phoenix
+      # (pve_node_tuning), and wolverine runs no TrueNAS and holds no TrueNAS mount.
+      pve_node_thp_defrag: madvise
   vars:
     ansible_user: claude-agent
     ansible_ssh_private_key_file: ~/.ssh/claude-agent
