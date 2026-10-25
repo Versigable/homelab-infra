@@ -214,3 +214,9 @@
   notify:
     - Reload systemd
     - Restart docker
+
+# Docker registers NVIDIA's GPU device driver only when it starts, so it must restart with the
+# toolkit in place before forge_play starts a GPU container. Handlers otherwise wait for the
+# end of the play (first build, 2026-10-25: 'could not select device driver "nvidia"').
+- name: Restart Docker now if the toolkit or its drop-in changed
+  ansible.builtin.meta: flush_handlers

@@ -18,6 +18,18 @@
     - base
     - studio_gw
 
+# A studio guest's first boot can come before studio-gw routes and resolves for it. cloud-init's
+# apt update then fails ("Could not resolve 'deb.debian.org'", the Forge on 2026-10-25) but
+# leaves the cache looking fresh, so base's cache_valid_time skips the refresh. Refresh first.
+- name: Fresh apt lists on the studio network
+  hosts: studio_private
+  become: true
+  tasks:
+    - name: Refresh apt lists
+      ansible.builtin.apt:
+        update_cache: true
+      changed_when: false
+
 - name: Base setup on every Terraform-built guest
   hosts: lxc_guests:vm_guests
   become: true
