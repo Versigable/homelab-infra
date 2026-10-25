@@ -38,9 +38,10 @@ resource "proxmox_virtual_environment_container" "this" {
   }
 
   network_interface {
-    name     = "eth0"
-    bridge   = var.bridge
-    firewall = true
+    name        = "eth0"
+    bridge      = var.bridge
+    firewall    = true
+    mac_address = var.mac_address
   }
 
   operating_system {
