@@ -20,6 +20,11 @@ studio_gw_egress: {}
 #   - {name: forge-play, from: 10.0.2.5, port: 3000, to_ip: 10.77.0.10, to_port: 3000}
 studio_gw_ingress: []
 
+# Outbound to LAN services studio guests reach directly, not through Squid: by address and
+# TCP port, source-NATed to the gateway's LAN address so the LAN side needs no route back:
+#   - {name: forge-gameroom-nfs, from: 10.77.0.10, to_ip: 10.0.1.7, port: 2049}
+studio_gw_lan_access: []
+
 # Local names dnsmasq answers, as <name>.studio:
 #   - {name: studio-forge, ip: 10.77.0.10}
 studio_gw_hosts: []

@@ -94,9 +94,11 @@
 # The studio's GPU VM. No GitLab runner here, by design: the Forge holds no credentials and
 # can't reach GitLab, so its lanes are platform (Ansible), and work reaches it through the
 # studio hub's broker (vault: 1-Projects/game-studio-platform/design/architecture §4).
-- name: Studio Forge (GPU stack and play lane)
+# forge_webstation is a RomM webstation on the same card, to compare emulation with jf's.
+- name: Studio Forge (GPU stack, play lane, RomM webstation)
   hosts: studio_forge
   become: true
   roles:
     - forge_gpu
     - forge_play
+    - forge_webstation

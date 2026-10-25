@@ -32,3 +32,7 @@ forge_play_games:
 forge_play_width: 1920
 forge_play_height: 1080
 forge_play_mem_limit: 3g
+
+# Docker bridges whose containers may only answer their stream (the host firewall above).
+# group_vars/studio_forge.yml adds the other lanes' bridges.
+forge_play_locked_bridges: [br-play]

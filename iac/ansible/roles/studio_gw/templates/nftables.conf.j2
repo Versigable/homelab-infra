@@ -1,8 +1,9 @@
 #!/usr/sbin/nft -f
-# Managed by Ansible (role studio_gw). The studio network's policy. Nothing on studio0 is
-# forwarded out: guests reach the outside only through Squid on this host (HTTP(S) by name),
-# and only play streams are forwarded in (DNAT from Traefik). Edit
-# inventory/group_vars/studio_gw.yml, not this.
+# Managed by Ansible (role studio_gw). The studio network's policy. Guests reach the outside
+# through Squid on this host (HTTP(S) by name); the only traffic forwarded out goes to the LAN
+# services in studio_gw_lan_access, by address and port, source-NATed to this host. Inbound,
+# only the listed callers are forwarded in (DNAT). Edit inventory/group_vars/studio_gw.yml,
+# not this.
 flush ruleset
 
 define LAN = "{{ studio_gw_lan_if }}"
@@ -29,12 +30,23 @@ table inet studio_gw {
 		# {{ r.name }}: {{ r.from }} -> {{ studio_gw_lan_ip }}:{{ r.port }} -> {{ r.to_ip }}:{{ r.to_port }}
 		iifname $LAN oifname $STUDIO ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.to_port }} ct status dnat accept
 {% endfor %}
+{% for r in studio_gw_lan_access %}
+		# {{ r.name }}: {{ r.from }} -> {{ r.to_ip }}:{{ r.port }}, as {{ studio_gw_lan_ip }}
+		iifname $STUDIO oifname $LAN ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.port }} accept
+{% endfor %}
 	}
 
 	chain prerouting {
 		type nat hook prerouting priority dstnat;
 {% for r in studio_gw_ingress %}
 		iifname $LAN ip saddr {{ r.from }} ip daddr {{ studio_gw_lan_ip }} tcp dport {{ r.port }} dnat ip to {{ r.to_ip }}:{{ r.to_port }}
+{% endfor %}
+	}
+
+	chain postrouting {
+		type nat hook postrouting priority srcnat;
+{% for r in studio_gw_lan_access %}
+		oifname $LAN ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.port }} snat ip to {{ studio_gw_lan_ip }}
 {% endfor %}
 	}
 }

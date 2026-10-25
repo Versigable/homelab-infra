@@ -27,7 +27,7 @@
     content: |
       # Managed by Ansible (role forge_play).
       [Unit]
-      Description=Forge host firewall (play containers can't open connections; SSH only via studio-gw)
+      Description=Forge host firewall (lane containers can't open connections; SSH only via studio-gw)
       After=network-pre.target
       Before=docker.service
       Wants=network-pre.target

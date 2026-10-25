@@ -1,6 +1,7 @@
 # The studio network's router. Holds no credentials and runs no app. Nothing on studio0
-# has another way out: the nftables ruleset forwards nothing outbound, Squid lets guests
-# reach listed hostnames over HTTP(S), dnsmasq answers local names only, chrony serves time.
+# has another way out: the nftables ruleset forwards outbound only to the LAN services in
+# studio_gw_lan_access, Squid lets guests reach listed hostnames over HTTP(S), dnsmasq
+# answers local names only, chrony serves time.
 
 - name: The LAN and studio interfaces, found by address
   ansible.builtin.set_fact:
@@ -34,7 +35,7 @@
     - /etc/dnsmasq.d
     - /etc/squid
 
-# Forwarding stays on for the inbound play streams (DNAT); nothing is forwarded outbound.
+# Forwarding is on for the inbound DNAT and the listed LAN services (studio_gw_lan_access).
 - name: Forward IPv4
   ansible.posix.sysctl:
     name: net.ipv4.ip_forward

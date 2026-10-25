@@ -1,0 +1,39 @@
+# A RomM webstation on the Forge, to compare emulation on the RTX 5070 Ti with jf's 3060 Ti
+# (vault: 1-Projects/romm-emulator-streaming). The same image, by digest, and the same seed
+# files as jf's three (hosts/jellyfin/compose/webstation.yml), so a session here differs from
+# one on jf only in hardware. RomM sends sessions here only while its live config.yml lists
+# this container (label "forge webstation").
+
+# false takes it down (container, compose file and start unit); the files stay.
+forge_webstation_enabled: true
+
+forge_webstation_root: /srv/forge/romm
+
+# jf pulls lscr.io/linuxserver/webstation:romm-version-v0.15.0. lscr.io fronts ghcr.io, which
+# Squid already lets the Forge reach; this is the same manifest digest.
+forge_webstation_image: ghcr.io/linuxserver/webstation:romm-version-v0.15.0@sha256:da75bbc5e8639338dc85ff944ce00fb4dde223dd5bef78f2e03bbc5309480a4a
+
+# The seed files, straight from jf's stack in this repo.
+forge_webstation_files: "{{ playbook_dir }}/../../../hosts/jellyfin/config/webstation"
+
+# Published on the Forge; studio-gw forwards :3040 to it from Traefik and from RomM
+# (studio_gw_ingress).
+forge_webstation_port: 3040
+# The player path on games.* and arcade.* (hosts/traefik/config/dynamic/romm-streaming.yml).
+forge_webstation_path: /streaming-forge/
+# The ROM library, mounted read-only from TrueNAS by nfs_client (host_vars/studio-forge.yml).
+forge_webstation_library: /mnt/gameroom
+# 4 of the Forge's 8 vCPUs, as each jf instance has 4 of jf's 12.
+forge_webstation_cpuset: "4-7"
+forge_webstation_mem_limit: 3g
+# Locked by the host firewall (forge_play_locked_bridges in group_vars/studio_forge.yml).
+forge_webstation_bridge: br-romm
+
+# Copied once from jf, not managed here, because the control node holds no SOPS key and the
+# container can't download anything. The role checks that they're in place:
+#   .env                              BROKER_SECRET. RomM's STREAMING_BROKER_SECRET applies to
+#                                     every webstation, so it must be jf's (root, 0600).
+#   config/.config/retroarch/cores    RetroArch's cores: the builds jf runs (the broker would
+#                                     fetch nightlies from buildbot.libretro.com).
+#   pcsx2-patches.zip                 PCSX2's patches.zip from jf (the cont-init script fetches
+#                                     it from GitHub).
