@@ -43,11 +43,16 @@ creation_rules:
       age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l,
       age15awta4pt3vp6r4swn7psu7qjdx8n80rlhanf6ckm72uujzdz8yaq2ql2zn
 
-  # Home Assistant host (LXC 112 on phoenix, built by iac/). Same as Nextcloud: after a
-  # rebuild, update this key and re-encrypt hosts/home-assistant/secrets/* from the
-  # operator copies.
-  - path_regex: ^hosts/home-assistant/secrets/.*\.env\.sops$
+  # Home Assistant, one secrets file per house (hosts/home-assistant/instances), each
+  # encrypted only to its own guest, so neither house can read the other's. Both guests
+  # are built by iac/. Same as Nextcloud: after a rebuild, update that house's key and
+  # re-encrypt its file from the operator copies. A new house needs its own rule here.
+  # X-Mansion (Firekube's house): LXC 112 on phoenix.
+  - path_regex: ^hosts/home-assistant/secrets/xmansion\.env\.sops$
     age: ["age1sdmvge7wd0j823ex6ljp84r9cjnyhcypvt0xy26mggpnlc3l0e4qfdfqj6"]
+  # Wolverine (MetaVersig's house): LXC 303 on wolverine.
+  - path_regex: ^hosts/home-assistant/secrets/wolverine\.env\.sops$
+    age: ["age10ah95t9n3c8j2qxemymm5msd7r6l98q88r2lst000v3jef42ryas85vgfm"]
   # Navidrome host (LXC 114 on phoenix, built by iac/). Same as Home Assistant: after a
   # rebuild, update this key and make a new hosts/navidrome/secrets/navidrome.env.sops
   # (no operator copy; a new ND_PASSWORDENCRYPTIONKEY means users reset their passwords).

@@ -379,20 +379,44 @@ rehearse-nextcloud-vm:
       allow_failure: true
 
 # ============================================================
-# Home Assistant (LXC 112 on phoenix, built by iac/)
+# Home Assistant, one instance per house (LXCs built by iac/). Shared stack, per-house
+# hosts/home-assistant/instances/<house>/ and secrets/<house>.env.sops. Each job runs on its
+# house's own protected runner, and only for shared files or that house's own.
 # ============================================================
 .home-assistant-deploy:
   stage: deploy
-  tags: ["home-assistant"]
   script:
     - bash hosts/home-assistant/scripts/deploy.sh
 
+# X-Mansion (Firekube's house): LXC 112 on phoenix, runner 14.
 deploy-home-assistant:
   extends: .home-assistant-deploy
+  tags: ["home-assistant"]
+  variables:
+    HA_INSTANCE: xmansion
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
-        - hosts/home-assistant/**/*
+        - hosts/home-assistant/compose/**/*
+        - hosts/home-assistant/config/**/*
+        - hosts/home-assistant/scripts/**/*
+        - hosts/home-assistant/instances/xmansion/**/*
+        - hosts/home-assistant/secrets/xmansion.env.sops
+
+# Wolverine (MetaVersig's house): LXC 303 on wolverine, runner 20.
+deploy-home-assistant-wolverine:
+  extends: .home-assistant-deploy
+  tags: ["home-assistant-wolverine"]
+  variables:
+    HA_INSTANCE: wolverine
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/home-assistant/compose/**/*
+        - hosts/home-assistant/config/**/*
+        - hosts/home-assistant/scripts/**/*
+        - hosts/home-assistant/instances/wolverine/**/*
+        - hosts/home-assistant/secrets/wolverine.env.sops
 
 # ============================================================
 # Navidrome (LXC 114 on phoenix, built by iac/)
