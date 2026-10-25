@@ -77,7 +77,7 @@ locals {
   }
 
   # Every Terraform-managed VM on X-Mansion, cloned from the cloud-init template
-  # (var.vm_template_vmid, built by pve-templates.yml). Same fields as lxc_guests, minus swap.
+  # (var.vm_template_vmids, one per node, built by pve-templates.yml). Same fields as lxc_guests, minus swap.
   # Guests that write to TrueNAS over NFS are VMs (vault: 5-Decisions/2026-10-23_nextcloud-vm-instead-of-lxc).
   vm_guests = {
     # Replaces LXC 110 (vault: 1-Projects/nextcloud/notes/vm-migration-plan). Mounts the
@@ -135,7 +135,7 @@ module "vm" {
   hostname        = each.key
   node            = each.value.node
   vmid            = each.value.vmid
-  template_vmid   = var.vm_template_vmid
+  template_vmid   = var.vm_template_vmids[each.value.node]
   description     = each.value.description
   cores           = each.value.cores
   memory          = each.value.memory

@@ -7,7 +7,7 @@
 # Studio VMIDs are 150-169; studio0 addresses are 10.77.0.0/24.
 #   150 studio-gw     phoenix  router: egress allow-list, DNS, NTP, ingress for play streams
 #   155 studio-forge  phoenix  the GPU VM; holds the RTX 5070 Ti for good
-# Later: 151 studio-hub, 160/161 the cells (rogue), once rogue has a VM template.
+# Later: 151 studio-hub, 160/161 the cells, on rogue (template 9001).
 locals {
   studio_net = {
     bridge  = "studio0"
@@ -44,7 +44,7 @@ module "studio_gw" {
   hostname      = "studio-gw"
   node          = "phoenix"
   vmid          = 150
-  template_vmid = var.vm_template_vmid
+  template_vmid = var.vm_template_vmids["phoenix"]
   description   = "Studio network router: egress allow-list, DNS, NTP, play-stream ingress. Ansible role studio_gw. Vault: 1-Projects/game-studio-platform/design/architecture."
   cores         = 1
   memory        = 1024
@@ -76,7 +76,7 @@ module "studio_forge" {
   hostname      = "studio-forge"
   node          = "phoenix"
   vmid          = 155
-  template_vmid = var.vm_template_vmid
+  template_vmid = var.vm_template_vmids["phoenix"]
   description   = "Studio Forge: RTX 5070 Ti, lanes gen/play/render/seat. Ansible roles forge_gpu, forge_play. Vault: 1-Projects/game-studio-platform/design/architecture."
   cores         = 8
   memory        = 16384

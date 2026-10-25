@@ -15,10 +15,13 @@ variable "lxc_template" {
   default     = "local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst"
 }
 
-variable "vm_template_vmid" {
-  description = "Cloud-init VM template built on the node by pve-templates.yml (role pve_vm_template)."
-  type        = number
-  default     = 9000
+variable "vm_template_vmids" {
+  description = "Cloud-init VM template per node, built by pve-templates.yml (role pve_vm_template). A local-lvm template clones only on its own node."
+  type        = map(number)
+  default = {
+    phoenix = 9000
+    rogue   = 9001
+  }
 }
 
 variable "gateway" {
