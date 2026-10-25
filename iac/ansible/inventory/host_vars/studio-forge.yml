@@ -1,0 +1,4 @@
+# studio-forge (VM 155). Root-only node settings, applied by pve_vm_rootonly on phoenix.
+# phoenix's second CCD: CPUs 8-15 and their SMT siblings 24-31 (L3 index 1), away from
+# TrueNAS and GitLab. Takes effect at the VM's next start.
+pve_affinity: "8-15,24-31"

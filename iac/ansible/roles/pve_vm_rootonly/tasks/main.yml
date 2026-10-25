@@ -28,3 +28,18 @@
     - item.item.pve_tags is defined
     - (current.split(';') | reject('equalto', '') | sort) != (item.item.pve_tags | sort)
   changed_when: true
+
+# CPU pinning (host var pve_affinity). Root-only in Proxmox, so not in Terraform. Proxmox
+# applies it when the VM starts (taskset on the QEMU command line): on a running VM it is a
+# pending change until the next start. `qm config` shows pending values, so a re-run is a no-op.
+- name: CPU affinity
+  ansible.builtin.command: "qm set {{ item.item.vmid }} --affinity {{ item.item.pve_affinity }}"
+  vars:
+    current: "{{ item.stdout | regex_search('^affinity: (\\S+)', '\\1', multiline=True) | default([''], true) | first }}"
+  loop: "{{ pve_vm_rootonly_configs.results }}"
+  loop_control:
+    label: "{{ item.item.inventory_hostname }}"
+  when:
+    - item.item.pve_affinity is defined
+    - current != item.item.pve_affinity
+  changed_when: true

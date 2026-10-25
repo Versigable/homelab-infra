@@ -44,12 +44,6 @@ variable "cpu_units" {
   default     = null
 }
 
-variable "cpu_affinity" {
-  description = "Host CPUs the VM may run on, e.g. \"8-15,24-31\" (null: any)."
-  type        = string
-  default     = null
-}
-
 variable "machine" {
   description = "QEMU machine type; PCIe passthrough needs q35 (null: the Proxmox default)."
   type        = string

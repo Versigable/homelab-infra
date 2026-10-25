@@ -67,7 +67,9 @@ module "studio_gw" {
 # The GPU VM. Passthrough pins all of its RAM, so it is the one studio guest that can't
 # balloon: 16 GiB for the play lane now, 20 GiB when the gen lane lands (one planned restart).
 # It is pinned to phoenix's second CCD (CPUs 8-15 and their SMT siblings 24-31), away from
-# TrueNAS and GitLab. q35 + OVMF without Secure Boot keys is the recipe jf used on this card.
+# TrueNAS and GitLab: Ansible sets that (affinity is root-only; host_vars/studio-forge.yml),
+# and it takes effect at the VM's next start. q35 + OVMF without Secure Boot keys is the
+# recipe jf used on this card.
 module "studio_forge" {
   source = "../modules/vm"
 
@@ -80,11 +82,10 @@ module "studio_forge" {
   memory        = 16384
   disk          = 100
 
-  cpu_type     = "host"
-  cpu_affinity = "8-15,24-31"
-  machine      = "q35"
-  bios         = "ovmf"
-  efi_disk     = true
+  cpu_type = "host"
+  machine  = "q35"
+  bios     = "ovmf"
+  efi_disk = true
   hostpci = [{
     device  = "hostpci0"
     mapping = "gpu-5070ti"

@@ -37,9 +37,10 @@ resource "proxmox_virtual_environment_vm" "this" {
   cpu {
     cores = var.cores
     # Default: the Proxmox default model, which runs on every node, so the VM can migrate.
-    type     = var.cpu_type
-    units    = var.cpu_units
-    affinity = var.cpu_affinity
+    type  = var.cpu_type
+    units = var.cpu_units
+    # No affinity here: Proxmox lets only root set it. Ansible sets it on the node
+    # (pve_vm_rootonly, host var pve_affinity), and lifecycle ignores it below.
   }
 
   # Secure Boot keys are not enrolled, so unsigned DKMS modules (NVIDIA's) load.
@@ -133,8 +134,9 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   lifecycle {
     ignore_changes = [
-      # Owned by Ansible (pve_vm_rootonly).
+      # Owned by Ansible (pve_vm_rootonly): both are root-only or pool-restricted for the token.
       tags,
+      cpu[0].affinity,
       # Creation-time inputs. A new template or a rotated key must not replace a running VM;
       # Ansible manages access afterwards.
       clone,
