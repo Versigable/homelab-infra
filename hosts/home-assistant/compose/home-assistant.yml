@@ -1,13 +1,15 @@
 name: home-assistant
 
-# Home Assistant + Mosquitto (+ Zigbee2MQTT once the radio is in) on LXC 112 (phoenix).
-# The LXC itself is built by iac/ (Terraform + Ansible); this stack is deployed by
-# hosts/home-assistant/scripts/deploy.sh. Vault: 1-Projects/home-assistant.
-#   Home Assistant   10.0.1.12:8123  host network
+# Home Assistant + Mosquitto (+ Zigbee2MQTT once the radio is in), one stack per house:
+# X-Mansion on LXC 112 (phoenix), Wolverine on LXC 303 (wolverine). The LXCs are built by
+# iac/ (Terraform + Ansible); this stack is deployed by hosts/home-assistant/scripts/deploy.sh
+# with the house's instances/<house>/ settings. Vault: 1-Projects/home-assistant.
+#   Home Assistant   <HA_IP>:8123    host network
 #   Mosquitto        127.0.0.1:1883  Home Assistant only; Zigbee2MQTT uses the bridge
-#   Zigbee2MQTT UI   10.0.1.12:8080  profile "zigbee", off until config/zigbee.env names the radio
+#   Zigbee2MQTT UI   <HA_IP>:8080    profile "zigbee", off until the house's zigbee.env names the radio
+# HA_IP comes from the house's instance.env, which deploy.sh installs as this project's .env.
 #
-# Everything lives under ../data on the LXC disk, which PBS backs up nightly.
+# Everything lives under ../data on the LXC disk, which PBS backs up nightly (all guests).
 
 x-logging: &logging
   driver: json-file
@@ -60,7 +62,7 @@ services:
     # device or dialout group is needed.
     user: "1884:1884"
     ports:
-      - "10.0.1.12:8080:8080"
+      - "${HA_IP:?HA_IP comes from instances/<house>/instance.env, installed as .env by deploy.sh}:8080:8080"
     volumes:
       - ../data/zigbee2mqtt:/app/data
     cap_drop: [ALL]
