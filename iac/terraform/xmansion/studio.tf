@@ -153,7 +153,8 @@ module "studio_hub" {
 # back to rogue. Low CPU weight, so jf's streams and GamingHub win contention. x86-64-v3
 # because Claude Code needs AVX2.
 #
-# Fixed machine identity (MAC, SMBIOS UUID, and the machine-id in host_vars): Unity licences
+# Fixed machine identity: the MAC and the SMBIOS UUID below. systemd derives the machine-id
+# from the SMBIOS UUID at boot, so it is fixed too (role studio_cell checks). Unity licences
 # are per machine, so a rebuilt cell must look like the same machine. Never clone a cell.
 module "cell_metaversig" {
   source = "../modules/vm"
