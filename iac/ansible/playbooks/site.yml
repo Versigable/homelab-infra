@@ -31,6 +31,12 @@
   roles:
     - base
 
+- name: Studio cells (fixed machine identity; agents and Unity come with step 2c)
+  hosts: studio_cell
+  become: true
+  roles:
+    - studio_cell
+
 # Before Docker, so Docker's unit already waits for the mounts when it first starts.
 - name: NFS mounts inside VM guests
   hosts: vm_guests

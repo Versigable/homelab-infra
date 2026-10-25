@@ -68,8 +68,18 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   memory {
     dedicated = var.memory
-    # 0 = no balloon device: the VM's RAM is fixed, never reclaimed by the host.
-    floating = 0
+    # 0 (the default) = no balloon device: the VM's RAM is fixed, never reclaimed by the host.
+    # Above 0, the host may reclaim RAM down to that floor when it runs short.
+    floating = var.memory_min
+  }
+
+  # A fixed SMBIOS UUID, part of a stable machine identity (studio cells: Unity licences
+  # are per machine, so a rebuilt cell must look like the same machine).
+  dynamic "smbios" {
+    for_each = var.smbios_uuid == null ? [] : [var.smbios_uuid]
+    content {
+      uuid = smbios.value
+    }
   }
 
   disk {
@@ -81,10 +91,11 @@ resource "proxmox_virtual_environment_vm" "this" {
   }
 
   network_device {
-    bridge   = var.bridge
-    model    = "virtio"
-    firewall = true
-    mtu      = var.nic_mtu
+    bridge      = var.bridge
+    model       = "virtio"
+    firewall    = true
+    mtu         = var.nic_mtu
+    mac_address = var.mac_address
   }
 
   # Second and later NICs, in order (a router such as studio-gw has one per network).

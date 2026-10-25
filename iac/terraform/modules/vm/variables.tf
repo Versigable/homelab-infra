@@ -95,6 +95,24 @@ variable "memory" {
   type        = number
 }
 
+variable "memory_min" {
+  description = "Balloon floor in MiB: the host may reclaim RAM down to it. 0 = no balloon device (fixed RAM)."
+  type        = number
+  default     = 0
+}
+
+variable "mac_address" {
+  description = "Fixed MAC for the first NIC (uppercase, as Proxmox stores it). null lets Proxmox choose."
+  type        = string
+  default     = null
+}
+
+variable "smbios_uuid" {
+  description = "Fixed SMBIOS UUID. null lets Proxmox choose."
+  type        = string
+  default     = null
+}
+
 variable "disk" {
   description = "Boot disk size in GB (grown from the template's)."
   type        = number
