@@ -31,7 +31,7 @@
   roles:
     - base
 
-- name: Studio cells (fixed machine identity; agents and Unity come with step 2c)
+- name: Studio cells (machine identity check; agents and Unity come with step 2c)
   hosts: studio_cell
   become: true
   roles:

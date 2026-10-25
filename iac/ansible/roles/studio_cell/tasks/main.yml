@@ -1,23 +1,27 @@
-# A person's cell (design: engine-and-agent-runtime §2). Step 2a: its fixed machine identity.
+# A person's cell (design: engine-and-agent-runtime §2). Step 2a: its machine identity.
 # Agents, the Unity toolchain and studio-agentd come with step 2c.
+#
+# Unity licences are per machine, so a rebuilt cell must look like the same machine. Its
+# identity comes from Terraform alone: the fixed MAC and SMBIOS UUID in studio.tf. On this
+# Debian 13 image systemd (257) sets the machine-id from the SMBIOS UUID at every boot
+# ("Initializing machine ID from SMBIOS/DMI UUID", seen on all boots of VM 160, even right
+# after a different id was written), so the machine-id follows the UUID. This role only
+# checks that it does.
 
-- name: The machine-id is set for this cell
+- name: Read the SMBIOS UUID and the machine-id
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - /sys/class/dmi/id/product_uuid
+    - /etc/machine-id
+  register: studio_cell_ids
+
+- name: The machine-id is the SMBIOS UUID
   ansible.builtin.assert:
-    that: studio_cell_machine_id is match('^[0-9a-f]{32}$')
-    fail_msg: "Set studio_cell_machine_id (32 lowercase hex) in host_vars/{{ inventory_hostname }}.yml"
+    that: >-
+      (studio_cell_ids.results[1].content | b64decode | trim)
+      == (studio_cell_ids.results[0].content | b64decode | trim | lower | replace('-', ''))
+    fail_msg: >-
+      /etc/machine-id isn't this cell's SMBIOS UUID, so the cell's machine identity has
+      changed (Unity would see a new machine). Check smbios_uuid in terraform/xmansion/studio.tf.
     quiet: true
-
-# cloud-init's first boot generates a random one. Pinning it gives a rebuilt cell the same
-# identity (Unity licences are per machine); the reboot makes every service see it.
-- name: The cell's fixed machine-id
-  ansible.builtin.copy:
-    dest: /etc/machine-id
-    content: "{{ studio_cell_machine_id }}
-"
-    owner: root
-    group: root
-    mode: "0444"
-  notify: Reboot for the machine-id
-
-- name: Reboot now if the machine-id changed
-  ansible.builtin.meta: flush_handlers
