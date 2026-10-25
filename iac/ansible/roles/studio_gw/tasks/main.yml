@@ -1,0 +1,130 @@
+# The studio network's router. Holds no credentials and runs no app. Nothing on studio0
+# has another way out, so this host's nftables ruleset is the studio's network policy.
+
+- name: The LAN and studio interfaces, found by address
+  ansible.builtin.set_fact:
+    studio_gw_lan_if: >-
+      {{ ansible_facts.interfaces | map('regex_replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('ipv4', 'defined') | selectattr('ipv4.address', 'equalto', studio_gw_lan_ip)
+         | map(attribute='device') | first }}
+    studio_gw_studio_if: >-
+      {{ ansible_facts.interfaces | map('regex_replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('ipv4', 'defined') | selectattr('ipv4.address', 'equalto', studio_gw_studio_ip)
+         | map(attribute='device') | first }}
+
+# dnsmasq-base is the binary without the service, so its config can be written and checked
+# before the dnsmasq package first starts it (its default would listen on every interface).
+- name: Router packages
+  ansible.builtin.apt:
+    name:
+      - nftables
+      - dnsmasq-base
+      - chrony
+      - dnsutils
+
+- name: Config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/dnsmasq.d
+    - /etc/systemd/system/dnsmasq.service.d
+
+- name: Forward IPv4
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/60-studio-gw.conf
+    reload: true
+
+# This host has no Docker or other rule owner, so the whole ruleset is ours (flush ruleset).
+- name: The nftables ruleset
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: The nftables service enabled
+  ansible.builtin.service:
+    name: nftables
+    state: started
+    enabled: true
+
+# Load the ruleset now, so the nft sets exist before dnsmasq starts and refers to them.
+- name: Ruleset active before dnsmasq
+  ansible.builtin.meta: flush_handlers
+
+- name: Keep dnsmasq off the gateway's own resolver
+  ansible.builtin.copy:
+    dest: /etc/default/dnsmasq
+    content: |
+      # Managed by Ansible (role studio_gw). dnsmasq serves only the studio network.
+      ENABLED=1
+      CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+      IGNORE_RESOLVCONF=yes
+      DNSMASQ_EXCEPT="lo"
+    mode: "0644"
+  notify: Restart dnsmasq
+
+- name: The dnsmasq allow-list
+  ansible.builtin.template:
+    src: dnsmasq-studio.conf.j2
+    dest: /etc/dnsmasq.d/studio.conf
+    mode: "0644"
+    validate: dnsmasq --test --conf-file=%s
+  notify: Restart dnsmasq
+
+- name: Start dnsmasq after nftables (it fills the ruleset's sets)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/dnsmasq.service.d/after-nftables.conf
+    content: |
+      [Unit]
+      After=nftables.service
+      Requires=nftables.service
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart dnsmasq
+
+- name: The dnsmasq service
+  ansible.builtin.apt:
+    name: dnsmasq
+
+- name: Restart dnsmasq with its drop-in and allow-list
+  ansible.builtin.meta: flush_handlers
+
+- name: Chrony serves time to the studio network
+  ansible.builtin.copy:
+    dest: /etc/chrony/conf.d/studio.conf
+    content: |
+      # Managed by Ansible (role studio_gw).
+      allow {{ studio_gw_studio_net }}
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Services running
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [dnsmasq, chrony]
+
+- name: Apply changes before the checks
+  ansible.builtin.meta: flush_handlers
+
+# Checks: an allow-listed name resolves (and lands in its class's set), an unlisted one doesn't.
+- name: An allow-listed name resolves
+  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} {{ (studio_gw_egress | dict2items | first).value.names | first }} A"
+  register: studio_gw_dig_allowed
+  changed_when: false
+  failed_when: studio_gw_dig_allowed.stdout | trim | length == 0
+  when: studio_gw_egress | length > 0
+
+- name: An unlisted name doesn't
+  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} example.org A"
+  register: studio_gw_dig_blocked
+  changed_when: false
+  failed_when: studio_gw_dig_blocked.stdout | trim | regex_search('^[0-9.]+$', multiline=True)

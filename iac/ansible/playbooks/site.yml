@@ -9,11 +9,26 @@
     - pve_lxc_rootonly
     - pve_vm_rootonly
 
+# First, because it is the studio network's only way out: guests on studio0 (studio_private)
+# can't reach apt until it routes for them.
+- name: Studio network router
+  hosts: studio_gw
+  become: true
+  roles:
+    - base
+    - studio_gw
+
 - name: Base setup on every Terraform-built guest
   hosts: lxc_guests:vm_guests
   become: true
   roles:
     - base
+
+- name: Guests on the studio network (time from studio-gw)
+  hosts: studio_private
+  become: true
+  roles:
+    - studio_guest
 
 # Before Docker, so Docker's unit already waits for the mounts when it first starts.
 - name: NFS mounts inside VM guests
@@ -71,3 +86,13 @@
     - gitlab_runner
     - sops_age
     - service_layout
+
+# The studio's GPU VM. No GitLab runner here, by design: the Forge holds no credentials and
+# can't reach GitLab, so its lanes are platform (Ansible), and work reaches it through the
+# studio hub's broker (vault: 1-Projects/game-studio-platform/design/architecture §4).
+- name: Studio Forge (GPU stack and play lane)
+  hosts: studio_forge
+  become: true
+  roles:
+    - forge_gpu
+    - forge_play

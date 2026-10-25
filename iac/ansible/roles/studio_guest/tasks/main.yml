@@ -1,0 +1,28 @@
+# Settings every guest on the studio network needs, because studio-gw is its only way out.
+
+- name: Timesyncd installed
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+
+- name: Timesyncd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Time from studio-gw
+  ansible.builtin.copy:
+    dest: /etc/systemd/timesyncd.conf.d/studio.conf
+    content: |
+      # Managed by Ansible (role studio_guest). studio-gw runs chrony for the studio network.
+      [Time]
+      NTP={{ studio_guest_ntp }}
+      FallbackNTP=
+    mode: "0644"
+  notify: Restart timesyncd
+
+- name: Timesyncd running
+  ansible.builtin.service:
+    name: systemd-timesyncd
+    state: started
+    enabled: true

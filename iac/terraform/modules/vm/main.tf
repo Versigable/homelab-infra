@@ -17,6 +17,11 @@ resource "proxmox_virtual_environment_vm" "this" {
   on_boot = var.start_on_boot
   started = true
 
+  # Defaults (null machine, SeaBIOS) are what every VM had before these became variables.
+  # GPU passthrough needs q35 and OVMF (see the studio Forge in xmansion/studio.tf).
+  machine = var.machine
+  bios    = var.bios
+
   clone {
     vm_id        = var.template_vmid
     full         = true
@@ -31,8 +36,33 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   cpu {
     cores = var.cores
-    # The Proxmox default model; runs on every node, so the VM can migrate.
-    type = "x86-64-v2-AES"
+    # Default: the Proxmox default model, which runs on every node, so the VM can migrate.
+    type     = var.cpu_type
+    units    = var.cpu_units
+    affinity = var.cpu_affinity
+  }
+
+  # Secure Boot keys are not enrolled, so unsigned DKMS modules (NVIDIA's) load.
+  dynamic "efi_disk" {
+    for_each = var.efi_disk ? [1] : []
+    content {
+      datastore_id      = var.datastore
+      file_format       = "raw"
+      type              = "4m"
+      pre_enrolled_keys = false
+    }
+  }
+
+  # By resource mapping only: the IaC token may use a mapping (Mapping.Use, granted per
+  # mapping by pve-cluster.yml) but can't pass raw PCI ids, which Proxmox keeps for root.
+  dynamic "hostpci" {
+    for_each = var.hostpci
+    content {
+      device  = hostpci.value.device
+      mapping = hostpci.value.mapping
+      pcie    = hostpci.value.pcie
+      rombar  = hostpci.value.rombar
+    }
   }
 
   memory {
@@ -53,6 +83,18 @@ resource "proxmox_virtual_environment_vm" "this" {
     bridge   = var.bridge
     model    = "virtio"
     firewall = true
+    mtu      = var.nic_mtu
+  }
+
+  # Second and later NICs, in order (a router such as studio-gw has one per network).
+  dynamic "network_device" {
+    for_each = var.extra_nics
+    content {
+      bridge   = network_device.value.bridge
+      model    = "virtio"
+      firewall = true
+      mtu      = network_device.value.mtu
+    }
   }
 
   operating_system {
@@ -66,6 +108,16 @@ resource "proxmox_virtual_environment_vm" "this" {
       ipv4 {
         address = "${var.ip}/${var.prefix}"
         gateway = var.gateway
+      }
+    }
+
+    # One per extra NIC, same order; no gateway (the first NIC's is the default route).
+    dynamic "ip_config" {
+      for_each = var.extra_nics
+      content {
+        ipv4 {
+          address = "${ip_config.value.ip}/${ip_config.value.prefix}"
+        }
       }
     }
 

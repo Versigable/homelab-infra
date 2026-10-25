@@ -1,0 +1,25 @@
+# Managed by Ansible (role studio_gw). DNS for the studio network, as an allow-list: no
+# default upstream (no-resolv), so only the names below resolve; everything else is refused.
+# Each name's answers are added to its class's nft set, which is what the forward chain
+# lets that class reach.
+interface={{ studio_gw_studio_if }}
+bind-interfaces
+listen-address={{ studio_gw_studio_ip }}
+no-resolv
+no-hosts
+no-poll
+domain-needed
+bogus-priv
+cache-size=1000
+{% if studio_gw_log_queries %}
+log-queries
+{% endif %}
+
+{% for class, c in studio_gw_egress.items() %}
+# class {{ class }} ({{ c.sources | join(', ') }})
+{% for n in c.names %}
+server=/{{ n }}/{{ studio_gw_upstream_dns }}
+nftset=/{{ n }}/4#inet#studio_gw#egress_{{ class }}
+{% endfor %}
+
+{% endfor %}

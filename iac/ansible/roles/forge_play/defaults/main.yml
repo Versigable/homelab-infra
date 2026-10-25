@@ -1,0 +1,34 @@
+# The Forge's play lane, first cut (studio build step 1): one standing session per game,
+# streamed by Selkies with NVENC. Disposable sessions per player, started by the hub's
+# broker, replace these once the hub exists (design: idea-to-playable, "People play").
+
+forge_play_root: /srv/forge/play
+forge_play_builds: /srv/forge/builds
+
+# LinuxServer's Selkies base (labwc on Wayland, pixelflux capture and encode), pinned by
+# digest; it has no `latest` tag by design. The same stack as the RomM webstations on jf.
+forge_play_base_image: ghcr.io/linuxserver/baseimage-selkies:debiantrixie@sha256:df4a9259e7535526005785202bd08b3b066250a64c65877802b2354fd6a975dd
+
+# Where builds come from. The control node downloads and checks them, so the Forge never
+# needs to reach game-preview itself.
+forge_play_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-iac/forge-builds"
+
+# One standing session per entry. port is the container's published port on the Forge
+# (studio-gw forwards it from Traefik); path is the URL path Traefik routes to it.
+forge_play_games:
+  - id: surfs-ahoy
+    version: 0.1.0-candidate05
+    url: https://game-preview.ninjaprivacy.org/downloads/surfs-ahoy/0.1.0-candidate05/linux-x64.zip
+    sha256: f1db7ec39cd60e8f2eaa0c558d47bff787fd38085f1b0775b9ba1d08785e63dc
+    exe: SurfsAhoy/SurfsAhoy
+    # The build was only ever played on llvmpipe at 960x540; this is its first GPU run.
+    args: -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -force-glcore
+    port: 3000
+    path: /play/surfs-ahoy/
+    title: Surfs Ahoy 0.1.0-candidate05
+
+# Stream settings shared by every session (as on the webstations: a fixed 1080p60 stream
+# the browser scales, DPI locked so the compositor doesn't rescale mid-session).
+forge_play_width: 1920
+forge_play_height: 1080
+forge_play_mem_limit: 3g

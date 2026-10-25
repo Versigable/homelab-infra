@@ -1,0 +1,14 @@
+# Run before `terraform apply` (with pve-templates.yml): cluster-level objects the IaC token
+# can't create, and the ACLs that let it use them. Today: the studio's SDN network and its
+# GPU mapping (inventory/group_vars/proxmox_nodes.yml).
+#
+# The first run with new SDN objects stops before applying them, because the apply reloads
+# networking on every node. Re-run with -e pve_sdn_apply=true when that's OK.
+- name: Cluster objects for Terraform
+  hosts: proxmox_nodes
+  become: true
+  # A stop on the admin node (pending SDN apply) stops every node.
+  any_errors_fatal: true
+  roles:
+    - pve_sdn
+    - pve_pci_mapping

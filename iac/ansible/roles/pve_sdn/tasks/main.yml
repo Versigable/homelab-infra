@@ -1,0 +1,159 @@
+# SDN zones and vnets from pve_sdn_zones / pve_sdn_vnets, and the ACLs that let the IaC
+# principals attach NICs to the vnets. Made once, on pve_cluster_admin_node.
+#
+# Applying SDN config (pvesh set /cluster/sdn) rewrites /etc/network/interfaces.d/sdn and
+# reloads networking on EVERY cluster node, wolverine included. So it never happens on its
+# own: with pending changes the play stops, and you re-run it with -e pve_sdn_apply=true.
+# Objects are created, never changed or deleted, here; a change to an existing zone or vnet
+# fails the drift check instead.
+
+- name: Cluster SDN objects
+  when: inventory_hostname == pve_cluster_admin_node
+  block:
+    - name: Read the SDN zones
+      ansible.builtin.command: pvesh get /cluster/sdn/zones --output-format json
+      register: pve_sdn_zones_now
+      changed_when: false
+      check_mode: false
+
+    - name: Read the SDN vnets
+      ansible.builtin.command: pvesh get /cluster/sdn/vnets --output-format json
+      register: pve_sdn_vnets_now
+      changed_when: false
+      check_mode: false
+
+    - name: Zones that exist already match the code
+      ansible.builtin.assert:
+        that:
+          - (current.peers | default('')).split(',') | sort == item.peers | default([]) | map('string') | sort
+          - (current.nodes | default('')).split(',') | reject('equalto', '') | sort == item.nodes | default([]) | sort
+          - (current.mtu | default(0) | int) == (item.mtu | default(0) | int)
+        fail_msg: "SDN zone {{ item.zone }} differs from pve_sdn_zones; change it by hand, then update the code."
+        quiet: true
+      vars:
+        current: "{{ pve_sdn_zones_now.stdout | from_json | selectattr('zone', 'equalto', item.zone) | first }}"
+      loop: "{{ pve_sdn_zones }}"
+      loop_control:
+        label: "{{ item.zone }}"
+      when: item.zone in (pve_sdn_zones_now.stdout | from_json | map(attribute='zone'))
+
+    - name: Zones
+      ansible.builtin.command:
+        argv: >-
+          {{ ['pvesh', 'create', '/cluster/sdn/zones', '--zone', item.zone, '--type', item.type]
+             + (['--peers', item.peers | join(',')] if item.peers is defined else [])
+             + (['--nodes', item.nodes | join(',')] if item.nodes is defined else [])
+             + (['--mtu', item.mtu | string] if item.mtu is defined else []) }}
+      loop: "{{ pve_sdn_zones }}"
+      loop_control:
+        label: "{{ item.zone }}"
+      when: item.zone not in (pve_sdn_zones_now.stdout | from_json | map(attribute='zone'))
+      changed_when: true
+
+    - name: Vnets that exist already match the code
+      ansible.builtin.assert:
+        that:
+          - current.zone == item.zone
+          - (current.tag | int) == (item.tag | int)
+        fail_msg: "SDN vnet {{ item.vnet }} differs from pve_sdn_vnets; change it by hand, then update the code."
+        quiet: true
+      vars:
+        current: "{{ pve_sdn_vnets_now.stdout | from_json | selectattr('vnet', 'equalto', item.vnet) | first }}"
+      loop: "{{ pve_sdn_vnets }}"
+      loop_control:
+        label: "{{ item.vnet }}"
+      when: item.vnet in (pve_sdn_vnets_now.stdout | from_json | map(attribute='vnet'))
+
+    - name: Vnets
+      ansible.builtin.command:
+        argv: >-
+          {{ ['pvesh', 'create', '/cluster/sdn/vnets', '--vnet', item.vnet, '--zone', item.zone,
+              '--tag', item.tag | string]
+             + (['--alias', item.alias] if item.alias is defined else []) }}
+      loop: "{{ pve_sdn_vnets }}"
+      loop_control:
+        label: "{{ item.vnet }}"
+      when: item.vnet not in (pve_sdn_vnets_now.stdout | from_json | map(attribute='vnet'))
+      changed_when: true
+
+    - name: Read the ACLs
+      ansible.builtin.command: pveum acl list --output-format json
+      register: pve_sdn_acls
+      changed_when: false
+      check_mode: false
+
+    # PVESDNUser on a vnet = SDN.Use + SDN.Audit: the IaC principals may put NICs on it.
+    - name: IaC principals may use the vnets
+      ansible.builtin.command:
+        argv:
+          - pveum
+          - acl
+          - modify
+          - "/sdn/zones/{{ item.zone }}/{{ item.vnet }}"
+          - --users
+          - "{{ pve_iac_users | join(',') }}"
+          - --tokens
+          - "{{ pve_iac_tokens | join(',') }}"
+          - --roles
+          - PVESDNUser
+      vars:
+        granted: >-
+          {{ pve_sdn_acls.stdout | from_json
+             | selectattr('path', 'equalto', '/sdn/zones/' ~ item.zone ~ '/' ~ item.vnet)
+             | selectattr('roleid', 'equalto', 'PVESDNUser')
+             | map(attribute='ugid') | list }}
+      loop: "{{ pve_sdn_vnets }}"
+      loop_control:
+        label: "{{ item.vnet }}"
+      when: (pve_iac_users + pve_iac_tokens) | difference(granted) | length > 0
+      changed_when: true
+
+    # Pending = in the code but not yet in the running (applied) config.
+    - name: Read the running SDN zones
+      ansible.builtin.command: pvesh get /cluster/sdn/zones --running 1 --output-format json
+      register: pve_sdn_running_zones
+      changed_when: false
+      check_mode: false
+
+    - name: Read the running SDN vnets
+      ansible.builtin.command: pvesh get /cluster/sdn/vnets --running 1 --output-format json
+      register: pve_sdn_running_vnets
+      changed_when: false
+      check_mode: false
+
+    - name: Note what is pending
+      ansible.builtin.set_fact:
+        pve_sdn_pending: >-
+          {{ (pve_sdn_zones | map(attribute='zone')
+              | difference(pve_sdn_running_zones.stdout | from_json | map(attribute='zone')))
+             + (pve_sdn_vnets | map(attribute='vnet')
+              | difference(pve_sdn_running_vnets.stdout | from_json | map(attribute='vnet'))) }}
+
+    - name: Stop until the network reload is asked for
+      ansible.builtin.fail:
+        msg: >-
+          SDN changes are pending ({{ pve_sdn_pending | join(', ') }}). Applying them reloads
+          networking on every cluster node (phoenix, rogue, wolverine). Re-run with
+          -e pve_sdn_apply=true when that's OK.
+      when:
+        - pve_sdn_pending | length > 0
+        - not (pve_sdn_apply | default(false) | bool)
+
+    - name: Apply the SDN config (reloads networking on every node)
+      ansible.builtin.command: pvesh set /cluster/sdn
+      when: pve_sdn_pending | length > 0
+      changed_when: true
+
+# Every node in a zone has the vnet's bridge up afterwards (a few seconds after the apply).
+- name: The vnet bridges exist on their nodes
+  ansible.builtin.command: "ip -br link show {{ item.vnet }}"
+  register: pve_sdn_bridge
+  until: pve_sdn_bridge.rc == 0
+  retries: 10
+  delay: 3
+  changed_when: false
+  loop: "{{ pve_sdn_vnets }}"
+  loop_control:
+    label: "{{ item.vnet }}"
+  when: >-
+    inventory_hostname in (pve_sdn_zones | selectattr('zone', 'equalto', item.zone) | first).nodes | default([inventory_hostname])

@@ -39,11 +39,19 @@
     - docker-ce-cli
     - docker-compose-plugin
 
-- name: Daemon log limits
+# Log limits, plus any host-specific settings (docker_daemon_extra). This task owns the whole
+# file, so tools that edit daemon.json themselves (nvidia-ctk runtime configure) aren't used.
+- name: Daemon settings
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
-    content: "{{ {'log-driver': 'json-file', 'log-opts': {'max-size': docker_log_max_size, 'max-file': docker_log_max_file}} | to_nice_json }}\n"
+    content: "{{ docker_daemon_base | combine(docker_daemon_extra) | to_nice_json }}\n"
     mode: "0644"
+  vars:
+    docker_daemon_base:
+      log-driver: json-file
+      log-opts:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
   notify: Restart docker
 
 - name: Docker running and enabled

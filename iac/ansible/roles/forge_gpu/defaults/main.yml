@@ -1,0 +1,20 @@
+# The Forge's GPU stack. Pinned; bump through an MR.
+
+# NVIDIA's open kernel module, 595 branch: the branch jf ran on this same card in phoenix
+# (595.104.02, .run installer) from 2026-10-18 to 10-24. The pinning package keeps apt on
+# the branch; the version below is the exact one installed and held.
+forge_gpu_driver_branch: "595"
+forge_gpu_driver_version: "595.112.07-1"
+forge_gpu_cuda_repo: https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64
+# "Kitmaker (Debian 13 Trixie)", fingerprint 0218 2E60 104F CDC2 6EAE 1B85 97A5 D4CB 8793 F200.
+forge_gpu_cuda_key: 8793F200.pub
+forge_gpu_cuda_key_sha256: 09edb5196bca272c091633d4e04dd6c8f3a07278834868220aa669c895f6cfd7
+
+# NVIDIA Container Toolkit v1.20.1 (released 2026-09-19).
+forge_gpu_toolkit_version: "1.20.1-1"
+forge_gpu_toolkit_repo: https://nvidia.github.io/libnvidia-container/stable/deb/amd64
+# "NVIDIA CORPORATION (Open Source Projects)", fingerprint C95B 321B 61E8 8C18 09C4 F759 DDCA E044 F796 ECB0.
+forge_gpu_toolkit_key_sha256: c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9
+
+# What nvidia-smi must report when the role is done.
+forge_gpu_expect_name: "RTX 5070 Ti"
