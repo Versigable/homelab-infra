@@ -1,0 +1,29 @@
+# studio-gw (role studio_gw). Vault: 1-Projects/game-studio-platform/design/architecture §3.
+#
+# The Forge's outbound list. The design gives the Forge no internet except windows opened by
+# an MR; Debian's mirrors stay open so it gets security updates.
+#   build window (2026-10-25): what forge_gpu and forge_play install (NVIDIA driver and
+#   container toolkit, Docker, the Selkies base image). Close it with a follow-up MR once
+#   the Forge is built: delete the lines under "build window" and re-run site.yml.
+studio_gw_egress:
+  forge:
+    sources: [10.77.0.10]
+    ports: [80, 443]
+    names:
+      # always: OS packages and security updates
+      - deb.debian.org
+      - security.debian.org
+      # build window
+      - developer.download.nvidia.com
+      - nvidia.github.io
+      - download.docker.com
+      - ghcr.io
+      - pkg-containers.githubusercontent.com
+
+# Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
+studio_gw_ingress:
+  - name: forge-play
+    from: 10.0.2.5
+    port: 3000
+    to_ip: 10.77.0.10
+    to_port: 3000

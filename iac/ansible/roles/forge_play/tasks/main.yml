@@ -1,0 +1,206 @@
+# The Forge's play lane, step 1: build the play image, put each game's build in place, run
+# one standing Selkies session per game, and lock the containers' network down.
+
+- name: Tag of the play image (hash of its Dockerfile and base)
+  ansible.builtin.set_fact:
+    forge_play_image_tag: >-
+      {{ (lookup('ansible.builtin.file', 'play-image/Dockerfile') ~ forge_play_base_image)
+         | hash('sha256') | truncate(12, true, '') }}
+
+- name: Packages
+  ansible.builtin.apt:
+    name: [nftables, unzip, curl]
+
+# --- Host firewall (before any play container exists) --------------------------------------
+
+- name: Forge firewall rules
+  ansible.builtin.template:
+    src: host-fw.nft.j2
+    dest: /etc/forge-host-fw.nft
+    mode: "0644"
+    validate: nft -c -f %s
+  register: forge_play_fw_rules
+
+- name: Forge firewall unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/forge-host-fw.service
+    content: |
+      # Managed by Ansible (role forge_play).
+      [Unit]
+      Description=Forge host firewall (play containers can't open connections; SSH only via studio-gw)
+      After=network-pre.target
+      Before=docker.service
+      Wants=network-pre.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/forge-host-fw.nft
+      ExecReload=/usr/sbin/nft -f /etc/forge-host-fw.nft
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: forge_play_fw_unit
+
+- name: Forge firewall running
+  ansible.builtin.systemd_service:
+    name: forge-host-fw
+    state: "{{ 'restarted' if (forge_play_fw_rules is changed or forge_play_fw_unit is changed) else 'started' }}"
+    enabled: true
+    daemon_reload: "{{ forge_play_fw_unit is changed }}"
+
+# --- Image ---------------------------------------------------------------------------------
+
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ forge_play_root }}/image"
+    - "{{ forge_play_builds }}"
+
+- name: Play image build context
+  ansible.builtin.copy:
+    src: play-image/
+    dest: "{{ forge_play_root }}/image/"
+    mode: "0644"
+
+- name: Is the play image built?
+  ansible.builtin.command: "docker image inspect studio/play:{{ forge_play_image_tag }}"
+  register: forge_play_image_present
+  changed_when: false
+  failed_when: false
+
+- name: Build the play image
+  ansible.builtin.command:
+    argv:
+      - docker
+      - build
+      - --pull
+      - --build-arg
+      - "BASE={{ forge_play_base_image }}"
+      - -t
+      - "studio/play:{{ forge_play_image_tag }}"
+      - "{{ forge_play_root }}/image"
+  when: forge_play_image_present.rc != 0
+  changed_when: true
+
+# --- Builds --------------------------------------------------------------------------------
+
+- name: Build cache on the control node
+  ansible.builtin.file:
+    path: "{{ forge_play_cache }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Builds downloaded and checked on the control node
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ forge_play_cache }}/{{ item.id }}-{{ item.version }}-linux-x64.zip"
+    checksum: "sha256:{{ item.sha256 }}"
+    mode: "0600"
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }} {{ item.version }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Build directories
+  ansible.builtin.file:
+    path: "{{ forge_play_builds }}/{{ item.id }}/{{ item.version }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Builds unpacked on the Forge (read-only to the sessions)
+  ansible.builtin.unarchive:
+    src: "{{ forge_play_cache }}/{{ item.id }}-{{ item.version }}-linux-x64.zip"
+    dest: "{{ forge_play_builds }}/{{ item.id }}/{{ item.version }}"
+    creates: "{{ forge_play_builds }}/{{ item.id }}/{{ item.version }}/{{ item.exe }}"
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }} {{ item.version }}"
+
+# --- Sessions ------------------------------------------------------------------------------
+
+- name: Session directories
+  ansible.builtin.file:
+    path: "{{ forge_play_root }}/sessions/{{ item.id }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Session autostart (launches the game)
+  ansible.builtin.template:
+    src: autostart.j2
+    dest: "{{ forge_play_root }}/sessions/{{ game.id }}/autostart"
+    mode: "0755"
+  vars:
+    game: "{{ item }}"
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }}"
+  register: forge_play_autostart
+
+- name: Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ forge_play_root }}/compose.yml"
+    mode: "0644"
+  register: forge_play_compose
+
+# autostart is copied into the session on first run only, so a change needs a fresh container.
+- name: Sessions running
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'compose', '-f', forge_play_root ~ '/compose.yml', 'up', '-d', '--remove-orphans']
+         + (['--force-recreate'] if forge_play_autostart is changed else []) }}
+  register: forge_play_up
+  changed_when: >-
+    forge_play_up.stderr is search('(Created|Recreated|Started|Removed)')
+
+# --- Checks --------------------------------------------------------------------------------
+
+- name: The sessions see the GPU
+  ansible.builtin.command: "docker exec play-{{ item.id }} nvidia-smi --query-gpu=name --format=csv,noheader"
+  register: forge_play_smi
+  until: forge_play_smi.rc == 0
+  retries: 10
+  delay: 3
+  changed_when: false
+  failed_when: forge_play_smi.rc != 0 or 'RTX 5070 Ti' not in forge_play_smi.stdout
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: The sessions serve their page
+  ansible.builtin.uri:
+    url: "http://10.77.0.10:{{ item.port }}{{ item.path }}"
+    status_code: 200
+  register: forge_play_page
+  until: forge_play_page.status == 200
+  retries: 20
+  delay: 3
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: A session can't open connections out
+  ansible.builtin.command: "docker exec play-{{ item.id }} curl -sS -m 5 -o /dev/null https://deb.debian.org/"
+  register: forge_play_egress
+  changed_when: false
+  # 0 = it got out; 127 = no curl in the image, so nothing was checked.
+  failed_when: forge_play_egress.rc in [0, 127]
+  loop: "{{ forge_play_games }}"
+  loop_control:
+    label: "{{ item.id }}"

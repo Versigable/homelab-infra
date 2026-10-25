@@ -1,0 +1,9 @@
+# studio-forge (roles forge_gpu, forge_play). Vault: 1-Projects/game-studio-platform/design/architecture §4.
+
+# The NVIDIA runtime for the play containers (compose: runtime: nvidia). Written by the
+# docker role, which owns daemon.json; nvidia-ctk would rewrite the file on its own.
+docker_daemon_extra:
+  runtimes:
+    nvidia:
+      path: nvidia-container-runtime
+      args: []

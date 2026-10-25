@@ -1,0 +1,216 @@
+# The Forge's GPU: Debian's generic kernel, NVIDIA's open driver (595 branch) and the
+# container toolkit, so containers get the RTX 5070 Ti for CUDA, GL/Vulkan and NVENC.
+
+# --- Kernel ----------------------------------------------------------------------------
+# The cloud image boots linux-image-cloud-amd64, a kernel for VMs without real hardware.
+# The play lane renders through nvidia-drm's render node, so the Forge runs the generic
+# kernel: install it, remove the cloud one, reboot once. Afterwards only generic kernels
+# exist and GRUB boots the newest, so security updates keep working unchanged.
+
+- name: Generic kernel and headers (DKMS builds the NVIDIA module against them)
+  ansible.builtin.apt:
+    name:
+      - linux-image-amd64
+      - linux-headers-amd64
+
+- name: No nouveau or nova on the passed-through card
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/forge-blacklist-gpu.conf
+    content: |
+      # Managed by Ansible (role forge_gpu). The RTX 5070 Ti belongs to NVIDIA's driver.
+      blacklist nouveau
+      options nouveau modeset=0
+      blacklist nova_core
+      blacklist nova_drm
+    mode: "0644"
+  register: forge_gpu_blacklist
+
+# A task, not a handler: the reboot below must already boot the new initramfs.
+- name: Rebuild the initramfs without them
+  ansible.builtin.command: update-initramfs -u -k all
+  when: forge_gpu_blacklist is changed  # noqa: no-handler
+  changed_when: true
+
+- name: Leave the cloud kernel
+  when: ansible_facts.kernel is search('-cloud-amd64$')
+  block:
+    - name: Debconf tools
+      ansible.builtin.apt:
+        name: debconf-utils
+
+    # linux-check-removal otherwise aborts removing the running kernel; the reboot follows.
+    - name: Allow removing the running (cloud) kernel
+      ansible.builtin.debconf:
+        name: linux-base
+        question: linux-base/removing-running-kernel
+        vtype: boolean
+        value: "false"
+
+    - name: Remove the cloud kernel
+      ansible.builtin.apt:
+        name:
+          - linux-image-cloud-amd64
+          - "linux-image-*-cloud-amd64"
+        state: absent
+        purge: true
+
+    - name: Reboot into the generic kernel
+      ansible.builtin.reboot:
+        msg: "forge_gpu: switching from the cloud kernel to the generic kernel"
+        reboot_timeout: 600
+
+    - name: Refresh the kernel fact
+      ansible.builtin.setup:
+        gather_subset: [min]
+
+    - name: Running the generic kernel
+      ansible.builtin.assert:
+        that: ansible_facts.kernel is not search('-cloud-amd64$')
+        fail_msg: "Still on {{ ansible_facts.kernel }}; check GRUB on the serial console (qm terminal 155)."
+
+    - name: Removing the running kernel asks again from now on
+      ansible.builtin.debconf:
+        name: linux-base
+        question: linux-base/removing-running-kernel
+        vtype: boolean
+        value: "true"
+
+# --- NVIDIA driver -----------------------------------------------------------------------
+
+- name: NVIDIA CUDA repository key (Debian 13)
+  ansible.builtin.get_url:
+    url: "{{ forge_gpu_cuda_repo }}/{{ forge_gpu_cuda_key }}"
+    dest: /etc/apt/keyrings/nvidia-cuda.asc
+    checksum: "sha256:{{ forge_gpu_cuda_key_sha256 }}"
+    mode: "0644"
+
+- name: NVIDIA CUDA repository (driver packages)
+  ansible.builtin.deb822_repository:
+    name: nvidia-cuda
+    types: deb
+    uris: "{{ forge_gpu_cuda_repo }}/"
+    suites: /
+    signed_by: /etc/apt/keyrings/nvidia-cuda.asc
+
+- name: Keep apt on the driver branch
+  ansible.builtin.apt:
+    name: "nvidia-driver-pinning-{{ forge_gpu_driver_branch }}"
+    update_cache: true
+
+# Headless: no recommends (no X server). DKMS builds the module for the running kernel here.
+- name: NVIDIA open driver, pinned
+  ansible.builtin.apt:
+    name:
+      - "nvidia-open={{ forge_gpu_driver_version }}"
+      - "nvidia-kernel-open-dkms={{ forge_gpu_driver_version }}"
+      - "nvidia-driver={{ forge_gpu_driver_version }}"
+      - "nvidia-driver-cuda={{ forge_gpu_driver_version }}"
+      - nvidia-modprobe
+      - nvidia-persistenced
+    install_recommends: false
+    allow_change_held_packages: true
+
+- name: Hold the driver so apt upgrades don't move it
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - nvidia-open
+    - nvidia-kernel-open-dkms
+    - nvidia-driver
+    - nvidia-driver-cuda
+
+- name: Load nvidia-drm with modesetting (its render node is what the play lane renders on)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/forge-nvidia.conf
+    content: |
+      # Managed by Ansible (role forge_gpu).
+      options nvidia-drm modeset=1 fbdev=1
+    mode: "0644"
+
+- name: NVIDIA modules at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/forge-nvidia.conf
+    content: |
+      # Managed by Ansible (role forge_gpu).
+      nvidia
+      nvidia-modeset
+      nvidia-drm
+      nvidia-uvm
+    mode: "0644"
+
+- name: NVIDIA modules loaded now
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: [nvidia, nvidia-modeset, nvidia-drm, nvidia-uvm]
+
+- name: Run nvidia-persistenced (keeps the card initialised between sessions)
+  ansible.builtin.service:
+    name: nvidia-persistenced
+    state: started
+    enabled: true
+
+- name: The card answers
+  ansible.builtin.command: nvidia-smi --query-gpu=name,driver_version,pci.bus_id --format=csv,noheader
+  register: forge_gpu_smi
+  changed_when: false
+  failed_when: forge_gpu_expect_name not in forge_gpu_smi.stdout
+
+# --- Container toolkit ---------------------------------------------------------------------
+
+- name: NVIDIA container toolkit key
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /etc/apt/keyrings/nvidia-container-toolkit.asc
+    checksum: "sha256:{{ forge_gpu_toolkit_key_sha256 }}"
+    mode: "0644"
+
+- name: NVIDIA container toolkit repository
+  ansible.builtin.deb822_repository:
+    name: nvidia-container-toolkit
+    types: deb
+    uris: "{{ forge_gpu_toolkit_repo }}"
+    suites: /
+    signed_by: /etc/apt/keyrings/nvidia-container-toolkit.asc
+
+- name: NVIDIA container toolkit, pinned
+  ansible.builtin.apt:
+    name:
+      - "nvidia-container-toolkit={{ forge_gpu_toolkit_version }}"
+      - "nvidia-container-toolkit-base={{ forge_gpu_toolkit_version }}"
+      - "libnvidia-container-tools={{ forge_gpu_toolkit_version }}"
+      - "libnvidia-container1={{ forge_gpu_toolkit_version }}"
+    update_cache: true
+    allow_change_held_packages: true
+  notify: Restart docker
+
+- name: Hold the toolkit
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - nvidia-container-toolkit
+    - nvidia-container-toolkit-base
+    - libnvidia-container-tools
+    - libnvidia-container1
+
+# From jf (2026-10-12): containers need /dev/nvidia-modeset and the other nodes to exist
+# before Docker starts them at boot, or Selkies falls back to software encoding.
+- name: Docker drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+
+- name: Docker creates the NVIDIA device nodes before starting containers
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/nvidia-devices.conf
+    content: |
+      # Managed by Ansible (role forge_gpu).
+      [Service]
+      ExecStartPre=-/usr/bin/nvidia-modprobe -c 0 -u -m
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart docker

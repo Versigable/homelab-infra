@@ -1,0 +1,28 @@
+http:
+  routers:
+    # Game studio play streams (vault: 1-Projects/game-studio-platform/design/). A Selkies
+    # session on the studio Forge (VM 155, RTX 5070 Ti) streams a game build to the browser.
+    # The Forge sits on the studio network (10.77.0.0/24), so Traefik reaches it through
+    # studio-gw (10.0.1.150), which forwards :3000 to the Forge only from this host (10.0.2.5).
+    #
+    # Build step 1, temporary gate: the operators' forward_domain provider (Hokagis), because
+    # only MetaVersig plays at this stage. The studio's own Authentik provider, bound to
+    # studio-members, replaces it before anyone else joins (design: people-and-membership).
+    #
+    # Only Selkies' fixed UI and the game's pixels reach the browser; no game code runs in
+    # it, so this hostname serves no agent-built code (decision 2026-10-17, no separate
+    # studio domain).
+    studio-play-surfs-ahoy-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/surfs-ahoy/`)"
+      service: studio-play-surfs-ahoy-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+  services:
+    studio-play-surfs-ahoy-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3000
+        passHostHeader: true

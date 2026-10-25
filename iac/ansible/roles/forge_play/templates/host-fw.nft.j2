@@ -1,0 +1,21 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role forge_play). The Forge's own rules, in their own table so they
+# never touch Docker's (no flush ruleset here; re-running this file replaces only this table).
+#   - play containers (br-play) can't open connections: not out through the Forge, not to it;
+#     they only answer their stream;
+#   - SSH comes only from studio-gw (Ansible jumps through it).
+table inet forge_host
+delete table inet forge_host
+
+table inet forge_host {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		iifname "br-play" ct state new drop
+		tcp dport 22 ip saddr != 10.77.0.1 ct state new drop
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy accept;
+		iifname "br-play" ct state new drop
+	}
+}

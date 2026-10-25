@@ -1,0 +1,10 @@
+# Guests on the studio network (studio0) have no route from the LAN, by design. Ansible
+# reaches them through studio-gw with the same operator key; the gateway's input chain lets
+# SSH in from the LAN, and the guest sees the connection come from 10.77.0.1.
+studio_gw_jump: ansible@10.0.1.150
+ansible_ssh_common_args: >-
+  -o ProxyCommand="ssh -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile=~/.ssh/known_hosts_iac -W %h:%p {{ studio_gw_jump }}"
+
+# Time comes from studio-gw (role studio_guest); there is no other way out.
+studio_guest_ntp: 10.77.0.1

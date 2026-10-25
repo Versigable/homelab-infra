@@ -1,0 +1,32 @@
+# Cluster-level objects the IaC token can't create (playbooks/pve-cluster.yml): SDN zones and
+# vnets, PCI resource mappings, and the ACLs that let the IaC principals use them. They are
+# cluster-wide, so they are made once, from one node.
+pve_cluster_admin_node: phoenix
+
+# Every IaC principal gets the same rights (privilege-separated tokens need the user's too).
+pve_iac_users: ["iac@pve"]
+pve_iac_tokens: ["iac@pve!infra", "iac@pve!infra-fk"]
+
+# The game studio's network (vault: 1-Projects/game-studio-platform/design/architecture).
+# Its own zone, not the April "stretch" zone: phoenix and rogue only (wolverine never carries
+# studio traffic), MTU for VXLAN over the 1500-byte LAN.
+pve_sdn_zones:
+  - zone: studio
+    type: vxlan
+    peers: [10.0.1.2, 10.0.2.1]
+    nodes: [phoenix, rogue]
+    mtu: 1450
+
+pve_sdn_vnets:
+  - vnet: studio0
+    zone: studio
+    tag: 100300
+    alias: game studio
+
+# The studio's RTX 5070 Ti. No function in the path, so the whole device (GPU + audio) is
+# passed as one; id, IOMMU group and subsystem are checked by Proxmox at every VM start.
+pve_pci_mappings:
+  - id: gpu-5070ti
+    description: Studio RTX 5070 Ti (MSI), held by studio-forge
+    map:
+      - node=phoenix,path=0000:09:00,id=10de:2c05,iommugroup=23,subsystem-id=1462:5315

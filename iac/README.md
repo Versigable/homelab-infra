@@ -39,11 +39,27 @@ VMs are cloned from template 9000 (Debian 13 cloud image, built by `pve-template
 cloud-init creates the `ansible` user with the operators' keys, so a VM skips `iac.sh bootstrap`.
 It mounts its own shares (role `nfs_client`), and Docker waits for them (`RequiresMountsFor`).
 
+## The studio network
+
+The game studio's guests (`terraform/xmansion/studio.tf`, VMIDs 150-169) live on their own
+network: VNet `studio0` (10.77.0.0/24) in the SDN zone `studio`, a VXLAN between phoenix and
+rogue. Nothing on it has a route to `vmbr0`; `studio-gw` (VM 150, 10.0.1.150 on the LAN) is
+its only router, with an egress allow-list by hostname (`group_vars/studio_gw.yml`). Ansible
+reaches guests on it through `studio-gw` (`group_vars/studio_private.yml`). The Forge (VM 155)
+holds the RTX 5070 Ti by PCI mapping `gpu-5070ti`. It has no GitLab runner: its lanes are
+platform, so Ansible owns them. Vault: `1-Projects/game-studio-platform/design/`.
+
+The zone, the vnet and the GPU mapping are cluster objects the IaC token can't create;
+`pve-cluster.yml` makes them as root and grants the token use of them. Applying SDN reloads
+networking on every node, so that playbook stops until you re-run it with
+`-e pve_sdn_apply=true`.
+
 ## Access and state
 
 - **Proxmox:** user `iac@pve`, token `infra` (privilege-separated). Role `InfraIaC` on pool
   `iac` and `local-lvm`; `PVEAuditor` on `local` and `/nodes/phoenix`; `PVESDNUser` on
-  `vmbr0`. It can't touch guests outside the `iac` pool.
+  `vmbr0` and the studio vnet `studio0`; `PVEMappingUser` on the PCI mapping `gpu-5070ti`.
+  It can't touch guests outside the `iac` pool.
 - **Terraform state:** GitLab-managed, one state per site, in a state-only GitLab project.
   Writing state needs the Maintainer role, and homelab-infra's agent token is
   deliberately only a Developer, so only humans can merge to `main`.
@@ -66,6 +82,7 @@ It mounts its own shares (role `nfs_client`), and Docker waits for them (`Requir
 2. After merge:
    ```
    iac.sh play pve-templates.yml      # templates on the nodes
+   iac.sh play pve-cluster.yml        # SDN zones/vnets, PCI mappings, their ACLs (no-op if unchanged)
    iac.sh tf init && iac.sh tf apply  # the guest
    iac.sh inventory                   # Ansible guest inventory from Terraform
    iac.sh bootstrap <name>            # first contact as root; creates the ansible user

@@ -1,0 +1,72 @@
+# Managed by Ansible (role forge_play). The Forge's play lane: one standing Selkies session
+# per game, streamed with NVENC on the RTX 5070 Ti. Patterned on hosts/jellyfin/compose/
+# webstation.yml, which streams the RomM webstations from jf the same way.
+name: forge-play
+
+networks:
+  # Play containers may answer their stream and nothing else: the host firewall
+  # (forge-host-fw.service) drops every connection they try to open, to the network or to
+  # the Forge itself.
+  play:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-play
+
+x-play: &play
+  image: "studio/play:{{ forge_play_image_tag }}"
+  runtime: nvidia
+  # Listed so they're in the container's DeviceAllow and survive systemd rebuilding the
+  # scope's device rules (seen on jf 2026-10-12); /dev/dri is nvidia-drm's render node.
+  devices:
+    - /dev/nvidia-modeset:/dev/nvidia-modeset
+    - /dev/nvidiactl:/dev/nvidiactl
+    - /dev/nvidia0:/dev/nvidia0
+    - /dev/nvidia-uvm:/dev/nvidia-uvm
+    - /dev/dri:/dev/dri
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+  networks: [play]
+  restart: unless-stopped
+  shm_size: "1gb"
+  # A session's state lives in memory and goes with the container: every start is fresh.
+  tmpfs:
+    - /config:uid=1000,gid=1000,mode=0755,size=1g
+  mem_limit: {{ forge_play_mem_limit }}
+  memswap_limit: {{ forge_play_mem_limit }}
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+{% for game in forge_play_games %}
+  {{ game.id }}:
+    <<: *play
+    container_name: "play-{{ game.id }}"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      TITLE: "{{ game.title }}"
+      SUBFOLDER: "{{ game.path }}"
+      NVIDIA_DRIVER_CAPABILITIES: all
+      PIXELFLUX_WAYLAND: "true"
+      # Kiosk: no terminals, no sudo, no window controls; the game comes back if it exits.
+      HARDEN_DESKTOP: "true"
+      RESTART_APP: "true"
+      SELKIES_MANUAL_WIDTH: "{{ forge_play_width }}"
+      SELKIES_MANUAL_HEIGHT: "{{ forge_play_height }}"
+      SELKIES_SCALING_DPI: "96"
+      SELKIES_FRAMERATE: "60-60"
+    volumes:
+      - "{{ forge_play_builds }}/{{ game.id }}/{{ game.version }}:/game:ro"
+      - "{{ forge_play_root }}/sessions/{{ game.id }}/autostart:/defaults/autostart_wayland:ro"
+    ports:
+      - "10.77.0.10:{{ game.port }}:3000"
+{% endfor %}
