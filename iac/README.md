@@ -36,7 +36,8 @@ client, and TrueNAS runs on that node: on 2026-10-23 a node-side writer deadlock
 about 30 minutes. A VM's NFS client keeps its dirty pages in guest RAM. Everything else can be
 an LXC (cheaper), including guests that only read from TrueNAS (their node mount is `ro: true`).
 
-VMs are cloned from template 9000 (Debian 13 cloud image, built by `pve-templates.yml`).
+VMs are cloned from their node's template (Debian 13 cloud image, built by `pve-templates.yml`):
+9000 on phoenix, 9001 on rogue. A template on local-lvm clones only on its own node.
 cloud-init creates the `ansible` user with the operators' keys, so a VM skips `iac.sh bootstrap`.
 It mounts its own shares (role `nfs_client`), and Docker waits for them (`RequiresMountsFor`).
 
