@@ -127,4 +127,5 @@
   ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} example.org A"
   register: studio_gw_dig_blocked
   changed_when: false
-  failed_when: studio_gw_dig_blocked.stdout | trim | regex_search('^[0-9.]+$', multiline=True)
+  # regex_search returns the match or None; ansible-core 2.19 wants a boolean.
+  failed_when: (studio_gw_dig_blocked.stdout | trim | regex_search('^[0-9.]+$', multiline=True)) is not none
