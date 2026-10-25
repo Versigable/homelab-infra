@@ -1,0 +1,39 @@
+# A person's cell. The pins live in inventory/group_vars/studio_cell.yml and the owner in
+# host_vars/<cell>.yml.
+
+# Packages every cell needs: Git (with LFS, for game assets), a virtual display for Editor
+# runs that want one, and the libraries the Linux Editor loads.
+studio_cell_packages:
+  - git
+  - git-lfs
+  - unzip
+  - xvfb
+  - libasound2t64
+  - libegl1
+  - libgbm1
+  - libgl1
+  - libgtk-3-0t64
+  - libnss3
+  - libvulkan1
+  - libxcursor1
+  - libxi6
+  - libxrandr2
+  - libxss1
+  - libxtst6
+
+# Where the control node keeps the Codex archive it checks before copying it to cells.
+studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-iac/studio-cell"
+
+# The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
+studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
+
+# The Unity CLI's settings for every run on a cell (the IaC's and the person's): through
+# Squid, no self-update checks (apt updates it), no crash reports, no first-run analytics
+# prompt, no pager or banner in agents' output.
+studio_cell_unity_env:
+  UNITY_PROXY: "{{ studio_proxy_url }}"
+  UNITY_NO_UPDATE_CHECK: "1"
+  UNITY_NO_CRASH_REPORT: "1"
+  UNITY_NO_CONSENT_PROMPT: "1"
+  UNITY_NO_BANNER: "1"
+  UNITY_NO_PAGER: "1"

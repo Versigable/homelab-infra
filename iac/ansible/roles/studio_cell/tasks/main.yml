@@ -1,27 +1,28 @@
-# A person's cell (design: engine-and-agent-runtime §2). Step 2a: its machine identity.
-# Agents, the Unity toolchain and studio-agentd come with step 2c.
-#
-# Unity licences are per machine, so a rebuilt cell must look like the same machine. Its
-# identity comes from Terraform alone: the fixed MAC and SMBIOS UUID in studio.tf. On this
-# Debian 13 image systemd (257) sets the machine-id from the SMBIOS UUID at every boot
-# ("Initializing machine ID from SMBIOS/DMI UUID", seen on all boots of VM 160, even right
-# after a different id was written), so the machine-id follows the UUID. This role only
-# checks that it does.
+# A person's cell (design: engine-and-agent-runtime §2): their agents, their games, their
+# Unity editor. Users:
+#   <owner>  the person: logs in through studio-gw's jump account, and may act as agent and
+#            unity (sudo -iu) to sign in, but has no root here (root belongs to the IaC and,
+#            from step 2c-2, to studio-agentd and the Unity broker)
+#   agent    runs Claude Code and Codex; holds the person's AI sign-ins and nothing else
+#   unity    runs the Unity CLI and Editor; holds the person's Unity sign-in and licence
+# Separate users so game code running in the editor can't read the AI sign-ins, and an agent
+# can't read the Unity licence (design: engine-and-agent-runtime §2).
 
-- name: Read the SMBIOS UUID and the machine-id
-  ansible.builtin.slurp:
-    src: "{{ item }}"
-  loop:
-    - /sys/class/dmi/id/product_uuid
-    - /etc/machine-id
-  register: studio_cell_ids
+- name: Machine identity
+  ansible.builtin.import_tasks: identity.yml
 
-- name: The machine-id is the SMBIOS UUID
-  ansible.builtin.assert:
-    that: >-
-      (studio_cell_ids.results[1].content | b64decode | trim)
-      == (studio_cell_ids.results[0].content | b64decode | trim | lower | replace('-', ''))
-    fail_msg: >-
-      /etc/machine-id isn't this cell's SMBIOS UUID, so the cell's machine identity has
-      changed (Unity would see a new machine). Check smbios_uuid in terraform/xmansion/studio.tf.
-    quiet: true
+- name: Cell packages
+  ansible.builtin.apt:
+    name: "{{ studio_cell_packages }}"
+
+- name: Users and the owner's login
+  ansible.builtin.import_tasks: users.yml
+
+- name: Claude Code
+  ansible.builtin.import_tasks: claude.yml
+
+- name: Codex
+  ansible.builtin.import_tasks: codex.yml
+
+- name: Unity CLI and Editor
+  ansible.builtin.import_tasks: unity.yml

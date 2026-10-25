@@ -154,6 +154,34 @@
     mode: "0644"
   notify: Restart chrony
 
+# --- The jump account: people into their own cells --------------------------------------------
+
+# A cell's owner reaches it with `ssh -J jump@studio-gw <owner>@<cell>`. The account has no
+# shell (nologin also refuses sftp and commands), and every key in its root-owned
+# authorized_keys may only forward to its owner's cells (templates/jump-authorized_keys.j2).
+- name: Jump account
+  ansible.builtin.user:
+    name: jump
+    shell: /usr/sbin/nologin
+    create_home: true
+    password: "!"
+
+- name: Jump account's SSH directory (root-owned, so the account can't change its keys)
+  ansible.builtin.file:
+    path: /home/jump/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Cell owners' keys, each opening only its owner's cells
+  ansible.builtin.template:
+    src: jump-authorized_keys.j2
+    dest: /home/jump/.ssh/authorized_keys
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Services running
   ansible.builtin.service:
     name: "{{ item }}"

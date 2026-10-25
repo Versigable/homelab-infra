@@ -1,0 +1,56 @@
+# Codex CLI: OpenAI's static musl binary from GitHub Releases. The control node downloads and
+# checks it, so cells need no GitHub access. The person signs in as the user agent with
+# `codex login --device-auth` (device-code sign-in must be on in their ChatGPT security
+# settings).
+
+- name: Codex download directory on the control node
+  ansible.builtin.file:
+    path: "{{ studio_cell_codex_cache }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
+- name: Codex release archive, checked, on the control node
+  ansible.builtin.get_url:
+    url: "https://github.com/openai/codex/releases/download/{{ studio_cell_codex_version }}/codex-x86_64-unknown-linux-musl.tar.gz"
+    dest: "{{ studio_cell_codex_cache }}/codex-{{ studio_cell_codex_version }}.tar.gz"
+    checksum: "sha256:{{ studio_cell_codex_sha256 }}"
+    mode: "0600"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  # Fetching to the control node's cache changes nothing on a host; check mode needs the file.
+  check_mode: false
+
+- name: Codex version directory
+  ansible.builtin.file:
+    path: "/opt/codex/{{ studio_cell_codex_version }}"
+    state: directory
+    mode: "0755"
+
+- name: Codex binary
+  ansible.builtin.unarchive:
+    src: "{{ studio_cell_codex_cache }}/codex-{{ studio_cell_codex_version }}.tar.gz"
+    dest: "/opt/codex/{{ studio_cell_codex_version }}"
+    owner: root
+    group: root
+    creates: "/opt/codex/{{ studio_cell_codex_version }}/codex-x86_64-unknown-linux-musl"
+
+- name: Codex on the PATH
+  ansible.builtin.file:
+    src: "/opt/codex/{{ studio_cell_codex_version }}/codex-x86_64-unknown-linux-musl"
+    dest: /usr/local/bin/codex
+    state: link
+
+- name: Codex runs
+  ansible.builtin.command: codex --version
+  become: true
+  become_user: agent
+  register: studio_cell_codex_check
+  changed_when: false
+  failed_when: >-
+    studio_cell_codex_check.rc != 0
+    or studio_cell_codex_version | regex_replace('^rust-v', '') not in studio_cell_codex_check.stdout
