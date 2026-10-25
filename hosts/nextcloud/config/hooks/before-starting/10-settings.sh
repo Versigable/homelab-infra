@@ -57,7 +57,8 @@ fi
 # a failed fetch Nextcloud won't try again for 5 minutes, so clear that and retry.
 # end_to_end_encryption only lets the desktop and mobile clients encrypt folders; people
 # opt in per folder, and the server never sees their keys.
-missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp end_to_end_encryption"
+# groupfolders ("Team Folders" in the UI) holds the game studio's shared Studio folder.
+missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp end_to_end_encryption groupfolders"
 for attempt in 1 2 3; do
     still=""
     for app in $missing; do
@@ -116,6 +117,37 @@ if [ -n "${NEXTCLOUD_ADMIN_USER:-}" ]; then
     occ group:info breakglass >/dev/null 2>&1 || run "breakglass group" occ group:add breakglass
     run "breakglass member" occ group:adduser breakglass "$NEXTCLOUD_ADMIN_USER"
     run "breakglass 2FA"    occ twofactorauth:enforce --on --group=breakglass
+fi
+
+# --- Game studio shared folder ---------------------------------------------------
+# One Team Folder, "Studio", for the Nextcloud group "studio": references, mood boards and
+# voice memos people hand to the studio (vault: 1-Projects/game-studio-platform/design/).
+# Members are listed here until the studio's membership register manages them; removing a
+# name here doesn't take anyone out of the group.
+studio_members="metaversig"
+occ group:info studio >/dev/null 2>&1 || run "studio group" occ group:add studio
+for member in $studio_members; do
+    run "studio member ${member}" occ group:adduser studio "$member"
+done
+if occ app:list --enabled --output=json | grep -q '"groupfolders"'; then
+    studio_id=$(occ groupfolders:list --output=json 2>/dev/null | php -r '
+        foreach ((array) json_decode(stream_get_contents(STDIN), true) as $f) {
+            if (($f["mountPoint"] ?? "") === "Studio") { echo $f["id"]; break; }
+        }')
+    if [ -z "$studio_id" ]; then
+        studio_id=$(occ groupfolders:create Studio 2>&1) || {
+            echo "==> WARN: studio folder failed: ${studio_id}"
+            failures=$((failures + 1))
+            studio_id=""
+        }
+    fi
+    if [ -n "$studio_id" ]; then
+        run "studio folder access" occ groupfolders:group "$studio_id" studio write share delete
+        run "studio folder quota"  occ groupfolders:quota "$studio_id" "200 GB"
+    fi
+else
+    echo "==> WARN: groupfolders isn't enabled, so there's no Studio folder"
+    failures=$((failures + 1))
 fi
 
 # --- Collabora ------------------------------------------------------------------
