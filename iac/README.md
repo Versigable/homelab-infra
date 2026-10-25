@@ -44,9 +44,12 @@ It mounts its own shares (role `nfs_client`), and Docker waits for them (`Requir
 
 The game studio's guests (`terraform/xmansion/studio.tf`, VMIDs 150-169) live on their own
 network: VNet `studio0` (10.77.0.0/24) in the SDN zone `studio`, a VXLAN between phoenix and
-rogue. Nothing on it has a route to `vmbr0`; `studio-gw` (VM 150, 10.0.1.150 on the LAN) is
-its only router, with an egress allow-list by hostname (`group_vars/studio_gw.yml`). Ansible
-reaches guests on it through `studio-gw` (`group_vars/studio_private.yml`). The Forge (VM 155)
+rogue. Nothing on it has a route to `vmbr0`. `studio-gw` (VM 150, 10.0.1.150 on the LAN)
+forwards nothing outbound. Guests get out only through its Squid (10.77.0.1:3128): HTTP(S)
+by exact hostname per class (`group_vars/studio_gw.yml`), with HTTPS spliced only when the
+TLS SNI is on the list, and every request logged in `/var/log/squid/access.log`. Its dnsmasq
+answers only `*.studio` names. Guests point apt, Docker pulls and downloads at the proxy
+(`group_vars/studio_private.yml`). Ansible reaches guests on it through `studio-gw`. The Forge (VM 155)
 holds the RTX 5070 Ti by PCI mapping `gpu-5070ti`. It has no GitLab runner: its lanes are
 platform, so Ansible owns them. Vault: `1-Projects/game-studio-platform/design/`.
 

@@ -12,6 +12,11 @@
     name: dnsmasq
     state: restarted
 
+- name: Restart squid
+  ansible.builtin.service:
+    name: squid
+    state: restarted
+
 - name: Restart chrony
   ansible.builtin.service:
     name: chrony

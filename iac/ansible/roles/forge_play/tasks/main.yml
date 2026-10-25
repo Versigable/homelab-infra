@@ -81,6 +81,11 @@
       - --pull
       - --build-arg
       - "BASE={{ forge_play_base_image }}"
+      # apt inside the build reaches Debian through Squid (Docker's predefined proxy args).
+      - --build-arg
+      - "http_proxy={{ studio_proxy_url }}"
+      - --build-arg
+      - "https_proxy={{ studio_proxy_url }}"
       - -t
       - "studio/play:{{ forge_play_image_tag }}"
       - "{{ forge_play_root }}/image"

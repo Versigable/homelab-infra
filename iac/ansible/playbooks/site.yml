@@ -10,7 +10,7 @@
     - pve_vm_rootonly
 
 # First, because it is the studio network's only way out: guests on studio0 (studio_private)
-# can't reach apt until it routes for them.
+# reach apt only through its Squid.
 - name: Studio network router
   hosts: studio_gw
   become: true
@@ -18,29 +18,18 @@
     - base
     - studio_gw
 
-# A studio guest's first boot can come before studio-gw routes and resolves for it. cloud-init's
-# apt update then fails ("Could not resolve 'deb.debian.org'", the Forge on 2026-10-25) but
-# leaves the cache looking fresh, so base's cache_valid_time skips the refresh. Refresh first.
-- name: Fresh apt lists on the studio network
+# Before base, whose first task installs packages: points apt at Squid and refreshes the lists.
+- name: Guests on the studio network (apt through Squid, time from studio-gw)
   hosts: studio_private
   become: true
-  tasks:
-    - name: Refresh apt lists
-      ansible.builtin.apt:
-        update_cache: true
-      changed_when: false
+  roles:
+    - studio_guest
 
 - name: Base setup on every Terraform-built guest
   hosts: lxc_guests:vm_guests
   become: true
   roles:
     - base
-
-- name: Guests on the studio network (time from studio-gw)
-  hosts: studio_private
-  become: true
-  roles:
-    - studio_guest
 
 # Before Docker, so Docker's unit already waits for the mounts when it first starts.
 - name: NFS mounts inside VM guests
@@ -49,9 +38,12 @@
   roles:
     - nfs_client
 
+# Guests on the studio network fetch Docker's key and packages through Squid; elsewhere this
+# is empty (studio_proxy_env is defined only for studio_private).
 - name: Docker hosts
   hosts: docker_hosts
   become: true
+  environment: "{{ studio_proxy_env | default({}) }}"
   roles:
     - docker
 

@@ -1,7 +1,7 @@
-# Managed by Ansible (role studio_gw). DNS for the studio network, as an allow-list: no
-# default upstream (no-resolv), so only the names below resolve; everything else is refused.
-# Each name's answers are added to its class's nft set, which is what the forward chain
-# lets that class reach.
+# Managed by Ansible (role studio_gw). DNS for the studio network: local names only.
+# No upstream at all (no-resolv, no server lines), so no outside name resolves here. Guests
+# reach the outside only through Squid, which resolves names itself; with no upstream, DNS
+# is not a way out either.
 interface={{ studio_gw_studio_if }}
 bind-interfaces
 listen-address={{ studio_gw_studio_ip }}
@@ -10,22 +10,12 @@ no-hosts
 no-poll
 domain-needed
 bogus-priv
-# No cache: every answer comes whole from the upstream resolver. On 2026-10-25 lookups of
-# developer.download.nvidia.com (a CNAME chain into Akamai, TTLs 789/144/20 s) failed from
-# the Forge for several minutes with "no address". Upstream logged 0 failures for the 53
-# queries forwarded, while dnsmasq answered 780 from its cache. The exact trigger was not
-# reproduced; with the cache off, a partial or stale cached chain can't be served at all.
-# The nft sets still fill from every reply.
 cache-size=0
 {% if studio_gw_log_queries %}
 log-queries
 {% endif %}
 
-{% for class, c in studio_gw_egress.items() %}
-# class {{ class }} ({{ c.sources | join(', ') }})
-{% for n in c.names %}
-server=/{{ n }}/{{ studio_gw_upstream_dns }}
-nftset=/{{ n }}/4#inet#studio_gw#egress_{{ class }}
-{% endfor %}
-
+local=/studio/
+{% for h in studio_gw_hosts %}
+host-record={{ h.name }}.studio,{{ h.ip }}
 {% endfor %}

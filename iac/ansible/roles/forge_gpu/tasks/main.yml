@@ -78,6 +78,7 @@
 # --- NVIDIA driver -----------------------------------------------------------------------
 
 - name: NVIDIA CUDA repository key (Debian 13)
+  environment: "{{ studio_proxy_env | default({}) }}"
   ansible.builtin.get_url:
     url: "{{ forge_gpu_cuda_repo }}/{{ forge_gpu_cuda_key }}"
     dest: /etc/apt/keyrings/nvidia-cuda.asc
@@ -160,6 +161,7 @@
 # --- Container toolkit ---------------------------------------------------------------------
 
 - name: NVIDIA container toolkit key
+  environment: "{{ studio_proxy_env | default({}) }}"
   ansible.builtin.get_url:
     url: https://nvidia.github.io/libnvidia-container/gpgkey
     dest: /etc/apt/keyrings/nvidia-container-toolkit.asc
@@ -202,6 +204,20 @@
     path: /etc/systemd/system/docker.service.d
     state: directory
     mode: "0755"
+
+# Image pulls go through Squid on studio-gw: the daemon is the only Docker process that
+# needs the outside. Containers don't get the proxy (play containers can't get out at all).
+- name: Docker pulls through Squid
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/http-proxy.conf
+    content: |
+      # Managed by Ansible (role forge_gpu).
+      [Service]
+      Environment="HTTP_PROXY={{ studio_proxy_url }}" "HTTPS_PROXY={{ studio_proxy_url }}" "NO_PROXY=localhost,127.0.0.1"
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart docker
 
 - name: Docker creates the NVIDIA device nodes before starting containers
   ansible.builtin.copy:

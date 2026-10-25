@@ -1,21 +1,14 @@
 #!/usr/sbin/nft -f
-# Managed by Ansible (role studio_gw). The studio network's policy: nothing on studio0 gets
-# out or in except through the rules below. Edit inventory/group_vars/studio_gw.yml, not this.
+# Managed by Ansible (role studio_gw). The studio network's policy. Nothing on studio0 is
+# forwarded out: guests reach the outside only through Squid on this host (HTTP(S) by name),
+# and only play streams are forwarded in (DNAT from Traefik). Edit
+# inventory/group_vars/studio_gw.yml, not this.
 flush ruleset
 
 define LAN = "{{ studio_gw_lan_if }}"
 define STUDIO = "{{ studio_gw_studio_if }}"
 
 table inet studio_gw {
-{% for class, c in studio_gw_egress.items() %}
-	# Addresses of the names class {{ class }} may reach, added by dnsmasq as it resolves them.
-	set egress_{{ class }} {
-		type ipv4_addr
-		flags timeout
-		timeout 1d
-	}
-
-{% endfor %}
 	chain input {
 		type filter hook input priority filter; policy drop;
 		ct state established,related accept
@@ -23,6 +16,7 @@ table inet studio_gw {
 		iif lo accept
 		meta l4proto icmp accept
 		iifname $LAN ip saddr {{ studio_gw_admin_net }} tcp dport 22 accept
+		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} tcp dport {{ studio_gw_proxy_port }} accept
 		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} meta l4proto { tcp, udp } th dport 53 accept
 		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} udp dport 123 accept
 	}
@@ -35,10 +29,6 @@ table inet studio_gw {
 		# {{ r.name }}: {{ r.from }} -> {{ studio_gw_lan_ip }}:{{ r.port }} -> {{ r.to_ip }}:{{ r.to_port }}
 		iifname $LAN oifname $STUDIO ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.to_port }} ct status dnat accept
 {% endfor %}
-{% for class, c in studio_gw_egress.items() %}
-		# {{ class }} out to its allow-listed names only
-		iifname $STUDIO oifname $LAN ip saddr { {{ c.sources | join(', ') }} } ip daddr @egress_{{ class }} tcp dport { {{ c.ports | join(', ') }} } accept
-{% endfor %}
 	}
 
 	chain prerouting {
@@ -46,10 +36,5 @@ table inet studio_gw {
 {% for r in studio_gw_ingress %}
 		iifname $LAN ip saddr {{ r.from }} ip daddr {{ studio_gw_lan_ip }} tcp dport {{ r.port }} dnat ip to {{ r.to_ip }}:{{ r.to_port }}
 {% endfor %}
-	}
-
-	chain postrouting {
-		type nat hook postrouting priority srcnat;
-		oifname $LAN ip saddr {{ studio_gw_studio_net }} masquerade
 	}
 }
