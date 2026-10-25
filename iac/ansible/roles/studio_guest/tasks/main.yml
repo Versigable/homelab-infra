@@ -1,4 +1,21 @@
 # Settings every guest on the studio network needs, because studio-gw is its only way out.
+# Runs before base: base's first task installs packages.
+
+- name: Apt goes through Squid on studio-gw
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/90studio-proxy
+    content: |
+      // Managed by Ansible (role studio_guest). The studio network's only way out.
+      Acquire::http::Proxy "{{ studio_proxy_url }}";
+      Acquire::https::Proxy "{{ studio_proxy_url }}";
+    mode: "0644"
+
+# cloud-init's first-boot apt update runs before this proxy exists and fails, but leaves the
+# cache looking fresh, so base's cache_valid_time would skip the refresh (2026-10-25).
+- name: Fresh apt lists
+  ansible.builtin.apt:
+    update_cache: true
+  changed_when: false
 
 - name: Timesyncd installed
   ansible.builtin.apt:
@@ -26,3 +43,25 @@
     name: systemd-timesyncd
     state: started
     enabled: true
+
+# Checks: allowed through Squid, refused by Squid, and nothing out without it.
+- name: An allowed name is reachable through Squid
+  ansible.builtin.command:
+    argv: [curl, -sS, -m, "15", -o, /dev/null, -w, "%{http_code}", -x, "{{ studio_proxy_url }}", "{{ studio_guest_check_allowed }}"]
+  register: studio_guest_check_ok
+  changed_when: false
+  failed_when: studio_guest_check_ok.rc != 0 or studio_guest_check_ok.stdout is not match('^[23]')
+
+- name: An unlisted name is refused by Squid
+  ansible.builtin.command:
+    argv: [curl, -sS, -m, "15", -o, /dev/null, -x, "{{ studio_proxy_url }}", "{{ studio_guest_check_refused }}"]
+  register: studio_guest_check_refused_result
+  changed_when: false
+  failed_when: studio_guest_check_refused_result.rc == 0
+
+- name: Nothing gets out without Squid
+  ansible.builtin.command:
+    argv: [curl, -sS, -m, "10", -o, /dev/null, --noproxy, "*", "{{ studio_guest_check_allowed }}"]
+  register: studio_guest_check_direct
+  changed_when: false
+  failed_when: studio_guest_check_direct.rc == 0

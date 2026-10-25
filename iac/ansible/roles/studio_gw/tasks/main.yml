@@ -1,5 +1,6 @@
 # The studio network's router. Holds no credentials and runs no app. Nothing on studio0
-# has another way out, so this host's nftables ruleset is the studio's network policy.
+# has another way out: the nftables ruleset forwards nothing outbound, Squid lets guests
+# reach listed hostnames over HTTP(S), dnsmasq answers local names only, chrony serves time.
 
 - name: The LAN and studio interfaces, found by address
   ansible.builtin.set_fact:
@@ -21,6 +22,8 @@
       - dnsmasq-base
       - chrony
       - dnsutils
+      - curl
+      - openssl
 
 - name: Config directories
   ansible.builtin.file:
@@ -29,8 +32,9 @@
     mode: "0755"
   loop:
     - /etc/dnsmasq.d
-    - /etc/systemd/system/dnsmasq.service.d
+    - /etc/squid
 
+# Forwarding stays on for the inbound play streams (DNAT); nothing is forwarded outbound.
 - name: Forward IPv4
   ansible.posix.sysctl:
     name: net.ipv4.ip_forward
@@ -53,9 +57,10 @@
     state: started
     enabled: true
 
-# Load the ruleset now, so the nft sets exist before dnsmasq starts and refers to them.
-- name: Ruleset active before dnsmasq
+- name: Ruleset active before the services
   ansible.builtin.meta: flush_handlers
+
+# --- dnsmasq: local names only ---------------------------------------------------------------
 
 - name: Keep dnsmasq off the gateway's own resolver
   ansible.builtin.copy:
@@ -69,7 +74,7 @@
     mode: "0644"
   notify: Restart dnsmasq
 
-- name: The dnsmasq allow-list
+- name: The dnsmasq config
   ansible.builtin.template:
     src: dnsmasq-studio.conf.j2
     dest: /etc/dnsmasq.d/studio.conf
@@ -77,14 +82,11 @@
     validate: dnsmasq --test --conf-file=%s
   notify: Restart dnsmasq
 
-- name: Start dnsmasq after nftables (it fills the ruleset's sets)
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/dnsmasq.service.d/after-nftables.conf
-    content: |
-      [Unit]
-      After=nftables.service
-      Requires=nftables.service
-    mode: "0644"
+# dnsmasq used to fill nft sets; with Squid it no longer depends on the ruleset.
+- name: No nftables drop-in for dnsmasq
+  ansible.builtin.file:
+    path: /etc/systemd/system/dnsmasq.service.d/after-nftables.conf
+    state: absent
   notify:
     - Reload systemd
     - Restart dnsmasq
@@ -93,8 +95,54 @@
   ansible.builtin.apt:
     name: dnsmasq
 
-- name: Restart dnsmasq with its drop-in and allow-list
-  ansible.builtin.meta: flush_handlers
+# --- Squid: the way out, by hostname ---------------------------------------------------------
+
+# Squid's ssl-bump port needs a certificate even though it only peeks and splices. A client
+# sees it only on a refused HTTPS request (Squid's error page), and rejects it.
+- name: Squid's splice-only certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - rsa:2048
+      - -nodes
+      - -days
+      - "3650"
+      - -subj
+      - /CN=studio-gw squid (error pages only)
+      - -keyout
+      - /etc/squid/bump.key
+      - -out
+      - /etc/squid/bump.crt
+    creates: /etc/squid/bump.crt
+
+- name: Squid can read its key (group proxy is in Debian's base system)
+  ansible.builtin.file:
+    path: /etc/squid/bump.key
+    owner: root
+    group: proxy
+    mode: "0640"
+
+# Written before the package first starts Squid: its default config listens on every
+# interface and allows the whole 10/8 as "localnet".
+- name: The Squid config
+  ansible.builtin.template:
+    src: squid.conf.j2
+    dest: /etc/squid/squid.conf
+    mode: "0644"
+  notify: Restart squid
+
+- name: Squid (OpenSSL build, for peeking at TLS SNI)
+  ansible.builtin.apt:
+    name: squid-openssl
+
+- name: The Squid config parses
+  ansible.builtin.command: squid -k parse -f /etc/squid/squid.conf
+  changed_when: false
+
+# --- chrony -----------------------------------------------------------------------------------
 
 - name: Chrony serves time to the studio network
   ansible.builtin.copy:
@@ -110,22 +158,44 @@
     name: "{{ item }}"
     state: started
     enabled: true
-  loop: [dnsmasq, chrony]
+  loop: [dnsmasq, squid, chrony]
 
 - name: Apply changes before the checks
   ansible.builtin.meta: flush_handlers
 
-# Checks: an allow-listed name resolves (and lands in its class's set), an unlisted one doesn't.
-- name: An allow-listed name resolves
-  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} {{ (studio_gw_egress | dict2items | first).value.names | first }} A"
-  register: studio_gw_dig_allowed
-  changed_when: false
-  failed_when: studio_gw_dig_allowed.stdout | trim | length == 0
-  when: studio_gw_egress | length > 0
+# --- Checks -----------------------------------------------------------------------------------
 
-- name: An unlisted name doesn't
-  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} example.org A"
-  register: studio_gw_dig_blocked
+# Local addresses (column 4) of the sockets listening on the proxy port: exactly one, ours.
+- name: Squid listens on the studio side only
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && ss -ltnH 'sport = :{{ studio_gw_proxy_port }}' | awk '{print $4}' | sort -u"
+    executable: /bin/bash
+  register: studio_gw_squid_listen
   changed_when: false
-  # regex_search returns the match or None; ansible-core 2.19 wants a boolean.
-  failed_when: (studio_gw_dig_blocked.stdout | trim | regex_search('^[0-9.]+$', multiline=True)) is not none
+  failed_when: studio_gw_squid_listen.stdout_lines != [studio_gw_studio_ip ~ ':' ~ studio_gw_proxy_port]
+
+- name: No outside name resolves on the studio network
+  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} deb.debian.org A"
+  register: studio_gw_dig_outside
+  changed_when: false
+  failed_when: (studio_gw_dig_outside.stdout | trim | regex_search('^[0-9.]+$', multiline=True)) is not none
+
+- name: Local names resolve
+  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} {{ item.name }}.studio A"
+  register: studio_gw_dig_local
+  changed_when: false
+  failed_when: studio_gw_dig_local.stdout | trim != item.ip
+  loop: "{{ studio_gw_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# The gateway is in no class, so its own request through Squid must be refused: the proxy
+# isn't open. Guests check their own allowed and refused names (role studio_guest).
+# curl, not uri: the check is exactly what a client does through an explicit proxy.
+- name: Squid refuses a source in no class  # noqa: command-instead-of-module
+  ansible.builtin.command: >-
+    curl -sS -m 10 -o /dev/null -x http://{{ studio_gw_studio_ip }}:{{ studio_gw_proxy_port }}
+    https://deb.debian.org/
+  register: studio_gw_squid_refused
+  changed_when: false
+  failed_when: studio_gw_squid_refused.rc == 0

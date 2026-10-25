@@ -1,0 +1,54 @@
+# Managed by Ansible (role studio_gw). Edit inventory/group_vars/studio_gw.yml, not this.
+#
+# The studio network's only way out: HTTP and HTTPS by exact hostname, per class of guest
+# (studio_gw_egress). Nothing is cached, and no connection to a real site is decrypted. For
+# HTTPS, Squid checks the CONNECT hostname, then peeks at the TLS ClientHello and splices the
+# connection through only if its SNI is on the same list; anything else is cut. So a tunnel
+# opened to an allowed name can't be pointed at another site that shares its CDN address.
+# A refused HTTPS request gets Squid's error page over TLS with its own self-signed
+# certificate, which clients reject; no server connection is made. Every request is a line
+# in /var/log/squid/access.log.
+# Tested 2026-10-25 against Debian 13's squid-openssl 6.13: allowed name 200 (HTTPS and
+# HTTP), unlisted name refused, SNI matching the list spliced, SNI swapped inside a tunnel
+# to an allowed name cut.
+
+http_port {{ studio_gw_studio_ip }}:{{ studio_gw_proxy_port }} ssl-bump tls-cert=/etc/squid/bump.crt tls-key=/etc/squid/bump.key generate-host-certificates=off
+
+acl CONNECT method CONNECT
+acl step1 at_step SslBump1
+
+{% for class, c in studio_gw_egress.items() %}
+# class {{ class }}: {{ c.sources | join(', ') }}
+acl src_{{ class }} src {{ c.sources | join(' ') }}
+acl port_{{ class }} port {{ c.ports | join(' ') }}
+# -n: match the name as given; never reverse-resolve an IP to make it match.
+acl dst_{{ class }} dstdomain -n {{ c.names | join(' ') }}
+acl sni_{{ class }} ssl::server_name {{ c.names | join(' ') }}
+
+{% endfor %}
+# CONNECT only to 443; plain HTTP only to 80.
+acl https_port port 443
+acl http_port_80 port 80
+http_access deny CONNECT !https_port
+http_access deny !CONNECT !http_port_80
+{% for class in studio_gw_egress %}
+http_access allow src_{{ class }} dst_{{ class }} port_{{ class }}
+{% endfor %}
+http_access deny all
+
+ssl_bump peek step1
+{% for class in studio_gw_egress %}
+ssl_bump splice src_{{ class }} sni_{{ class }}
+{% endfor %}
+ssl_bump terminate all
+
+# A filter, not a cache.
+cache deny all
+cache_mem 8 MB
+forwarded_for delete
+httpd_suppress_version_string on
+dns_nameservers {{ studio_gw_upstream_dns }}
+access_log daemon:/var/log/squid/access.log squid
+cache_log /var/log/squid/cache.log
+coredump_dir /var/spool/squid
+shutdown_lifetime 3 seconds

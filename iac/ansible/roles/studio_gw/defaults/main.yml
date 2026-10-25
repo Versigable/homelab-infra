@@ -4,15 +4,15 @@
 studio_gw_lan_ip: 10.0.1.150
 studio_gw_studio_ip: 10.77.0.1
 studio_gw_studio_net: 10.77.0.0/24
-# Resolver for the allow-listed names.
+# Squid on the studio side; guests use it as their HTTP(S) proxy (group_vars/studio_private.yml).
+studio_gw_proxy_port: 3128
+# Squid's resolver.
 studio_gw_upstream_dns: 10.0.1.1
 # SSH to the gateway itself (operators and Ansible; WARP arrives from inside 10.0.0.0/16).
 studio_gw_admin_net: 10.0.0.0/16
 
-# Outbound, per class of studio guest: who (sources), which ports, and the only names they
-# may resolve. dnsmasq adds the addresses it resolves for a class's names to that class's
-# nft set, and the forward chain lets the class reach only those addresses. A name nobody
-# lists doesn't resolve at all.
+# Outbound, per class of studio guest: who (sources), which ports (443 for HTTPS, 80 for
+# HTTP), and the exact hostnames they may reach through Squid. Nothing else gets out.
 #   forge: {sources: [10.77.0.10], ports: [80, 443], names: [deb.debian.org, ...]}
 studio_gw_egress: {}
 
@@ -20,5 +20,9 @@ studio_gw_egress: {}
 #   - {name: forge-play, from: 10.0.2.5, port: 3000, to_ip: 10.77.0.10, to_port: 3000}
 studio_gw_ingress: []
 
-# Log every DNS query to the journal (finding a name a build needs).
+# Local names dnsmasq answers, as <name>.studio:
+#   - {name: studio-forge, ip: 10.77.0.10}
+studio_gw_hosts: []
+
+# Log every DNS query to the journal.
 studio_gw_log_queries: false

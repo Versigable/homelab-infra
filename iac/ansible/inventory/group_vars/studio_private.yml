@@ -6,5 +6,21 @@ ansible_ssh_common_args: >-
   -o ProxyCommand="ssh -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=accept-new
   -o UserKnownHostsFile=~/.ssh/known_hosts_iac -W %h:%p {{ studio_gw_jump }}"
 
-# Time comes from studio-gw (role studio_guest); there is no other way out.
+# Time comes from studio-gw (role studio_guest).
 studio_guest_ntp: 10.77.0.1
+
+# The only way out is Squid on studio-gw, by hostname (role studio_gw). apt is pointed at it
+# by role studio_guest; other tools get it explicitly (Docker's daemon, image builds, the
+# few download tasks), never as an ambient default.
+studio_proxy_url: http://10.77.0.1:3128
+studio_proxy_env:
+  http_proxy: "{{ studio_proxy_url }}"
+  https_proxy: "{{ studio_proxy_url }}"
+  HTTP_PROXY: "{{ studio_proxy_url }}"
+  HTTPS_PROXY: "{{ studio_proxy_url }}"
+  no_proxy: localhost,127.0.0.1,10.77.0.1,10.77.0.10,.studio
+  NO_PROXY: localhost,127.0.0.1,10.77.0.1,10.77.0.10,.studio
+
+# Checks in studio_guest: a name every class may reach, and one none may.
+studio_guest_check_allowed: https://deb.debian.org/debian/
+studio_guest_check_refused: https://example.org/
