@@ -26,10 +26,20 @@ studio_gw_egress:
       # OS packages and security updates; its services (step 2b) add their own
       - deb.debian.org
       - security.debian.org
-  # Every person's cell (role studio_cell). Exact names, seeded from the vendors' docs, plus
-  # anything a tool turns out to need from Squid's access log (TCP_DENIED). The one exception
-  # is Unity: its CLI, Editor and licensing reach many hosts under its own two domains, so
-  # those are allowed whole (a leading dot matches the domain and every name under it).
+  # Every person's cell (role studio_cell): one class per proxy port, and the cell's own
+  # firewall pins each local user to its port (studio_cell_user_proxy_ports), so egress is
+  # per user, not per VM. Exact names, seeded from the vendors' docs, plus anything a tool
+  # turns out to need from Squid's access log (TCP_DENIED). The one exception is Unity: its
+  # CLI, Editor and licensing reach many hosts under its own two domains, so those are
+  # allowed whole (MetaVersig, 2026-10-25; a leading dot matches the domain and every name
+  # under it). Seen there so far: the CLI's apt repository (hub, hub-dist.unity3d.com),
+  # Editor downloads (services.api.unity.com, download.unity3d.com, cloudmedia-docs for the
+  # documentation module), sign-in (api.unity.com, core.cloud.unity3d.com) and the licensing
+  # client the CLI fetches on first activation (public-stevedore.unity3d.com).
+  # Refused on purpose: api2.amplitude.com, the Unity CLI's analytics (not a Unity domain).
+  #
+  # :3128, root and the owner's shell: packages, GitLab for studio-agentd, Unity for the
+  # IaC's installs of the CLI and Editor.
   cells:
     sources: [10.77.0.60]
     ports: [80, 443]
@@ -37,23 +47,35 @@ studio_gw_egress:
       # OS packages and security updates
       - deb.debian.org
       - security.debian.org
-      # Claude Code: its apt repository, the API, and the person's sign-in
+      # Claude Code's apt repository
       - downloads.claude.ai
+      # GitLab, the way the internet reaches it (studio-agentd, as the person's agent account)
+      - gitlab.ninjaprivacy.org
+      - .unity3d.com
+      - .unity.com
+  # :3129, the user agent (jobs, and sessions the owner pairs in): the AI vendors only.
+  cells_agent:
+    proxy_port: 3129
+    sources: [10.77.0.60]
+    ports: [443]
+    names:
+      # Anthropic: the API and the person's Claude sign-in
       - api.anthropic.com
       - claude.ai
       - platform.claude.com
-      # Codex: the API and the person's ChatGPT sign-in (the binary comes from the control node)
+      # OpenAI: the API, the ChatGPT sign-in, and Codex's ChatGPT backend (chatgpt.com)
       - api.openai.com
       - auth.openai.com
       - chatgpt.com
-      # Unity, whole (MetaVersig, 2026-10-25). Seen so far: the CLI's apt repository
-      # (hub, hub-dist.unity3d.com), Editor releases and downloads (services.api.unity.com,
-      # download.unity3d.com, cloudmedia-docs.unity3d.com for the documentation module),
-      # sign-in (api.unity.com, core.cloud.unity3d.com) and the licensing client the CLI
-      # fetches on first activation (public-stevedore.unity3d.com).
+  # :3130, the user unity (the CLI, the Editor and the game code it runs, the licensing
+  # client, the package manager): Unity only.
+  cells_unity:
+    proxy_port: 3130
+    sources: [10.77.0.60]
+    ports: [80, 443]
+    names:
       - .unity3d.com
       - .unity.com
-      # Refused on purpose: api2.amplitude.com, the Unity CLI's analytics (not a Unity domain).
 
 # Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
 studio_gw_ingress:

@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role studio_cell). Egress per user on a studio cell.
+#
+# The studio network's only way out is Squid on studio-gw. Squid tells a cell's users apart
+# by the port they reach it on, and this ruleset makes sure each user listed in
+# studio_cell_user_proxy_ports reaches only its own port: agent only the AI vendors' class,
+# unity only Unity's. Their other traffic is refused at once (TCP reset), not left to time
+# out. Everyone else, root and the owner included, is unrestricted here and meets Squid's
+# default class. This host has no Docker or other rule owner, so the whole ruleset is ours.
+flush ruleset
+
+table inet studio_cell {
+	chain output {
+		type filter hook output priority filter; policy accept;
+{% for user, port in studio_cell_user_proxy_ports | dictsort %}
+		meta skuid "{{ user }}" jump only_{{ user }}
+{% endfor %}
+	}
+{% for user, port in studio_cell_user_proxy_ports | dictsort %}
+
+	# {{ user }}: Squid's :{{ port }} on studio-gw and the local DNS stub{{ ', and loopback' if user in studio_cell_loopback_users else '' }}; nothing else.
+	chain only_{{ user }} {
+		ct state established,related accept
+		ip daddr {{ studio_cell_proxy_host }} tcp dport {{ port }} accept
+		oif "lo" meta l4proto { tcp, udp } th dport 53 accept
+{% if user in studio_cell_loopback_users %}
+		oif "lo" accept
+{% endif %}
+		meta l4proto tcp counter reject with tcp reset
+		counter reject with icmpx admin-prohibited
+	}
+{% endfor %}
+}

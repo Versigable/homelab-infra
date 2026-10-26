@@ -82,7 +82,7 @@
               '--download-directory', studio_cell_unity_editor_dir ~ '.partial',
               '--no-child-modules', '--non-interactive', '--format', 'json',
               '--module'] + studio_cell_unity_modules }}
-      environment: "{{ studio_proxy_env | combine(studio_cell_unity_env) }}"
+      environment: "{{ studio_proxy_env | combine(studio_cell_unity_env, {'UNITY_PROXY': studio_proxy_url}) }}"
       async: 7200
       poll: 30
       changed_when: true
@@ -161,7 +161,7 @@
   ansible.builtin.command: unity editors --installed --format json
   become: true
   become_user: unity
-  environment: "{{ studio_cell_unity_env }}"
+  environment: "{{ studio_cell_unity_user_env }}"
   register: studio_cell_unity_known
   changed_when: false
 
@@ -170,7 +170,7 @@
     argv: [unity, editors, add, "{{ studio_cell_unity_editor_dir }}/Editor/Unity", --non-interactive]
   become: true
   become_user: unity
-  environment: "{{ studio_cell_unity_env }}"
+  environment: "{{ studio_cell_unity_user_env }}"
   when: studio_cell_unity_editor_dir not in studio_cell_unity_known.stdout | default('')
   changed_when: true
 
@@ -178,7 +178,7 @@
   ansible.builtin.command: unity editors --installed --format json
   become: true
   become_user: unity
-  environment: "{{ studio_cell_unity_env }}"
+  environment: "{{ studio_cell_unity_user_env }}"
   register: studio_cell_unity_listed
   changed_when: false
   failed_when: >-

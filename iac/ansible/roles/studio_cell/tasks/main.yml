@@ -3,10 +3,13 @@
 #   <owner>  the person: logs in through studio-gw's jump account, and may act as agent and
 #            unity (sudo -iu) to sign in, but has no root here (root belongs to the IaC and,
 #            from step 2c-2, to studio-agentd and the Unity broker)
-#   agent    runs Claude Code and Codex; holds the person's AI sign-ins and nothing else
-#   unity    runs the Unity CLI and Editor; holds the person's Unity sign-in and licence
+#   agent    runs Claude Code and Codex; holds the person's AI sign-ins and nothing else;
+#            reaches only the AI vendors
+#   unity    runs the Unity CLI and Editor; holds the person's Unity sign-in and licence;
+#            reaches only Unity
 # Separate users so game code running in the editor can't read the AI sign-ins, and an agent
-# can't read the Unity licence (design: engine-and-agent-runtime §2).
+# can't read the Unity licence (design: engine-and-agent-runtime §2). Egress is per user too
+# (egress.yml), so a job can reach GitLab, Unity and the editor only through the daemons.
 
 - name: Machine identity
   ansible.builtin.import_tasks: identity.yml
@@ -18,6 +21,9 @@
 - name: Users and the owner's login
   ansible.builtin.import_tasks: users.yml
 
+- name: Egress per user
+  ansible.builtin.import_tasks: egress.yml
+
 - name: Claude Code
   ansible.builtin.import_tasks: claude.yml
 
@@ -26,3 +32,9 @@
 
 - name: Unity CLI and Editor
   ansible.builtin.import_tasks: unity.yml
+
+- name: What the studio runtime stands on
+  ansible.builtin.import_tasks: studio.yml
+
+- name: Checks
+  ansible.builtin.import_tasks: checks.yml

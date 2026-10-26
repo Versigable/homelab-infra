@@ -17,7 +17,7 @@ table inet studio_gw {
 		iif lo accept
 		meta l4proto icmp accept
 		iifname $LAN ip saddr {{ studio_gw_admin_net }} tcp dport 22 accept
-		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} tcp dport {{ studio_gw_proxy_port }} accept
+		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} tcp dport { {{ studio_gw_proxy_ports | join(', ') }} } accept
 		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} meta l4proto { tcp, udp } th dport 53 accept
 		iifname $STUDIO ip saddr {{ studio_gw_studio_net }} udp dport 123 accept
 	}
