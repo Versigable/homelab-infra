@@ -279,6 +279,21 @@ if ! grep -q '^MemStickSize' "$INI" 2>/dev/null; then
   echo "[seed-emulators] set PPSSPP MemStickSize = 1"
 fi
 
+# RetroArch's controller profiles and menu assets. The broker's retroarch.cfg points
+# joypad_autoconfig_dir at ~/.config/retroarch/autoconfig, but nothing fills it on a
+# fresh /config. Without the profiles RetroArch shows "Microsoft X-Box 360 pad (0/0)
+# not configured" for Selkies' virtual pads and ignores them (found 2026-10-25 on the
+# Forge and on jf's instances 2 and 3; instance 1 had them from its first setup). The
+# image ships both under /usr/share/libretro: copy whatever is missing, as abc.
+for ra_dir in autoconfig assets; do
+  [[ -d "/usr/share/libretro/$ra_dir" ]] || continue
+  if [[ -z "$(ls -A "/config/.config/retroarch/$ra_dir" 2>/dev/null)" ]]; then
+    mkdir_abc "/config/.config/retroarch/$ra_dir"
+    s6-setuidgid abc cp -r --update=none "/usr/share/libretro/$ra_dir/." "/config/.config/retroarch/$ra_dir/" \
+      && echo "[seed-emulators] seeded RetroArch $ra_dir from the image"
+  fi
+done
+
 # Selkies page scripts, loaded from index.html ahead of the client's own bundle. The
 # web root sits in the container layer, so this runs on every start.
 # - gamepad-shim.js: Chrome gives some controllers no standard layout, and for those
