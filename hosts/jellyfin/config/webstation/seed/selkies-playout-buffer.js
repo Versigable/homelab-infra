@@ -17,9 +17,12 @@
  * to the target instead of letting latency pile up. At most 6 decoded frames are held,
  * because hardware decoders have small frame pools.
  *
- * The default, 25 ms, was chosen on 2026-10-25 from live tests on the Forge's webstation
- * (Brave, over Cloudflare): 17 ms helped, 25 ms smoothed the rest. Offline, against a
- * 10-12-like arrival profile: one-frame hitches 38 -> 1 per 20 s at 25 ms (8 at 17 ms).
+ * The default is 50 ms. On 2026-10-25, 25 ms smoothed MetaVersig's own wired stream, but a
+ * co-op friend on weak Wi-Fi still stuttered, and the keyframes his losses triggered (one
+ * encoder serves every player in a session) reached everyone else as bursts. Offline, on a
+ * harsh arrival profile (25-60 ms stalls every 0.4 s), one-frame hitches per 20 s were 49 as
+ * they arrived, 31 at 25 ms and 1 at 50 ms; on a 10-12-like profile, 38 -> 0. Raised to 50 ms
+ * for everyone at MetaVersig's call.
  *
  * Costs about homelab.playoutMs of latency. The stats panel's decode time includes it.
  * Covers the worker path only: Firefox, and Chromium with selkies-video-sink.js (the
@@ -29,12 +32,12 @@
  * picker: the Selkies frame, not "top") and reload:
  *   localStorage.setItem("homelab.playoutMs", "33")   // two frames at 60 fps
  *   localStorage.setItem("homelab.playoutMs", "0")    // off: draw frames as they arrive
- *   localStorage.removeItem("homelab.playoutMs")      // back to the default (25 ms)
+ *   localStorage.removeItem("homelab.playoutMs")      // back to the default (50 ms)
  * The client logs "[playout] ..." in the stream frame's console when it applies.
  */
 (() => {
   "use strict";
-  const DEFAULT_MS = 25;
+  const DEFAULT_MS = 50;
   const SIGNATURE = "Video sink and optional in-worker decoder";
   let ms = DEFAULT_MS;
   try {
