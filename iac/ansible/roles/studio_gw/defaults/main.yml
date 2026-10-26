@@ -12,9 +12,18 @@ studio_gw_upstream_dns: 10.0.1.1
 studio_gw_admin_net: 10.0.0.0/16
 
 # Outbound, per class of studio guest: who (sources), which ports (443 for HTTPS, 80 for
-# HTTP), and the exact hostnames they may reach through Squid. Nothing else gets out.
+# HTTP), and the hostnames they may reach through Squid (a leading dot: the domain and every
+# name under it). Nothing else gets out. A class may have its own proxy_port, so that one
+# guest can give each local user its own list (role studio_cell pins users to ports).
 #   forge: {sources: [10.77.0.10], ports: [80, 443], names: [deb.debian.org, ...]}
+#   cells_agent: {proxy_port: 3129, sources: [10.77.0.60], ports: [443], names: [...]}
 studio_gw_egress: {}
+
+# Every port Squid listens on: the default, plus each class's own.
+studio_gw_proxy_ports: >-
+  {{ ([studio_gw_proxy_port | int]
+      + (studio_gw_egress.values() | selectattr('proxy_port', 'defined') | map(attribute='proxy_port') | map('int') | list))
+     | unique | sort }}
 
 # Inbound from the LAN, by DNAT on the gateway's LAN address:
 #   - {name: forge-play, from: 10.0.2.5, port: 3000, to_ip: 10.77.0.10, to_port: 3000}

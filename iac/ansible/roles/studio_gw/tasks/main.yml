@@ -194,14 +194,15 @@
 
 # --- Checks -----------------------------------------------------------------------------------
 
-# Local addresses (column 4) of the sockets listening on the proxy port: exactly one, ours.
+# Local addresses (column 4) of the sockets listening on each proxy port: exactly one, ours.
 - name: Squid listens on the studio side only
   ansible.builtin.shell:
-    cmd: "set -o pipefail && ss -ltnH 'sport = :{{ studio_gw_proxy_port }}' | awk '{print $4}' | sort -u"
+    cmd: "set -o pipefail && ss -ltnH 'sport = :{{ item }}' | awk '{print $4}' | sort -u"
     executable: /bin/bash
   register: studio_gw_squid_listen
   changed_when: false
-  failed_when: studio_gw_squid_listen.stdout_lines != [studio_gw_studio_ip ~ ':' ~ studio_gw_proxy_port]
+  failed_when: studio_gw_squid_listen.stdout_lines != [studio_gw_studio_ip ~ ':' ~ item]
+  loop: "{{ studio_gw_proxy_ports }}"
 
 - name: No outside name resolves on the studio network
   ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} deb.debian.org A"

@@ -1,0 +1,79 @@
+# What the studio's runtime (step 2c-2: studio-unityd, studio-agentd, the studio CLI) stands
+# on: the shared work group, its directories, the agent account's GitLab token, and Git set
+# up for Unity projects.
+
+- name: Work group shared by agent and unity
+  ansible.builtin.group:
+    name: "{{ studio_cell_work_group }}"
+
+- name: Agent and unity are in the work group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ studio_cell_work_group }}"
+    append: true
+  loop: [agent, unity]
+
+# /etc/studio: config and the GitLab token (root only). /srv/studio: games' mirrors, job
+# worktrees and gate checkouts. /var/lib/studio: the daemons' journal and ledgers.
+- name: Studio directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /etc/studio, mode: "0755"}
+    - {path: /srv/studio, mode: "0755"}
+    - {path: /var/lib/studio, mode: "0700"}
+
+- name: The agent account's GitLab token
+  ansible.builtin.copy:
+    dest: /etc/studio/gitlab-token
+    content: "{{ studio_cell_gitlab_token | trim }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: studio_cell_gitlab_token | trim | length > 0
+
+- name: Is there a GitLab token on the cell
+  ansible.builtin.stat:
+    path: /etc/studio/gitlab-token
+  register: studio_cell_token_file
+
+# Through Squid's default class, as studio-agentd will. Prints only the account's name.
+- name: The token is the agent account's
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      curl -sS -m 20 -x {{ studio_proxy_url }}
+      -H "PRIVATE-TOKEN: $(cat /etc/studio/gitlab-token)"
+      {{ studio_cell_gitlab_url }}/api/v4/user
+      | python3 -c 'import json, sys; print(json.load(sys.stdin).get("username", ""))'
+    executable: /bin/bash
+  register: studio_cell_token_user
+  changed_when: false
+  failed_when: studio_cell_token_user.stdout | trim != studio_cell_gitlab_agent
+  when: studio_cell_token_file.stat.exists and not ansible_check_mode
+
+- name: No GitLab token yet
+  ansible.builtin.debug:
+    msg: >-
+      /etc/studio/gitlab-token is missing: set GITLAB_TOKEN_STUDIO_AGENT_{{ studio_cell_owner | upper | replace('-', '_') }}
+      in the control node's secrets env file (iac.sh exports it) and run again.
+  when: not studio_cell_token_file.stat.exists
+
+# Git LFS registered itself in /etc/gitconfig when its package was installed. Scenes,
+# prefabs and .meta files merge with Unity's own YAML merge tool (a game's .gitattributes
+# names the driver).
+- name: Git merges Unity YAML with UnityYAMLMerge
+  ansible.builtin.blockinfile:
+    path: /etc/gitconfig
+    marker: "# {mark} studio_cell: UnityYAMLMerge"
+    block: |
+      [merge "unityyamlmerge"]
+        name = Unity SmartMerge (UnityYAMLMerge)
+        driver = {{ studio_cell_unity_editor_dir }}/Editor/Data/Tools/UnityYAMLMerge merge -p %O %B %A %A
+        recursive = binary
+    mode: "0644"

@@ -2,12 +2,14 @@
 # host_vars/<cell>.yml.
 
 # Packages every cell needs: Git (with LFS, for game assets), a virtual display for Editor
-# runs that want one, and the libraries the Linux Editor loads. ICU is for Unity's licensing
-# client, a .NET program that stops at start without it ("Couldn't find a valid ICU
-# package"), which the CLI reports as "Can't reach the Unity licensing client".
+# runs that want one, the libraries the Linux Editor loads, and nftables for egress per user.
+# ICU is for Unity's licensing client, a .NET program that stops at start without it
+# ("Couldn't find a valid ICU package"), which the CLI reports as "Can't reach the Unity
+# licensing client".
 studio_cell_packages:
   - git
   - git-lfs
+  - nftables
   - unzip
   - xvfb
   - libicu76
@@ -24,19 +26,51 @@ studio_cell_packages:
   - libxss1
   - libxtst6
 
+# Egress per user. Each user listed here reaches the outside only through its own Squid port
+# on studio-gw, whose class lists what that user may reach (cells_agent and cells_unity in
+# group_vars/studio_gw.yml): agent only the AI vendors, unity only Unity. Everyone else, root
+# and the owner included, uses the default port (class cells). The cell's nftables enforces
+# it (templates/nftables.conf.j2).
+studio_cell_user_proxy_ports:
+  agent: 3129
+  unity: 3130
+# Users that keep loopback TCP. The Editor talks to its licensing client, its build workers
+# and the Pipeline bridge over loopback. agent doesn't get it, so it can't reach an editor's
+# command port except through the broker's verbs.
+studio_cell_loopback_users: [unity]
+studio_cell_proxy_host: "{{ studio_proxy_url | urlsplit('hostname') }}"
+
+# Group shared by agent and unity for job worktrees: agents edit the code, the editor writes
+# Library/ and the scenes and prefabs the kit generates.
+studio_cell_work_group: studio-work
+
+# The person's agent account on GitLab, reached the way the internet does. Its token comes
+# from the control node's environment (iac.sh exports GITLAB_TOKEN_STUDIO_AGENT_<OWNER> from
+# the secrets env file); without it, the cell's copy is left as it is.
+studio_cell_gitlab_url: https://gitlab.ninjaprivacy.org
+studio_cell_gitlab_agent: "agent-{{ studio_cell_owner }}"
+studio_cell_gitlab_token: >-
+  {{ lookup('ansible.builtin.env', 'GITLAB_TOKEN_STUDIO_AGENT_' ~ (studio_cell_owner | upper | replace('-', '_'))) }}
+
 # Where the control node keeps the Codex archive it checks before copying it to cells.
 studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-iac/studio-cell"
 
 # The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
 studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
 
-# The Unity CLI's settings for every run on a cell (the IaC's and the person's): through
-# Squid, no self-update checks (apt updates it), no crash reports, no first-run analytics
-# prompt, no pager or banner in agents' output.
+# The Unity CLI's settings for every run on a cell (the IaC's and the person's): no
+# self-update checks (apt updates it), no crash reports, no first-run analytics prompt, no
+# pager or banner in agents' output. The proxy depends on who runs it (below).
 studio_cell_unity_env:
-  UNITY_PROXY: "{{ studio_proxy_url }}"
   UNITY_NO_UPDATE_CHECK: "1"
   UNITY_NO_CRASH_REPORT: "1"
   UNITY_NO_CONSENT_PROMPT: "1"
   UNITY_NO_BANNER: "1"
   UNITY_NO_PAGER: "1"
+# For tasks run as the user unity: its own Squid port.
+studio_cell_unity_proxy_url: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.unity }}"
+studio_cell_unity_user_env: >-
+  {{ studio_cell_unity_env | combine({
+       'UNITY_PROXY': studio_cell_unity_proxy_url,
+       'http_proxy': studio_cell_unity_proxy_url, 'https_proxy': studio_cell_unity_proxy_url,
+       'HTTP_PROXY': studio_cell_unity_proxy_url, 'HTTPS_PROXY': studio_cell_unity_proxy_url}) }}
