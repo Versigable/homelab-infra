@@ -47,10 +47,11 @@ studio_gw_egress:
       # Unity CLI apt repository (it redirects to the second name)
       - hub.unity3d.com
       - hub-dist.unity3d.com
-      # Unity Editor releases and downloads
+      # Unity Editor releases and downloads; the documentation module comes from cloudmedia-docs
       - services.api.unity.com
       - download.unity3d.com
       - download.unity.com
+      - cloudmedia-docs.unity3d.com
       # Unity sign-in and licensing (the person's, as the user unity)
       - api.unity.com
       - core.cloud.unity3d.com
@@ -61,6 +62,9 @@ studio_gw_egress:
       # Unity packages (the Editor's package manager)
       - packages.unity.com
       - download.packages.unity.com
+      # Refused on purpose, seen in the first install (2026-10-25), which needed neither:
+      # api2.amplitude.com (the CLI's analytics) and live-platform-api.prd.ld.unity3d.com
+      # (Unity's feature-flag service).
 
 # Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
 studio_gw_ingress:
