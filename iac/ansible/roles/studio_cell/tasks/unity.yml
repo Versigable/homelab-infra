@@ -54,9 +54,10 @@
     path: "{{ studio_cell_unity_editor_dir }}/Editor/Unity"
   register: studio_cell_unity_editor
 
-# Installed by root with -d (into a folder, without registering it anywhere), so the Editor
-# is read-only to the user unity and to the game code it runs. Into a .partial folder first,
-# moved into place only once complete, so an interrupted install is simply redone.
+# Installed as root with -d (into a folder, without registering it anywhere) and owned by
+# root (below), so the Editor is read-only to the user unity and to the game code it runs.
+# Into a .partial folder first, moved into place only once complete, so an interrupted
+# install is simply redone.
 #
 # Check mode can't predict an install, so it skips this block.
 - name: Install the pinned Editor
@@ -116,6 +117,44 @@
       ansible.builtin.file:
         path: "{{ studio_cell_unity_editor_dir }}.partial"
         state: absent
+
+# Even run as root, the CLI left the Editor owned by ansible:ansible, the account that ran
+# sudo (first install, 2026-10-25). Checked every run, and fixed if anything isn't root's or
+# is writable by group or others.
+- name: Anything in the Editor not root's, or writable by group or others
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ studio_cell_unity_editor_dir }}"
+      - "("
+      - "!"
+      - -user
+      - root
+      - -o
+      - "!"
+      - -group
+      - root
+      - -o
+      - -perm
+      - /go+w
+      - ")"
+      - "!"
+      - -type
+      - l
+      - -print
+      - -quit
+  register: studio_cell_unity_drift
+  changed_when: false
+  check_mode: false
+  when: studio_cell_unity_editor.stat.exists or not ansible_check_mode
+
+- name: Root owns the Editor, read-only to everyone else
+  ansible.builtin.shell:
+    cmd: >-
+      chown -R root:root {{ studio_cell_unity_editor_dir | quote }}
+      && chmod -R go-w {{ studio_cell_unity_editor_dir | quote }}
+  when: studio_cell_unity_drift.stdout | default('') != ''
+  changed_when: true
 
 # The user unity's CLI knows the Editor only once it is registered with `editors add`.
 - name: Editors the user unity's CLI knows
