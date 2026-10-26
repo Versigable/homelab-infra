@@ -8,7 +8,7 @@ name: home-assistant
 #   Mosquitto        127.0.0.1:1883  Home Assistant only; Zigbee2MQTT uses the bridge
 #   Zigbee2MQTT UI   <HA_IP>:8080    profile "zigbee", off until the house's zigbee.env names the radio
 #   Parakeet (STT)   127.0.0.1:10300 profile "voice", Wyoming speech-to-text, on CPU
-#   Piper (TTS)      127.0.0.1:10200 profile "voice", Wyoming text-to-speech, on CPU
+#   Kokoro (TTS)     127.0.0.1:10210 profile "voice", Wyoming text-to-speech, on CPU
 # HA_IP comes from the house's instance.env, which deploy.sh installs as this project's .env;
 # HA_VOICE there switches the voice profile on per house.
 #
@@ -72,8 +72,10 @@ services:
 
   # Local voice, on CPU next to Home Assistant and not on the PGX, so a PGX hang can't take
   # out "lights off" (vault: 5-Decisions/2026-10-18_home-assistant-platform). Home Assistant
-  # reaches both on loopback through its Wyoming integration. Each downloads its model into
-  # its data dir on first start; deploy.sh waits for them to answer.
+  # reaches both on loopback through its Wyoming integration; deploy.sh waits for them to answer.
+  # Both run ONNX Runtime, which counts the host's CPUs instead of the LXC's, so both load
+  # config/onnxruntime/sitecustomize.py (via PYTHONPATH) to size its thread pool to the LXC.
+  # Measured 2026-10-25: Kokoro went from about 2x to 0.6x real time on 2 cores.
   parakeet:
     image: ghcr.io/tboby/wyoming-onnx-asr:v0.5.0
     container_name: home-assistant-parakeet
@@ -88,28 +90,33 @@ services:
     user: "1886:1886"
     environment:
       HOME: /data
+      PYTHONPATH: /opt/onnxruntime-threads
     ports:
       - "127.0.0.1:10300:10300"
     volumes:
       - ../data/parakeet:/data
+      - ../config/onnxruntime:/opt/onnxruntime-threads:ro
     cap_drop: [ALL]
 
-  piper:
-    image: rhasspy/wyoming-piper:2.5.2
-    container_name: home-assistant-piper
+  # Kokoro-82M through kokoro-onnx; streams sentence by sentence. Voice af_bella, picked by
+  # MetaVersig by ear on 2026-10-25 (over Piper's voices). A small community image, so it's
+  # pinned by digest; the model is baked in, checksum-verified at build time.
+  kokoro:
+    image: nordwestt/kokoro-wyoming:v1.1.0@sha256:5071dfe6a7c2c599c51677da698aebecdf8bd8dbab2d5345e99bb50d878a33f9
+    container_name: home-assistant-kokoro
     profiles: [voice]
     restart: unless-stopped
     logging: *logging
     networks: [home-assistant-net]
-    # The image's entrypoint adds --uri tcp://0.0.0.0:10200 and --data-dir /data.
-    command: ["--voice", "en_US-lessac-medium"]
-    user: "1885:1885"
+    command: ["--voice", "af_bella"]
+    # Root in the container, because the image's model file is root-only (0600); no
+    # capabilities, and the LXC is unprivileged.
     environment:
-      HOME: /data
+      PYTHONPATH: /opt/onnxruntime-threads
     ports:
-      - "127.0.0.1:10200:10200"
+      - "127.0.0.1:10210:10210"
     volumes:
-      - ../data/piper:/data
+      - ../config/onnxruntime:/opt/onnxruntime-threads:ro
     cap_drop: [ALL]
 
 networks:

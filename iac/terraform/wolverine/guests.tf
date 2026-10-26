@@ -14,12 +14,14 @@ locals {
     # MetaVersig's own Home Assistant (vault: 1-Projects/home-assistant, phase 1b). Same
     # platform as X-Mansion's (LXC 112), so it joins the same Ansible groups and keeps the
     # same service layout. Its Zigbee radio is on the network (wolverine-sw1 Gi1/0/2, LAB).
+    # 6 cores / 6 GiB since 2026-10-25 for local voice (Parakeet + Kokoro on CPU, 2.3 GiB
+    # between them). LXC cores are a ceiling, not a reservation; voice uses them in bursts.
     "home-assistant-wolverine" = {
       vmid        = 303
       ip          = "10.1.0.12"
       mac_address = "BC:24:11:AD:81:57"
-      cores       = 2
-      memory      = 4096
+      cores       = 6
+      memory      = 6144
       swap        = 1024
       disk        = 32
       tags        = ["home-assistant"]
