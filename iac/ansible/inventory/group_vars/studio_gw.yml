@@ -59,6 +59,9 @@ studio_gw_egress:
       - login.unity.com
       - license.unity3d.com
       - activation.unity3d.com
+      # Unity's artifact store: the CLI downloads its licensing client (licensing-client-linux-x64)
+      # from here on the first `unity license activate`
+      - public-stevedore.unity3d.com
       # Unity packages (the Editor's package manager)
       - packages.unity.com
       - download.packages.unity.com
