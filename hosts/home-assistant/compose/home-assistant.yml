@@ -7,7 +7,10 @@ name: home-assistant
 #   Home Assistant   <HA_IP>:8123    host network
 #   Mosquitto        127.0.0.1:1883  Home Assistant only; Zigbee2MQTT uses the bridge
 #   Zigbee2MQTT UI   <HA_IP>:8080    profile "zigbee", off until the house's zigbee.env names the radio
-# HA_IP comes from the house's instance.env, which deploy.sh installs as this project's .env.
+#   Parakeet (STT)   127.0.0.1:10300 profile "voice", Wyoming speech-to-text, on CPU
+#   Piper (TTS)      127.0.0.1:10200 profile "voice", Wyoming text-to-speech, on CPU
+# HA_IP comes from the house's instance.env, which deploy.sh installs as this project's .env;
+# HA_VOICE there switches the voice profile on per house.
 #
 # Everything lives under ../data on the LXC disk, which PBS backs up nightly (all guests).
 
@@ -65,6 +68,48 @@ services:
       - "${HA_IP:?HA_IP comes from instances/<house>/instance.env, installed as .env by deploy.sh}:8080:8080"
     volumes:
       - ../data/zigbee2mqtt:/app/data
+    cap_drop: [ALL]
+
+  # Local voice, on CPU next to Home Assistant and not on the PGX, so a PGX hang can't take
+  # out "lights off" (vault: 5-Decisions/2026-10-18_home-assistant-platform). Home Assistant
+  # reaches both on loopback through its Wyoming integration. Each downloads its model into
+  # its data dir on first start; deploy.sh waits for them to answer.
+  parakeet:
+    image: ghcr.io/tboby/wyoming-onnx-asr:v0.5.0
+    container_name: home-assistant-parakeet
+    profiles: [voice]
+    restart: unless-stopped
+    logging: *logging
+    networks: [home-assistant-net]
+    # NVIDIA Parakeet TDT 0.6B v2 (English), int8: about 0.7 GB, small enough for the LXC's RAM.
+    command: ["--uri", "tcp://0.0.0.0:10300", "--model-en", "nemo-parakeet-tdt-0.6b-v2", "--quantization", "int8"]
+    # The image runs as root by default; a fixed uid owns only its data dir. HOME points
+    # there too, so the model download's cache has somewhere to write.
+    user: "1886:1886"
+    environment:
+      HOME: /data
+    ports:
+      - "127.0.0.1:10300:10300"
+    volumes:
+      - ../data/parakeet:/data
+    cap_drop: [ALL]
+
+  piper:
+    image: rhasspy/wyoming-piper:2.5.2
+    container_name: home-assistant-piper
+    profiles: [voice]
+    restart: unless-stopped
+    logging: *logging
+    networks: [home-assistant-net]
+    # The image's entrypoint adds --uri tcp://0.0.0.0:10200 and --data-dir /data.
+    command: ["--voice", "en_US-lessac-medium"]
+    user: "1885:1885"
+    environment:
+      HOME: /data
+    ports:
+      - "127.0.0.1:10200:10200"
+    volumes:
+      - ../data/piper:/data
     cap_drop: [ALL]
 
 networks:

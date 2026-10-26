@@ -17,7 +17,8 @@ shopt -s inherit_errexit
 #
 # configuration.yaml comes from git and is checked with Home Assistant's check_config before
 # it goes live. Everything set up in the UI stays in /config/.storage and is never touched.
-# Zigbee2MQTT stays off until the house's zigbee.env names the radio and the channel.
+# Zigbee2MQTT stays off until the house's zigbee.env names the radio and the channel. Local
+# voice (Parakeet + Piper) runs only where the house's instance.env says HA_VOICE=on.
 #
 # Usage: HA_INSTANCE=<house> deploy.sh [home-assistant]   (CI sets HA_INSTANCE per job)
 # ============================================================
@@ -68,6 +69,10 @@ REPO_SOPS_ENV="${REPO_HOST_DIR}/secrets/${HA_INSTANCE}.env.sops"
 # The users the containers run as (see the compose file).
 MOSQUITTO_UID=1883
 Z2M_UID=1884
+PIPER_UID=1885
+PARAKEET_UID=1886
+PIPER_DATA_DIR="${LIVE_DATA_DIR}/piper"
+PARAKEET_DATA_DIR="${LIVE_DATA_DIR}/parakeet"
 
 REQUIRED_KEYS=(MQTT_HA_PASSWORD MQTT_Z2M_PASSWORD Z2M_FRONTEND_AUTH_TOKEN ZIGBEE_NETWORK_KEY)
 
@@ -111,12 +116,24 @@ if [[ -n "${ZIGBEE_COORDINATOR}" ]]; then
     || die "set ZIGBEE_CHANNEL (11-26; 15, 20 or 25 recommended) before Zigbee2MQTT's first start"
   [[ "${ZIGBEE_PAN_ID}" =~ ^0x[0-9a-fA-F]{4}$ ]] || die "ZIGBEE_PAN_ID must look like 0x1a62"
   [[ "${ZIGBEE_EXT_PAN_ID}" =~ ^\[([0-9]{1,3},\ ){7}[0-9]{1,3}\]$ ]] || die "ZIGBEE_EXT_PAN_ID must be a list of 8 bytes"
-  COMPOSE_PROFILE_ARGS=(--profile zigbee)
+  COMPOSE_PROFILE_ARGS+=(--profile zigbee)
+  ZIGBEE_ON=1
   log_info "Zigbee2MQTT on: radio at ${ZIGBEE_COORDINATOR}, channel ${ZIGBEE_CHANNEL}"
 else
+  ZIGBEE_ON=0
   log_info "Zigbee2MQTT off: instances/${HA_INSTANCE}/zigbee.env doesn't name the radio yet"
 fi
-zigbee_on() { (( ${#COMPOSE_PROFILE_ARGS[@]} > 0 )); }
+zigbee_on() { (( ZIGBEE_ON )); }
+
+# -------- Voice --------
+HA_VOICE=$(sed -n 's/^HA_VOICE=//p' "${REPO_INSTANCE_ENV}" | tail -n 1)
+case "${HA_VOICE:-off}" in
+  on)  COMPOSE_PROFILE_ARGS+=(--profile voice); VOICE_ON=1
+       log_info "Voice on: Parakeet speech-to-text and Piper text-to-speech" ;;
+  off) VOICE_ON=0; log_info "Voice off (HA_VOICE in instances/${HA_INSTANCE}/instance.env)" ;;
+  *)   die "HA_VOICE in ${REPO_INSTANCE_ENV} must be on or off" ;;
+esac
+voice_on() { (( VOICE_ON )); }
 
 compose() { (cd "${LIVE_COMPOSE_DIR}" && sudo /usr/bin/docker compose "${COMPOSE_PROFILE_ARGS[@]}" "$@"); }
 
@@ -142,6 +159,11 @@ ensure_dirs() {
   sudo /usr/bin/install -d -m 0750 -o "${MOSQUITTO_UID}" -g "${MOSQUITTO_UID}" \
     "${MOSQUITTO_CONFIG_DIR}" "${LIVE_DATA_DIR}/mosquitto"
   sudo /usr/bin/install -d -m 0700 -o "${Z2M_UID}" -g "${Z2M_UID}" "${Z2M_DATA_DIR}"
+  # Models and voices are downloaded here on first start.
+  if voice_on; then
+    sudo /usr/bin/install -d -m 0750 -o "${PIPER_UID}" -g "${PIPER_UID}" "${PIPER_DATA_DIR}"
+    sudo /usr/bin/install -d -m 0750 -o "${PARAKEET_UID}" -g "${PARAKEET_UID}" "${PARAKEET_DATA_DIR}"
+  fi
   # install -d resets the mode, which is also the ACL mask, so these come after it.
   sudo /usr/bin/setfacl -m "u:gitlab-runner:rx" "${LIVE_DATA_DIR}" "${HA_CONFIG_DIR}" "${Z2M_DATA_DIR}"
 }
@@ -335,6 +357,34 @@ wait_ha_ready() {
   die "Home Assistant did not answer within 5 minutes"
 }
 
+# A Wyoming server answers a "describe" event with an "info" event, whose first line is a
+# JSON header. It only listens once its model is loaded.
+wyoming_ready() {
+  local line re='"type": ?"info"'
+  line=$(timeout 5 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1" && printf "{\"type\": \"describe\"}\n" >&3 && head -n 1 <&3' _ "$1" 2>/dev/null) \
+    || return 1
+  [[ "${line}" =~ $re ]]
+}
+
+wait_voice_ready() {
+  voice_on || return 0
+  # The first start downloads the models (about 0.7 GB), hence the long wait.
+  log_info "Waiting for Parakeet (:10300) and Piper (:10200), up to 15 min each"
+  local entry name port i
+  for entry in parakeet:10300 piper:10200; do
+    name=${entry%%:*}; port=${entry##*:}
+    for i in $(seq 1 180); do
+      if wyoming_ready "${port}"; then
+        log_success "${name} answers on 127.0.0.1:${port}"
+        continue 2
+      fi
+      sleep 5
+    done
+    sudo /usr/bin/docker logs --tail 30 "home-assistant-${name}" 2>&1 || true
+    die "${name} did not answer on 127.0.0.1:${port} within 15 minutes"
+  done
+}
+
 log_info "========================================"
 log_info "Home Assistant deployment"
 log_info "========================================"
@@ -351,6 +401,7 @@ compose_up
 reload_changed
 check_mqtt
 wait_ha_ready
+wait_voice_ready
 if zigbee_on; then
   sudo /usr/bin/docker logs --tail 15 home-assistant-zigbee2mqtt 2>&1 || true
 fi
