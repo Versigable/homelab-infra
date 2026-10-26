@@ -26,8 +26,10 @@ studio_gw_egress:
       # OS packages and security updates; its services (step 2b) add their own
       - deb.debian.org
       - security.debian.org
-  # Every person's cell (role studio_cell). Seeded from the vendors' docs; names a tool turns
-  # out to need come from Squid's access log (TCP_DENIED), never wildcards.
+  # Every person's cell (role studio_cell). Exact names, seeded from the vendors' docs, plus
+  # anything a tool turns out to need from Squid's access log (TCP_DENIED). The one exception
+  # is Unity: its CLI, Editor and licensing reach many hosts under its own two domains, so
+  # those are allowed whole (a leading dot matches the domain and every name under it).
   cells:
     sources: [10.77.0.60]
     ports: [80, 443]
@@ -44,30 +46,14 @@ studio_gw_egress:
       - api.openai.com
       - auth.openai.com
       - chatgpt.com
-      # Unity CLI apt repository (it redirects to the second name)
-      - hub.unity3d.com
-      - hub-dist.unity3d.com
-      # Unity Editor releases and downloads; the documentation module comes from cloudmedia-docs
-      - services.api.unity.com
-      - download.unity3d.com
-      - download.unity.com
-      - cloudmedia-docs.unity3d.com
-      # Unity sign-in and licensing (the person's, as the user unity)
-      - api.unity.com
-      - core.cloud.unity3d.com
-      - id.unity.com
-      - login.unity.com
-      - license.unity3d.com
-      - activation.unity3d.com
-      # Unity's artifact store: the CLI downloads its licensing client (licensing-client-linux-x64)
-      # from here on the first `unity license activate`
-      - public-stevedore.unity3d.com
-      # Unity packages (the Editor's package manager)
-      - packages.unity.com
-      - download.packages.unity.com
-      # Refused on purpose, seen in the first install (2026-10-25), which needed neither:
-      # api2.amplitude.com (the CLI's analytics) and live-platform-api.prd.ld.unity3d.com
-      # (Unity's feature-flag service).
+      # Unity, whole (MetaVersig, 2026-10-25). Seen so far: the CLI's apt repository
+      # (hub, hub-dist.unity3d.com), Editor releases and downloads (services.api.unity.com,
+      # download.unity3d.com, cloudmedia-docs.unity3d.com for the documentation module),
+      # sign-in (api.unity.com, core.cloud.unity3d.com) and the licensing client the CLI
+      # fetches on first activation (public-stevedore.unity3d.com).
+      - .unity3d.com
+      - .unity.com
+      # Refused on purpose: api2.amplitude.com, the Unity CLI's analytics (not a Unity domain).
 
 # Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
 studio_gw_ingress:

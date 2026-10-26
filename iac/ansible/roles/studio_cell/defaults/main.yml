@@ -2,12 +2,15 @@
 # host_vars/<cell>.yml.
 
 # Packages every cell needs: Git (with LFS, for game assets), a virtual display for Editor
-# runs that want one, and the libraries the Linux Editor loads.
+# runs that want one, and the libraries the Linux Editor loads. ICU is for Unity's licensing
+# client, a .NET program that stops at start without it ("Couldn't find a valid ICU
+# package"), which the CLI reports as "Can't reach the Unity licensing client".
 studio_cell_packages:
   - git
   - git-lfs
   - unzip
   - xvfb
+  - libicu76
   - libasound2t64
   - libegl1
   - libgbm1
