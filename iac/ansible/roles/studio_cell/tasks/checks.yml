@@ -32,3 +32,18 @@
   loop_control:
     label: "{{ item.user }} :{{ item.port }} {{ item.url }} -> {{ item.expect }}"
   when: not ansible_check_mode
+
+# The broker answers agent and refuses anyone else (13), whatever the socket's mode.
+- name: The broker admits agent and refuses unity
+  ansible.builtin.command: studio status
+  become: true
+  become_user: "{{ item.user }}"
+  register: studio_cell_broker
+  changed_when: false
+  failed_when: studio_cell_broker.rc != item.rc
+  loop:
+    - {user: agent, rc: 0}
+    - {user: unity, rc: 13}
+  loop_control:
+    label: "{{ item.user }} -> {{ item.rc }}"
+  when: not ansible_check_mode

@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -IB
+# studio-admin (iac/studio/runtime). Isolated mode: no environment steers what runs.
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+from studio_runtime.admin import main  # noqa: E402
+
+sys.exit(main())

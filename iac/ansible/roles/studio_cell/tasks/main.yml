@@ -36,5 +36,8 @@
 - name: What the studio runtime stands on
   ansible.builtin.import_tasks: studio.yml
 
+- name: The studio runtime (studio-unityd, the studio CLI)
+  ansible.builtin.import_tasks: runtime.yml
+
 - name: Checks
   ansible.builtin.import_tasks: checks.yml

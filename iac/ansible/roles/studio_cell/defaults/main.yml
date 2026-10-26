@@ -58,6 +58,12 @@ studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/hom
 # The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
 studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
 
+# studio-unityd (the runtime): memory caps for a warm editor and for a cold gate or build run
+# (a 12 GiB cell holds two warm editors and a gate), and when an unused warm editor stops.
+studio_cell_editor_memory_max: 6G
+studio_cell_gate_memory_max: 7G
+studio_cell_editor_idle_minutes: 30
+
 # The Unity CLI's settings for every run on a cell (the IaC's and the person's): no
 # self-update checks (apt updates it), no crash reports, no first-run analytics prompt, no
 # pager or banner in agents' output. The proxy depends on who runs it (below).
