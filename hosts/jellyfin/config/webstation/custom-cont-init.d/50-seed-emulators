@@ -290,9 +290,12 @@ fi
 #   MediaStreamTrackGenerator -> <video>, and streams froze there for about a second
 #   at a time. Hiding the generator makes Chromium decode and draw in the client's
 #   video worker, the path Firefox takes.
+# - playout-buffer.js: the worker draws each frame the moment it's decoded, so bunched
+#   arrivals show as hitches. It holds frames ~25 ms and draws them on the display's
+#   refresh at a steady cadence (homelab.playoutMs in localStorage tunes it; 0 = off).
 SELKIES_WEB=/usr/share/selkies/web
 if [[ -f "$SELKIES_WEB/index.html" ]]; then
-  for page_js in gamepad-shim video-sink; do
+  for page_js in gamepad-shim video-sink playout-buffer; do
     install -m 0644 -o root -g root "/seed/selkies-$page_js.js" "$SELKIES_WEB/$page_js.js" || continue
     if ! grep -q "$page_js.js" "$SELKIES_WEB/index.html"; then
       sed -i "s|<head>|<head><script src=\"./$page_js.js\"></script>|" "$SELKIES_WEB/index.html"
