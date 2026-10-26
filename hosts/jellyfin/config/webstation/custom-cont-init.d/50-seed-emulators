@@ -306,7 +306,7 @@ done
 #   at a time. Hiding the generator makes Chromium decode and draw in the client's
 #   video worker, the path Firefox takes.
 # - playout-buffer.js: the worker draws each frame the moment it's decoded, so bunched
-#   arrivals show as hitches. It holds frames ~25 ms and draws them on the display's
+#   arrivals show as hitches. It holds frames ~50 ms and draws them on the display's
 #   refresh at a steady cadence (homelab.playoutMs in localStorage tunes it; 0 = off).
 SELKIES_WEB=/usr/share/selkies/web
 if [[ -f "$SELKIES_WEB/index.html" ]]; then
