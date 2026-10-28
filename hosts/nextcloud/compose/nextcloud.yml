@@ -1,15 +1,16 @@
 name: nextcloud
 
-# Nextcloud + Collabora on LXC 110 (phoenix), moving to VM 116. The guest is built by
+# Nextcloud + Collabora on VM 116 (phoenix), which replaced LXC 110. The guest is built by
 # iac/ (Terraform + Ansible); this stack is deployed by hosts/nextcloud/scripts/deploy.sh,
 # which writes NC_BIND_IP and NC_DATA_DIR for the host into .env.
 # Vault: 1-Projects/nextcloud. Routes: hosts/traefik/config/dynamic/nextcloud.yml
-#   cloud.ninjaprivacy.org  -> web        10.0.1.10:8080
-#   office.ninjaprivacy.org -> collabora  10.0.1.10:9980
+#   cloud.ninjaprivacy.org  -> web        10.0.1.16:8080
+#   office.ninjaprivacy.org -> collabora  10.0.1.16:9980
 #
-# User files live on TrueNAS (Twelve_TB_RAIDZ1/nextcloud), NFS-mounted on phoenix and
-# bind-mounted into the LXC at /srv/nextcloud-data. Everything else (app code,
-# config.php, Postgres) is under ../data on the LXC disk, which PBS backs up nightly.
+# User files live on TrueNAS (Twelve_TB_RAIDZ1/nextcloud), NFS-mounted inside the VM at
+# /srv/nextcloud-data (not through phoenix: 5-Decisions/2026-10-23_nextcloud-vm-instead-of-lxc).
+# Everything else (app code, config.php, Postgres) is under ../data on the VM disk, which
+# PBS backs up nightly.
 
 x-logging: &logging
   driver: json-file

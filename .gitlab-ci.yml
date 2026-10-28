@@ -348,35 +348,20 @@ deploy-monitoring:
         - hosts/monitoring/scripts/deploy.sh
 
 # ============================================================
-# Nextcloud (LXC 110 on phoenix, built by iac/)
+# Nextcloud (VM 116 on phoenix, built by iac/)
 # ============================================================
-.nextcloud-deploy:
-  stage: deploy
-  tags: ["nextcloud"]
-  script:
-    - bash hosts/nextcloud/scripts/deploy.sh
-
 deploy-nextcloud:
-  extends: .nextcloud-deploy
+  stage: deploy
+  # Runner 17 on VM 116. LXC 110's runner 13 still has the tag "nextcloud" until it is
+  # removed (MR D), so no job may use that tag: a deploy there would start the old stack
+  # on the same share, and two Nextclouds on one data dir corrupt it.
+  tags: ["nextcloud-vm"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/nextcloud/**/*
-
-# VM 116 rehearsal (1-Projects/nextcloud/notes/vm-migration-plan, step 3): a throwaway
-# install on the VM's own disk with an empty database, never the live share. Manual only;
-# removed at the cutover, when deploy-nextcloud moves to the VM.
-rehearse-nextcloud-vm:
-  extends: .nextcloud-deploy
-  tags: ["nextcloud-vm"]
-  variables:
-    NC_BIND_IP: "10.0.1.16"
-    NC_DATA_DIR: /home/nextcloud/nextcloud-hub/data/rehearsal-files
-    NC_REHEARSAL: "1"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-      allow_failure: true
+  script:
+    - bash hosts/nextcloud/scripts/deploy.sh
 
 # ============================================================
 # Home Assistant, one instance per house (LXCs built by iac/). Shared stack, per-house
