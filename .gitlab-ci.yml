@@ -414,3 +414,24 @@ deploy-navidrome:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/navidrome/**/*
+
+# ============================================================
+# cf-tunnel: cloudflared replicas, LXC 117 (phoenix, runner 18) and LXC 118 (rogue,
+# runner 19), built by iac/. Same files on both; each job deploys its own guest.
+# ============================================================
+.cf-tunnel-deploy:
+  stage: deploy
+  script:
+    - bash hosts/cf-tunnel/scripts/deploy.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/cf-tunnel/**/*
+
+deploy-cf-tunnel-1:
+  extends: .cf-tunnel-deploy
+  tags: ["cf-tunnel-1"]
+
+deploy-cf-tunnel-2:
+  extends: .cf-tunnel-deploy
+  tags: ["cf-tunnel-2"]

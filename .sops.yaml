@@ -55,6 +55,13 @@ creation_rules:
   # (no operator copy; a new ND_PASSWORDENCRYPTIONKEY means users reset their passwords).
   - path_regex: ^hosts/navidrome/secrets/.*\.env\.sops$
     age: ["age184nehpc5mxw5r9pl5mrc7tjlmxkguvpk7tdrxn4lz0rpyq9ke99sug8u3p"]
+  # cloudflared replicas: LXC 117 cf-tunnel-1 (phoenix) and LXC 118 cf-tunnel-2 (rogue),
+  # both built by iac/. Both guests run the same tunnels, so each file is encrypted to both
+  # keys. Files: org.env.sops and us.env.sops, each one TUNNEL_TOKEN (see
+  # hosts/cf-tunnel/README.md). After rebuilding either guest, put its new key here and
+  # re-encrypt both files from the tunnel tokens (the README says where to get them).
+  - path_regex: ^hosts/cf-tunnel/secrets/.*\.env\.sops$
+    age: ["age1qte9y0lys5crs9vxhg86q583mclhqz9kw0j6k6y8shdy25cw74ascmutzn", "age184v8exz6uyhsxdwhfhlgc2c2sxtmwpqpg3caqxup75l8val4agcq865kl7"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================
