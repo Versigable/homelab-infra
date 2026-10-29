@@ -95,6 +95,7 @@ services:
       # Read by config/hooks/before-starting/10-settings.sh
       NEXTCLOUD_OIDC_CLIENT_ID: ${NEXTCLOUD_OIDC_CLIENT_ID}
       NEXTCLOUD_OIDC_CLIENT_SECRET: ${NEXTCLOUD_OIDC_CLIENT_SECRET}
+      NEXTCLOUD_SMTP_PASSWORD: ${NEXTCLOUD_SMTP_PASSWORD}
     volumes:
       - ../data/html:/var/www/html
       - ${NC_DATA_DIR:?}:/var/www/data
