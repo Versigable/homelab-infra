@@ -8,18 +8,7 @@ locals {
   # groups: Ansible groups the guest joins, which pick its playbook roles.
   # tags: Proxmox tags ("iac" is always added); applied by Ansible, see modules/lxc.
   lxc_guests = {
-    nextcloud = {
-      vmid        = 110
-      node        = "phoenix"
-      ip          = "10.0.1.10"
-      cores       = 4
-      memory      = 6144
-      swap        = 1024
-      disk        = 40
-      tags        = ["nextcloud"]
-      groups      = ["docker_hosts", "nextcloud_hosts"]
-      description = "Nextcloud + Collabora. App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
-    }
+    # 110 was Nextcloud's LXC, retired 2026-10-28 after the move to VM 116 (nextcloud-vm).
     # No USB or Bluetooth passthrough: the Zigbee radio is on the network, so this
     # guest can move between nodes. Not on rogue, which hosts the studio cells.
     "home-assistant" = {
