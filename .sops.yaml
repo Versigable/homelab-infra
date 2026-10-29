@@ -33,15 +33,12 @@ creation_rules:
   - path_regex: ^hosts/monitoring/secrets/.*\.env\.sops$
     age: ["age1ln833f9r64gjahe6ktjz968frcxkk7l0sgech65m7xac57f9eqsqa7ghek"]
 
-  # Nextcloud hosts, built by iac/: LXC 110 (live until the cutover) and VM 116 (the
-  # move, 1-Projects/nextcloud/notes/vm-migration-plan). iac/ansible role sops_age
-  # makes each key on its host; a rebuilt guest gets a new one, so after a rebuild
-  # update its key and run `sops updatekeys` on a host that can still decrypt.
-  # LXC 110's key comes out in the cutover cleanup.
+  # Nextcloud host: VM 116, built by iac/ (LXC 110 and its key were retired 2026-10-28).
+  # iac/ansible role sops_age makes the key on the host, and a rebuild from code makes a
+  # new one. Only VM 116 can decrypt this file, so before such a rebuild add the new key
+  # here and run `sops updatekeys` on VM 116 (its PBS backups also hold the current key).
   - path_regex: ^hosts/nextcloud/secrets/.*\.env\.sops$
-    age: >-
-      age1ugx3aytf7cvpdd4ratn06l4sh2p5t7hxnu2tcm7rhgat4vf3zs7q3kge5l,
-      age15awta4pt3vp6r4swn7psu7qjdx8n80rlhanf6ckm72uujzdz8yaq2ql2zn
+    age: ["age15awta4pt3vp6r4swn7psu7qjdx8n80rlhanf6ckm72uujzdz8yaq2ql2zn"]
 
   # Home Assistant, one secrets file per house (hosts/home-assistant/instances), each
   # encrypted only to its own guest, so neither house can read the other's. Both guests

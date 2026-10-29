@@ -2,7 +2,7 @@
 
 Since 2026-10-17 every new VM and LXC is built with Terraform + Ansible, never by hand
 (vault decision `5-Decisions/2026-10-17_terraform-ansible-for-new-guests`). Nextcloud
-(LXC 110) is the pilot; the written standard comes out of it.
+(LXC 110, on VM 116 since 2026-10-28) is the pilot; the written standard comes out of it.
 
 ## Who owns what
 

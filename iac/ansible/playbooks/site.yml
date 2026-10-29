@@ -53,8 +53,9 @@
   roles:
     - docker
 
-# The group is nextcloud_hosts, not nextcloud: a group named like a host (LXC 110 is the host
-# `nextcloud`) makes `hosts: nextcloud` match only that host, so the VM was skipped.
+# The group is nextcloud_hosts, not nextcloud: a group named like a host (LXC 110, retired
+# 2026-10-28, was the host `nextcloud`) makes `hosts: nextcloud` match only that host, so
+# the VM was skipped.
 - name: Nextcloud host platform (the app itself is deployed by GitOps CI from hosts/nextcloud)
   hosts: nextcloud_hosts
   become: true

@@ -352,9 +352,8 @@ deploy-monitoring:
 # ============================================================
 deploy-nextcloud:
   stage: deploy
-  # Runner 17 on VM 116. LXC 110's runner 13 still has the tag "nextcloud" until it is
-  # removed (MR D), so no job may use that tag: a deploy there would start the old stack
-  # on the same share, and two Nextclouds on one data dir corrupt it.
+  # Runner 17 on VM 116. Its tag stayed "nextcloud-vm" when LXC 110 and its runner 13
+  # (tag "nextcloud") were retired, 2026-10-28.
   tags: ["nextcloud-vm"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
