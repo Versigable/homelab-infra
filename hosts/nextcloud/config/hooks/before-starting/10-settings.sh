@@ -109,6 +109,26 @@ if [ -n "${NEXTCLOUD_OIDC_CLIENT_ID:-}" ]; then
     run "OIDC only"   occ config:app:set user_oidc allow_multiple_user_backends --value=0
 fi
 
+# --- Outgoing mail ----------------------------------------------------------------
+# Proton SMTP submission as alerts@ninjaprivacy.org, MetaVersig's Proton account. The token
+# is named "nextcloud" there; deleting it in Proton stops only Nextcloud's mail. Tokens are
+# send-only and tied to one custom-domain address. Port 587 with no mail_smtpsecure: the
+# mailer upgrades with STARTTLS. Output is dropped for the password, which occ echoes back.
+if [ -n "${NEXTCLOUD_SMTP_PASSWORD:-}" ]; then
+    run "mail mode"   occ config:system:set mail_smtpmode --value=smtp
+    run "mail host"   occ config:system:set mail_smtphost --value=smtp.protonmail.ch
+    run "mail port"   occ config:system:set mail_smtpport --type=integer --value=587
+    run "mail tls"    occ config:system:delete mail_smtpsecure
+    run "mail auth"   occ config:system:set mail_smtpauth --type=boolean --value=true
+    run "mail user"   occ config:system:set mail_smtpname --value=alerts@ninjaprivacy.org
+    if ! occ config:system:set mail_smtppassword --value="$NEXTCLOUD_SMTP_PASSWORD" >/dev/null 2>&1; then
+        echo "==> WARN: mail password failed (rerun the occ command by hand to see why)"
+        failures=$((failures + 1))
+    fi
+    run "mail from"   occ config:system:set mail_from_address --value=alerts
+    run "mail domain" occ config:system:set mail_domain --value=ninjaprivacy.org
+fi
+
 # --- Break-glass admin ------------------------------------------------------------
 # Its /login?direct=1 form is public, so it gets a second factor: Nextcloud makes it set
 # up TOTP at its next login. People sign in through Authentik and aren't in this group.
