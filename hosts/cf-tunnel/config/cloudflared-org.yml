@@ -1,0 +1,28 @@
+# ninjaprivacy_org replica config. Keep in step with hosts/traefik/data/cloudflared/config.yml:
+# a replica with different ingress serves different answers for the share of requests
+# Cloudflare sends it. The only intended differences:
+#   - service is https://10.0.2.5 (the Traefik VM), not https://traefik1, since these
+#     guests don't share Traefik's Docker network;
+#   - no credentials-file: the container authenticates with TUNNEL_TOKEN.
+# Two keys below do nothing, here and on Traefik (`cloudflared tunnel ingress validate`
+# lists them as unused, on 2025.8.1 and 2026.10.5 alike). They stay so the two files match
+# until both are fixed together:
+#   - noChunkedEncoding: the key is disableChunkedEncoding, so the Proxmox console
+#     setting has never applied on this tunnel;
+#   - warp-routing.enabled: ignored since 2023.9; the tunnel's private routes decide.
+tunnel: 37111c6c-064b-4381-9065-9313b50dffb3
+
+ingress:
+  - hostname: proxmox.ninjaprivacy.org
+    service: https://10.0.2.5
+    originRequest:
+      noTLSVerify: true
+      noChunkedEncoding: true    # only for proxmox (no-op, see above)
+  - hostname: "*.ninjaprivacy.org"
+    service: https://10.0.2.5
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+
+warp-routing:
+  enabled: true
