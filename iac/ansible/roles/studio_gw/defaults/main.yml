@@ -14,9 +14,11 @@ studio_gw_admin_net: 10.0.0.0/16
 # Outbound, per class of studio guest: who (sources), which ports (443 for HTTPS, 80 for
 # HTTP), and the hostnames they may reach through Squid (a leading dot: the domain and every
 # name under it). Nothing else gets out. A class may have its own proxy_port, so that one
-# guest can give each local user its own list (role studio_cell pins users to ports).
+# guest can give each local user its own list (role studio_cell pins users to ports). A class
+# with any_name: true reaches any hostname on its ports, but never a private, loopback,
+# link-local or CGNAT address (the LAN is on the other side of this gateway).
 #   forge: {sources: [10.77.0.10], ports: [80, 443], names: [deb.debian.org, ...]}
-#   cells_agent: {proxy_port: 3129, sources: [10.77.0.60], ports: [443], names: [...]}
+#   cells_agent: {proxy_port: 3129, sources: [10.77.0.60], ports: [443], any_name: true}
 studio_gw_egress: {}
 
 # Every port Squid listens on: the default, plus each class's own.

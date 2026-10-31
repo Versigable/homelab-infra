@@ -2,8 +2,11 @@
 #
 # The studio network's only way out: HTTP and HTTPS by hostname, per class of guest
 # (studio_gw_egress). A class is matched by source address and by the proxy port it was
-# reached on (proxy_port, default {{ studio_gw_proxy_port }}), so one guest can have a class per local
-# user, each user pinned to its port by the guest's own firewall (role studio_cell). Nothing is cached, and no connection to a real site is decrypted. For
+# reached on (proxy_port, default {{ studio_gw_proxy_port }}), so one guest can have a class
+# per local user, each user pinned to its port by the guest's own firewall (role
+# studio_cell). A class with any_name reaches any public host, never a private one.
+#
+# Nothing is cached, and no connection to a real site is decrypted. For a listed class's
 # HTTPS, Squid checks the CONNECT hostname, then peeks at the TLS ClientHello and splices the
 # connection through only if its SNI is on the same list; anything else is cut. So a tunnel
 # opened to an allowed name can't be pointed at another site that shares its CDN address.
@@ -28,9 +31,11 @@ acl via_{{ p }} myportname p{{ p }}
 # class {{ class }}: {{ c.sources | join(', ') }}, on :{{ c.proxy_port | default(studio_gw_proxy_port) }}
 acl src_{{ class }} src {{ c.sources | join(' ') }}
 acl port_{{ class }} port {{ c.ports | join(' ') }}
+{% if not c.any_name | default(false) %}
 # -n: match the name as given; never reverse-resolve an IP to make it match.
 acl dst_{{ class }} dstdomain -n {{ c.names | join(' ') }}
 acl sni_{{ class }} ssl::server_name {{ c.names | join(' ') }}
+{% endif %}
 
 {% endfor %}
 # CONNECT only to 443; plain HTTP only to 80.
@@ -38,14 +43,22 @@ acl https_port port 443
 acl http_port_80 port 80
 http_access deny CONNECT !https_port
 http_access deny !CONNECT !http_port_80
+# A class open to any name (any_name) still never reaches this side of the gateway: private,
+# loopback, link-local and CGNAT addresses, by the address the name resolves to.
+acl to_private dst 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 ::1 fc00::/7 fe80::/10
 {% for class, c in studio_gw_egress.items() %}
+{% if c.any_name | default(false) %}
+http_access deny via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} to_private
+http_access allow via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} port_{{ class }}
+{% else %}
 http_access allow via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} dst_{{ class }} port_{{ class }}
+{% endif %}
 {% endfor %}
 http_access deny all
 
 ssl_bump peek step1
 {% for class, c in studio_gw_egress.items() %}
-ssl_bump splice via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} sni_{{ class }}
+ssl_bump splice via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }}{{ '' if c.any_name | default(false) else ' sni_' ~ class }}
 {% endfor %}
 ssl_bump terminate all
 

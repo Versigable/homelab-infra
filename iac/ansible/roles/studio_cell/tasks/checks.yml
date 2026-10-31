@@ -19,8 +19,10 @@
   loop:
     - {user: agent, port: 3129, url: "https://api.anthropic.com/", expect: through}
     - {user: agent, port: 3129, url: "https://chatgpt.com/", expect: through}
-    - {user: agent, port: 3129, url: "{{ studio_cell_gitlab_url }}/", expect: squid}
-    - {user: agent, port: 3129, url: "https://unity.com/", expect: squid}
+    # The open web over HTTPS (Unity's docs, GitHub), but nothing private: ServiceHub stands in.
+    - {user: agent, port: 3129, url: "https://docs.unity.com/", expect: through}
+    - {user: agent, port: 3129, url: "https://github.com/", expect: through}
+    - {user: agent, port: 3129, url: "https://10.0.1.5/", expect: squid}
     - {user: agent, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     - {user: agent, port: 3130, url: "https://unity.com/", expect: firewall}
     # An editor's command port is loopback TCP: agent can't reach it (sshd stands in here).
