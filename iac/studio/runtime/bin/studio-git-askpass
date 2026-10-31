@@ -1,0 +1,7 @@
+#!/bin/sh
+# git's askpass for the cell's GitLab account (root only): the user name from the caller's
+# environment, the token from /etc/studio/gitlab-token. The token never touches a command line.
+case "$1" in
+  Username*) printf '%s\n' "${STUDIO_GITLAB_USER:?}" ;;
+  *) cat /etc/studio/gitlab-token ;;
+esac

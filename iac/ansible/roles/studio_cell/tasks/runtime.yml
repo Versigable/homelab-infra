@@ -1,0 +1,108 @@
+# The studio runtime (iac/studio/runtime): studio-unityd, the studio CLI, studio-admin.
+# Vault: 1-Projects/game-studio-platform/notes/step-2c-2-plan.
+
+# The Editor's audio engine (FMOD) trips over a machine with no sound card: errors at every
+# start, and now and then a crash. A null ALSA device gives it a silent output instead.
+- name: A silent default sound device
+  ansible.builtin.copy:
+    dest: /etc/asound.conf
+    content: |
+      # Managed by Ansible (role studio_cell). No sound card here; Unity's audio plays to nothing.
+      pcm.!default { type null }
+      ctl.!default { type hw card 0 }
+    mode: "0644"
+
+- name: Runtime directory
+  ansible.builtin.file:
+    path: /opt/studio/runtime
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: The runtime, as merged (code, then programs)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../studio/runtime/{{ item.src }}"
+    dest: "/opt/studio/runtime/{{ item.src }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: studio_runtime/, mode: "u=rwX,go=rX"}
+    - {src: bin/, mode: "0755"}
+    - {src: README.md, mode: "0644"}
+  notify: Restart studio-unityd
+
+# force: on a first check-mode run the programs aren't copied yet.
+- name: The studio CLI and studio-admin on the PATH
+  ansible.builtin.file:
+    src: "/opt/studio/runtime/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop: [studio, studio-admin]
+
+# What the daemons need to know about this cell. The unity user's tools reach the outside
+# through its own Squid port.
+- name: The cell's settings for the daemons
+  ansible.builtin.copy:
+    dest: /etc/studio/cell.json
+    content: "{{ studio_cell_runtime_config | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    studio_cell_runtime_config:
+      owner: "{{ studio_cell_owner }}"
+      agent_user: agent
+      unity_user: unity
+      work_group: "{{ studio_cell_work_group }}"
+      unity_editor_version: "{{ studio_cell_unity_editor_version }}"
+      unity_editor: "{{ studio_cell_unity_editor_dir }}/Editor/Unity"
+      unity_env: "{{ studio_cell_unity_user_env | combine({'no_proxy': 'localhost,127.0.0.1', 'NO_PROXY': 'localhost,127.0.0.1'}) }}"
+      root_proxy: "{{ studio_proxy_url }}"
+      gitlab_url: "{{ studio_cell_gitlab_url }}"
+      gitlab_group: studio
+      gitlab_agent: "{{ studio_cell_gitlab_agent }}"
+      editor_memory_max: "{{ studio_cell_editor_memory_max }}"
+      gate_memory_max: "{{ studio_cell_gate_memory_max }}"
+      editor_idle_minutes: "{{ studio_cell_editor_idle_minutes }}"
+  notify: Restart studio-unityd
+
+- name: The studio-unityd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/studio-unityd.service
+    content: |
+      # Managed by Ansible (role studio_cell).
+      [Unit]
+      Description=studio-unityd, the Unity broker (warm editors, gates, builds)
+      After=network-online.target nftables.service
+      Wants=network-online.target
+
+      [Service]
+      ExecStart=/opt/studio/runtime/bin/studio-unityd
+      RuntimeDirectory=studio
+      RuntimeDirectoryMode=0755
+      RuntimeDirectoryPreserve=yes
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: studio_cell_unityd_unit
+  notify:
+    - Reload systemd
+    - Restart studio-unityd
+
+# A check-mode run that would write the unit file for the first time can't start it.
+- name: The studio-unityd service running
+  ansible.builtin.systemd_service:
+    name: studio-unityd
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: not (ansible_check_mode and studio_cell_unityd_unit.changed)
+
+- name: Runtime changes applied before the checks
+  ansible.builtin.meta: flush_handlers

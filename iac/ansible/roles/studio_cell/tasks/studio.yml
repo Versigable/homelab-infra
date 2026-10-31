@@ -77,3 +77,15 @@
         driver = {{ studio_cell_unity_editor_dir }}/Editor/Data/Tools/UnityYAMLMerge merge -p %O %B %A %A
         recursive = binary
     mode: "0644"
+
+# Under /srv/studio, agent, unity and root work in each other's checkouts by design (the
+# broker's gate checkout fetches from an agent's worktree, as unity). Git's ownership check
+# would refuse that; it stays on everywhere else.
+- name: Git works across users under /srv/studio only
+  ansible.builtin.blockinfile:
+    path: /etc/gitconfig
+    marker: "# {mark} studio_cell: safe.directory"
+    block: |
+      [safe]
+        directory = /srv/studio/*
+    mode: "0644"

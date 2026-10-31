@@ -2,3 +2,15 @@
   ansible.builtin.service:
     name: nftables
     state: reloaded
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+# Warm editors are their own units and keep running across a broker restart (it adopts them).
+# Not in a check-mode run that would install the unit file for the first time.
+- name: Restart studio-unityd
+  ansible.builtin.systemd_service:
+    name: studio-unityd
+    state: restarted
+  when: not (ansible_check_mode and (studio_cell_unityd_unit.changed | default(false)))
