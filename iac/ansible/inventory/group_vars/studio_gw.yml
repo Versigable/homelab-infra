@@ -53,20 +53,17 @@ studio_gw_egress:
       - gitlab.ninjaprivacy.org
       - .unity3d.com
       - .unity.com
-  # :3129, the user agent (jobs, and sessions the owner pairs in): the AI vendors only.
+  # :3129, the user agent (jobs, and sessions the owner pairs in): the open web over HTTPS
+  # (MetaVersig, 2026-10-31: development needs docs, package registries, GitHub and forum
+  # answers; `unity docs` alone needs docs.unity.com). Never the LAN or anything private
+  # (to_private in squid.conf), and GitLab, Unity's editor and the cell's daemons are still
+  # reachable only through `studio`: agent holds no token for them. Vault decision:
+  # 5-Decisions/2026-10-31_studio-agent-open-web.
   cells_agent:
     proxy_port: 3129
     sources: [10.77.0.60]
     ports: [443]
-    names:
-      # Anthropic: the API and the person's Claude sign-in
-      - api.anthropic.com
-      - claude.ai
-      - platform.claude.com
-      # OpenAI: the API, the ChatGPT sign-in, and Codex's ChatGPT backend (chatgpt.com)
-      - api.openai.com
-      - auth.openai.com
-      - chatgpt.com
+    any_name: true
   # :3130, the user unity (the CLI, the Editor and the game code it runs, the licensing
   # client, the package manager): Unity only.
   cells_unity:
