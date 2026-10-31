@@ -256,31 +256,66 @@ class Broker:
         st, errors = self.compile(wt, out)
         if st.get("failed") or st.get("compilationFailed"):
             raise Fail("compilation failed", result={"errors": st.get("errors"), "console_errors": errors})
-        out(f"running {mode} tests on the warm editor")
-        # Async, then poll: PlayMode tests only run this way on a batch-mode editor (a
-        # synchronous run returns no results for them).
-        targs = ["test", "run", "--mode", mode, "--async_tests", "true"] + (["--filter", flt] if flt else [])
-        self.result_of(self.unity(wt, targs, timeout=120), "test run")
+        keys = ("total", "passed", "failed", "skipped")
+        summary, failures, runs = dict.fromkeys(keys, 0), [], []
+        for m in (["editor", "playmode"] if mode == "all" else [mode]):
+            out(f"running {m} tests on the warm editor")
+            r = self.run_tests(wt, m, flt)
+            for k in keys:
+                summary[k] += int(r["summary"].get(k) or 0)
+            failures += r["failures"]
+            runs.append({"mode": m, "status": r["status"], "summary": r["summary"]})
+        self.last_used[wt.key] = time.time()
+        out_res = {"mode": mode, "summary": summary, "runs": runs, "failures": failures[:30]}
+        if summary["failed"] or any(r["status"] != "completed" for r in runs):
+            raise Fail(f"{summary['failed']} test(s) failed", rc=8, result=out_res)
+        if not summary["total"]:
+            out("note: no tests matched")
+        return out_res
+
+    @staticmethod
+    def inner(res, what):
+        """Pipeline sometimes reports a refusal inside a successful envelope."""
+        if isinstance(res, dict) and res.get("success") is False:
+            raise Fail(f"{what}: {res.get('error') or res.get('message') or 'refused'}", result=res)
+        return res or {}
+
+    @staticmethod
+    def tally(rows):
+        return [{"test": r.get("FullName"), "message": (r.get("Message") or "")[:400]}
+                for r in rows or [] if str(r.get("Status", r.get("Result", ""))).lower().startswith("fail")]
+
+    def run_tests(self, wt, mode, flt):
+        """One mode on the warm editor. EditMode runs synchronously (results come back
+        directly). PlayMode only runs async on a batch-mode editor, and Pipeline refuses async
+        for 'all': start it, then poll its status file, which is removed first so an old
+        run's result can't be read as this one's."""
+        extra = ["--filter", flt] if flt else []
+        if mode == "editor":
+            res = self.inner(self.result_of(self.unity(wt, ["test", "run", "--mode", "editor", *extra],
+                                                       timeout=1200), "test run"), "test run")
+            s = res.get("Summary") or {}
+            return {"status": "completed", "summary": {k.lower(): v for k, v in s.items()},
+                    "failures": self.tally(res.get("Results"))}
+        status_file = os.path.join(wt.path, "Temp", "pipeline_test_status.json")
+        if os.path.exists(status_file):
+            os.unlink(status_file)
+        self.inner(self.result_of(self.unity(wt, ["test", "run", "--mode", mode, "--async_tests", "true", *extra],
+                                             timeout=120), "test run"), "test run")
         deadline, res = time.time() + 1200, {}
         while time.time() < deadline:
             time.sleep(2)
+            if not os.path.exists(status_file):
+                continue
             d = self.unity(wt, ["test", "status"], timeout=60)
             if d.get("success"):
                 res = (d.get("data") or {}).get("result") or {}
                 if str(res.get("status", "")).lower() in ("completed", "failed", "cancelled", "error"):
                     break
         else:
-            raise Fail("the tests didn't finish within 20 minutes")
-        self.last_used[wt.key] = time.time()
-        summary = res.get("summary") or {}
-        failures = [{"test": r.get("FullName"), "message": (r.get("Message") or "")[:400]}
-                    for r in (res.get("results") or []) if str(r.get("Status", "")).lower().startswith("fail")]
-        out_res = {"mode": mode, "status": res.get("status"), "summary": summary, "failures": failures[:30]}
-        if summary.get("failed") or str(res.get("status", "")).lower() != "completed":
-            raise Fail(f"{summary.get('failed', '?')} test(s) failed", rc=8, result=out_res)
-        if not summary.get("total"):
-            out("note: no tests matched")
-        return out_res
+            raise Fail(f"the {mode} tests didn't finish within 20 minutes")
+        return {"status": str(res.get("status", "")).lower(), "summary": res.get("summary") or {},
+                "failures": self.tally(res.get("results"))}
 
     def v_capture(self, caller, args, out):
         w, h = "1280", "720"
