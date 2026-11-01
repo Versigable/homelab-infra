@@ -366,6 +366,13 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         log(f"api {getattr(self, 'who', '?')} {fmt % args}")
 
+    def log_request(self, code="-", size="-"):
+        # The Forge syncs every 2 s. The broker logs what a sync changes (live, ended, failed);
+        # a sync that went through is not news. Refused or failed syncs are still logged.
+        if self.path == "/v1/forge/sync" and code == 200:
+            return
+        super().log_request(code, size)
+
     def identity(self):
         cert = self.connection.getpeercert() or {}
         cn = None
@@ -542,6 +549,13 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         log(f"portal {getattr(self, 'person', '-')} {fmt % args}")
+
+    def log_request(self, code="-", size="-"):
+        # Traefik asks before every request to a slot. Who watched which session is in the
+        # sessions table; the journal keeps only the refusals.
+        if self.path == "/auth/stream" and code == 200:
+            return
+        super().log_request(code, size)
 
     def send(self, code, body, ctype="text/html; charset=utf-8"):
         raw = body.encode()
