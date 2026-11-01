@@ -35,3 +35,11 @@ studio_hub_cert_days: 825
 studio_hub_cert_renew_seconds: 2592000
 
 studio_hub_memory_max: 1G
+
+# Play sessions (the broker): a live session ends after this long with no viewer, at the cap,
+# or if it isn't live within start_minutes. A session watched for play_min_seconds or more
+# is play evidence on its MR.
+studio_hub_idle_minutes: 10
+studio_hub_cap_hours: 2
+studio_hub_start_minutes: 5
+studio_hub_play_min_seconds: 30

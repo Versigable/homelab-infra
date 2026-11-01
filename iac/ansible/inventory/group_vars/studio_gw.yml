@@ -93,12 +93,19 @@ studio_gw_ingress:
     port: 3040
     to_ip: 10.77.0.10
     to_port: 3040
-  # The studio portal on the hub (role studio_hub): Traefik only, after Authentik.
+  # The studio portal on the hub (role studio_hub): Traefik only, after Authentik. Traefik's
+  # stream check (forwardAuth, /auth/stream) comes this way too.
   - name: hub-portal
     from: 10.0.2.5
     port: 8080
     to_ip: 10.77.0.20
     to_port: 8080
+  # Play sessions on the Forge (forge-playd; studio_play_slots from studio_play_base_port in
+  # studio_private.yml): Traefik only, after Authentik and the hub's stream check.
+  - {name: forge-session-s0, from: 10.0.2.5, port: 3100, to_ip: 10.77.0.10, to_port: 3100}
+  - {name: forge-session-s1, from: 10.0.2.5, port: 3101, to_ip: 10.77.0.10, to_port: 3101}
+  - {name: forge-session-s2, from: 10.0.2.5, port: 3102, to_ip: 10.77.0.10, to_port: 3102}
+  - {name: forge-session-s3, from: 10.0.2.5, port: 3103, to_ip: 10.77.0.10, to_port: 3103}
 
 # LAN services reached directly, not through Squid. The Forge's webstation reads the ROM
 # library from TrueNAS over NFSv4 (the gameroom share, mounted read-only by nfs_client).

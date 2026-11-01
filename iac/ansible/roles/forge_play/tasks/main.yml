@@ -209,3 +209,8 @@
   loop: "{{ forge_play_games }}"
   loop_control:
     label: "{{ item.id }}"
+
+# --- Sessions on demand (forge-playd, step 2b-1b) -------------------------------------------
+
+- name: Play sessions from the hub's broker
+  ansible.builtin.import_tasks: sessions.yml

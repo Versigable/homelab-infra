@@ -33,6 +33,45 @@ http:
       middlewares:
         - authentik-forward
 
+    # Play sessions (forge-playd on the Forge; the hub's broker hands out the slots). Slot n
+    # is the Forge's :310n through studio-gw. After Authentik, studio-stream asks the hub
+    # whether this person owns the live session on the slot: the design's per-session stream
+    # token, with no change to Selkies. Four slots: studio_play_slots in homelab-infra's
+    # iac/ansible/inventory/group_vars/studio_private.yml, and studio_gw.yml's ingress.
+    studio-session-s0-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s0/`)"
+      service: studio-session-s0-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+    studio-session-s1-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s1/`)"
+      service: studio-session-s1-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+    studio-session-s2-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s2/`)"
+      service: studio-session-s2-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+    studio-session-s3-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s3/`)"
+      service: studio-session-s3-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+
+  middlewares:
+    # The hub's stream check. Only the person's name goes to the hub (no cookies); Traefik
+    # adds X-Forwarded-Uri, from which the hub reads the slot.
+    studio-stream:
+      forwardAuth:
+        address: "http://10.0.1.150:8080/auth/stream"
+        authRequestHeaders:
+          - X-authentik-username
+
   services:
     studio-play-surfs-ahoy-svc:
       loadbalancer:
@@ -44,4 +83,25 @@ http:
       loadbalancer:
         servers:
           - url: http://10.0.1.150:8080
+        passHostHeader: true
+
+    studio-session-s0-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3100
+        passHostHeader: true
+    studio-session-s1-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3101
+        passHostHeader: true
+    studio-session-s2-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3102
+        passHostHeader: true
+    studio-session-s3-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3103
         passHostHeader: true

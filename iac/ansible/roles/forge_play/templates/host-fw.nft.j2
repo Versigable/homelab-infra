@@ -4,13 +4,22 @@
 #   - containers on the locked bridges ({{ forge_play_locked_bridges | join(', ') }}) can't open
 #     connections: not out through the Forge, not to it; they only answer their stream. TCP
 #     attempts are reset, so a client inside fails at once instead of waiting out a timeout;
-#   - SSH comes only from studio-gw (Ansible jumps through it).
+#   - SSH comes only from studio-gw (Ansible jumps through it);
+#   - forge-playd's session ports ({{ studio_play_base_port }}-{{ studio_play_base_port + studio_play_slots - 1 }}) open only for Traefik
+#     ({{ forge_play_stream_from | join(', ') }}), whose requests studio-gw forwards with their own address, after the
+#     hub has checked the person owns the session. Dropped before Docker's DNAT, which would
+#     bypass the input chain.
 table inet forge_host
 delete table inet forge_host
 
 define LOCKED = { {{ forge_play_locked_bridges | map('to_json') | join(', ') }} }
 
 table inet forge_host {
+	chain prerouting {
+		type filter hook prerouting priority mangle; policy accept;
+		ip daddr {{ forge_play_host_ip }} tcp dport {{ studio_play_base_port }}-{{ studio_play_base_port + studio_play_slots - 1 }} ip saddr != { {{ forge_play_stream_from | join(', ') }} } ct state new drop
+	}
+
 	chain input {
 		type filter hook input priority filter; policy accept;
 		iifname $LOCKED ct state new meta l4proto tcp reject with tcp reset
