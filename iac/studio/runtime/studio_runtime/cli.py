@@ -6,6 +6,7 @@ Results print as JSON on stdout, progress on stderr; the exit code is the verb's
 """
 
 import json
+import os
 import socket
 import sys
 
@@ -30,13 +31,22 @@ USAGE = """usage: studio <verb> [args]
                                     (studio docs Mathf.Sin; studio docs --manual Prefabs);
                                     a partial name lists the matching pages
 
+In a job (studio-agentd):
+  studio done --summary <file>      finish: the cold gates on your committed HEAD, then the
+                                    daemon pushes your branch and opens the MR with the file
+                                    as its description; it refuses if the gates fail
+  studio done --blocked <file>      stop: you can't complete the task; the file says why
+  studio done --review <file>       a review job's notes, posted on the MR
+
+For the person (from your own shell):
+  studio jobs                       the cell's recent jobs
+  studio attach <job> / detach <job>
+                                    take over a running job's session, then hand it back
+
 Run it inside a worktree (/srv/studio/<game>/work/<name>); `docs` works anywhere.
 """
 
 LATER = {
-    "ledger": "the evidence ledger arrives with studio-agentd (step 2c-2c)",
-    "done": "`studio done` arrives with studio-agentd (step 2c-2c)",
-    "attach": "`studio attach` arrives with studio-agentd (step 2c-2c)",
     "map": "the project map arrives with the Studio Kit (step 3)",
     "play": "playing builds on the Forge arrives in step 3",
     "gen": "generation on the Forge arrives in step 4",
@@ -75,6 +85,17 @@ def main(argv=None):
         # Local and read-only: the pages are on disk, readable by everyone; no daemon involved.
         from . import docs
         return docs.main(args)
+    if verb in ("done", "jobs", "attach", "detach"):
+        if verb == "done" and len(args) == 2:
+            # Read here, inside the job: its /tmp is private to its unit, so the daemon couldn't.
+            try:
+                with open(args[1], encoding="utf-8", errors="replace") as f:
+                    text = f.read(200000)
+            except OSError as e:
+                print(f"studio done: {e}", file=sys.stderr)
+                return 2
+            args = [args[0], os.path.abspath(args[1]), text]
+        return call(common.AGENTD_SOCKET, verb, args)
     return call(common.UNITYD_SOCKET, verb, args)
 
 

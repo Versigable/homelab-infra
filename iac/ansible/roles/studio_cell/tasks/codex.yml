@@ -1,7 +1,9 @@
-# Codex CLI: OpenAI's static musl binary from GitHub Releases. The control node downloads and
-# checks it, so cells need no GitHub access. The person signs in as the user agent with
+# Codex CLI: OpenAI's static musl binaries from GitHub Releases. The control node downloads and
+# checks them, so cells need no GitHub access. The person signs in as the user agent with
 # `codex login --device-auth` (device-code sign-in must be on in their ChatGPT security
-# settings).
+# settings). Two archives: codex itself, and its code-mode host, which codex runs from its own
+# directory ("Code Mode is unavailable ... codex-code-mode-host: host executable was not
+# found" without it, 2026-11-01).
 
 - name: Codex download directory on the control node
   ansible.builtin.file:
@@ -13,12 +15,15 @@
   become: false
   check_mode: false
 
-- name: Codex release archive, checked, on the control node
+- name: Codex release archives, checked, on the control node
   ansible.builtin.get_url:
-    url: "https://github.com/openai/codex/releases/download/{{ studio_cell_codex_version }}/codex-x86_64-unknown-linux-musl.tar.gz"
-    dest: "{{ studio_cell_codex_cache }}/codex-{{ studio_cell_codex_version }}.tar.gz"
-    checksum: "sha256:{{ studio_cell_codex_sha256 }}"
+    url: "https://github.com/openai/codex/releases/download/{{ studio_cell_codex_version }}/{{ item.asset }}-x86_64-unknown-linux-musl.tar.gz"
+    dest: "{{ studio_cell_codex_cache }}/{{ item.asset }}-{{ studio_cell_codex_version }}.tar.gz"
+    checksum: "sha256:{{ item.sha256 }}"
     mode: "0600"
+  loop: "{{ studio_cell_codex_archives }}"
+  loop_control:
+    label: "{{ item.asset }}"
   delegate_to: localhost
   run_once: true
   become: false
@@ -31,19 +36,31 @@
     state: directory
     mode: "0755"
 
-- name: Codex binary
+- name: Codex binaries
   ansible.builtin.unarchive:
-    src: "{{ studio_cell_codex_cache }}/codex-{{ studio_cell_codex_version }}.tar.gz"
+    src: "{{ studio_cell_codex_cache }}/{{ item.asset }}-{{ studio_cell_codex_version }}.tar.gz"
     dest: "/opt/codex/{{ studio_cell_codex_version }}"
     owner: root
     group: root
-    creates: "/opt/codex/{{ studio_cell_codex_version }}/codex-x86_64-unknown-linux-musl"
+    creates: "/opt/codex/{{ studio_cell_codex_version }}/{{ item.asset }}-x86_64-unknown-linux-musl"
+  loop: "{{ studio_cell_codex_archives }}"
+  loop_control:
+    label: "{{ item.asset }}"
+
+# Codex looks for its code-mode host by its plain name, next to its own executable.
+- name: Codex's code-mode host under the name codex looks for
+  ansible.builtin.file:
+    src: "/opt/codex/{{ studio_cell_codex_version }}/codex-code-mode-host-x86_64-unknown-linux-musl"
+    dest: "/opt/codex/{{ studio_cell_codex_version }}/codex-code-mode-host"
+    state: link
+    force: true
 
 - name: Codex on the PATH
   ansible.builtin.file:
     src: "/opt/codex/{{ studio_cell_codex_version }}/codex-x86_64-unknown-linux-musl"
     dest: /usr/local/bin/codex
     state: link
+    force: true
 
 - name: Codex runs
   ansible.builtin.command: codex --version
@@ -54,3 +71,4 @@
   failed_when: >-
     studio_cell_codex_check.rc != 0
     or studio_cell_codex_version | regex_replace('^rust-v', '') not in studio_cell_codex_check.stdout
+  when: not ansible_check_mode

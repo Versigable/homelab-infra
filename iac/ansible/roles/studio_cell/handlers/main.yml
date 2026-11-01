@@ -14,3 +14,12 @@
     name: studio-unityd
     state: restarted
   when: not (ansible_check_mode and (studio_cell_unityd_unit.changed | default(false)))
+
+# Running jobs are their own units; the daemon picks them up again from its journal.
+- name: Restart studio-agentd
+  ansible.builtin.systemd_service:
+    name: studio-agentd
+    state: restarted
+  when:
+    - studio_cell_token_file.stat.exists | default(false)
+    - not (ansible_check_mode and (studio_cell_agentd_unit.changed | default(false)))

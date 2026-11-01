@@ -31,7 +31,9 @@
     - {src: studio_runtime/, mode: "u=rwX,go=rX"}
     - {src: bin/, mode: "0755"}
     - {src: README.md, mode: "0644"}
-  notify: Restart studio-unityd
+  notify:
+    - Restart studio-unityd
+    - Restart studio-agentd
 
 # force: on a first check-mode run the programs aren't copied yet.
 - name: The studio CLI and studio-admin on the PATH
@@ -67,7 +69,11 @@
       editor_memory_max: "{{ studio_cell_editor_memory_max }}"
       gate_memory_max: "{{ studio_cell_gate_memory_max }}"
       editor_idle_minutes: "{{ studio_cell_editor_idle_minutes }}"
-  notify: Restart studio-unityd
+      agent_env: "{{ studio_cell_agent_job_env }}"
+      agentd: "{{ studio_cell_agentd }}"
+  notify:
+    - Restart studio-unityd
+    - Restart studio-agentd
 
 - name: The studio-unityd service
   ansible.builtin.copy:
@@ -103,6 +109,53 @@
     enabled: true
     daemon_reload: true
   when: not (ansible_check_mode and studio_cell_unityd_unit.changed)
+
+- name: Claude's settings for unattended jobs
+  ansible.builtin.copy:
+    dest: /etc/studio/claude-job-settings.json
+    content: "{{ studio_cell_claude_job_settings | to_nice_json }}
+"
+    owner: root
+    group: root
+    mode: "0644"
+
+# studio-agentd needs the agent account's token (studio.yml); without it, it isn't started.
+- name: The studio-agentd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/studio-agentd.service
+    content: |
+      # Managed by Ansible (role studio_cell).
+      [Unit]
+      Description=studio-agentd, the cell's daemon (approved GitLab work -> sandboxed jobs -> MRs)
+      After=network-online.target nftables.service studio-unityd.service
+      Wants=network-online.target studio-unityd.service
+      ConditionPathExists=/etc/studio/gitlab-token
+
+      [Service]
+      ExecStart=/opt/studio/runtime/bin/studio-agentd
+      RuntimeDirectory=studio
+      RuntimeDirectoryMode=0755
+      RuntimeDirectoryPreserve=yes
+      Restart=on-failure
+      RestartSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: studio_cell_agentd_unit
+  notify:
+    - Reload systemd
+    - Restart studio-agentd
+
+- name: The studio-agentd service running (with a token)
+  ansible.builtin.systemd_service:
+    name: studio-agentd
+    state: started
+    enabled: true
+    daemon_reload: true
+  when:
+    - studio_cell_token_file.stat.exists
+    - not (ansible_check_mode and studio_cell_agentd_unit.changed)
 
 - name: Runtime changes applied before the checks
   ansible.builtin.meta: flush_handlers
