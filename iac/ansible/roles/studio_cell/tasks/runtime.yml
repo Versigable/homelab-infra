@@ -71,6 +71,13 @@
       editor_idle_minutes: "{{ studio_cell_editor_idle_minutes }}"
       agent_env: "{{ studio_cell_agent_job_env }}"
       agentd: "{{ studio_cell_agentd }}"
+      # The hub's depot, as this cell (role studio_hub_client; only root reads the key).
+      hub:
+        url: "{{ studio_hub_api_url }}"
+        portal: "{{ studio_portal_url }}"
+        ca: "{{ studio_hub_client_dir }}/ca.crt"
+        cert: "{{ studio_hub_client_dir }}/client.crt"
+        key: "{{ studio_hub_client_dir }}/client.key"
   notify:
     - Restart studio-unityd
     - Restart studio-agentd

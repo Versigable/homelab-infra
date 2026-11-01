@@ -31,10 +31,18 @@
   roles:
     - base
 
+# Before the cells: it holds the CA that signs their client certificates.
+- name: Studio hub (depot, portal, the CA for studio clients)
+  hosts: studio_hub
+  become: true
+  roles:
+    - studio_hub
+
 - name: Studio cells (owner login, Claude Code, Codex, Unity CLI and Editor)
   hosts: studio_cell
   become: true
   roles:
+    - studio_hub_client
     - studio_cell
 
 # Before Docker, so Docker's unit already waits for the mounts when it first starts.

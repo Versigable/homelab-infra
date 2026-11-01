@@ -1,0 +1,8 @@
+# A studio client's identity at the hub (role studio_hub). The directory, the hub's address
+# and its name in the inventory are in group_vars/studio_private.yml.
+
+# Where the hub keeps its CA certificate (role studio_hub's studio_hub_dir).
+studio_hub_client_ca_on_hub: /etc/studio-hub/ca.crt
+
+# Renew once fewer than this many seconds remain (30 days), as the hub does for its own.
+studio_hub_client_renew_seconds: 2592000
