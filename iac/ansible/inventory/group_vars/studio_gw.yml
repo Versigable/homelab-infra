@@ -93,6 +93,12 @@ studio_gw_ingress:
     port: 3040
     to_ip: 10.77.0.10
     to_port: 3040
+  # The studio portal on the hub (role studio_hub): Traefik only, after Authentik.
+  - name: hub-portal
+    from: 10.0.2.5
+    port: 8080
+    to_ip: 10.77.0.20
+    to_port: 8080
 
 # LAN services reached directly, not through Squid. The Forge's webstation reads the ROM
 # library from TrueNAS over NFSv4 (the gameroom share, mounted read-only by nfs_client).

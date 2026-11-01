@@ -13,6 +13,8 @@ daemon's own, as the agent account, after the job:
 
 `studio done` (a job's last verb) asks the broker for the cold gates on the job's committed
 HEAD; the job counts as done only with a passing gate for that exact revision (the ledger).
+Publishing puts that revision's Linux build in the hub's depot, and the MR links it on the
+portal; each poll then hands the hub any manifest it hasn't taken and the state of those MRs.
 """
 
 import datetime as dt
@@ -23,6 +25,7 @@ import re
 import shutil
 import socket
 import socketserver
+import ssl
 import subprocess
 import sys
 import threading
@@ -30,6 +33,7 @@ import time
 import traceback
 
 from . import admin, common
+from . import hub as hubmod
 from .gitlab import GitLab, GitLabError
 
 RUNTIME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,6 +112,13 @@ class Agentd:
         self.owner_uid = pwd.getpwnam(cfg["owner"]).pw_uid
         self.lock = threading.RLock()
         self.ignored = set()          # label events that aren't approvals, already noted
+        self.hub = None               # the hub's depot, once this cell has its certificate
+        if cfg.get("hub"):
+            try:
+                self.hub = hubmod.Hub(cfg)
+            except (OSError, ssl.SSLError) as e:
+                log(f"no hub: {e}")
+        self.mr_synced = 0.0
 
     # --- the poll ------------------------------------------------------------------------------
 
@@ -128,6 +139,7 @@ class Agentd:
 
     def tick(self):
         with self.lock:
+            self.sync_hub()
             for job in Job.all():
                 if job["state"] == "running" and not self.unit_active(job):
                     self.finish(job)
@@ -416,7 +428,7 @@ class Agentd:
         if res.get("rc") != 0:
             raise RuntimeError(json.dumps({"gate": "failed", "detail": res.get("result")})[:4000])
         gate = res.get("result") or {}
-        ledger = {"revision": head, "gates": gate, "play": "arrives in step 3 (the Forge's play lane)"}
+        ledger = {"revision": head, "gates": gate, "play": "not played yet"}
         job.set(result={"kind": "summary", "text": text, "revision": head}, ledger=ledger)
         return {"done": True, "revision": head, "gates": "passed"}
 
@@ -480,6 +492,12 @@ class Agentd:
         if head != res["revision"]:
             raise RuntimeError(f"HEAD {head} isn't the gated revision {res['revision']}: the job committed after `studio done`")
         ledger = job["ledger"]
+        dep = self.deposit(job, head)
+        if "object" in dep:
+            ledger["play"] = f"not played yet. The build (`{dep['object'][:12]}`) is on the portal: {dep['url']}"
+        else:
+            ledger["play"] = f"none, the build didn't reach the depot ({dep['error']})"
+        job.set(ledger=ledger)
         steps = ledger["gates"].get("steps", [])
         rows = "\n".join(f"| {s['step']} | {'passed' if s.get('passed') else 'FAILED'} | "
                          f"{(s.get('tests') or {}).get('passed', '')}/{(s.get('tests') or {}).get('total', '')} |"
@@ -494,13 +512,73 @@ class Agentd:
         else:
             mr = self.gl.open_mr(pid, job["branch"], self.gl.project(pid)["default_branch"],
                                  f"{item['title']} ({item['ref'].split('/')[-1]})", body, [REVIEW])
-        self.gl.status(pid, head, "success", "studio/gates", "cold gates passed on cell-" + self.cfg["owner"])
+        self.gl.status(pid, head, "success", "studio/gates", "cold gates passed on cell-" + self.cfg["owner"],
+                       target_url=dep.get("url"))
         self.gl.relabel("issue", pid, item["iid"], add=[REVIEW], remove=[RUNNING])
         self.gl.note("issue", pid, item["iid"], f"Done: {mr['web_url']} (gates passed on `{head[:10]}`).")
         job.set(state="done", mr=mr["iid"], mr_url=mr["web_url"], finished_at=now().isoformat())
         log(f"{job.id}: published {mr['web_url']}")
+        if "object" in dep:
+            m = hubmod.manifest(job["game"], ledger["gates"], dep, job=job.id, mr=mr)
+            job.set(hub={"manifest": m, "posted": False})
+            try:
+                self.post_manifest(job)
+            except (hubmod.HubError, OSError, ssl.SSLError) as e:
+                log(f"{job.id}: manifest not taken yet ({e}); the next poll retries")
         if self.a.get("review_after_implement", True):
             self.queue_review(job, mr)
+
+    # --- the hub's depot and portal ----------------------------------------------------------------
+
+    def deposit(self, job, head):
+        """The gated Linux build into the depot, before the MR is written: its body links it."""
+        if not self.hub:
+            return {"error": "this cell has no hub settings"}
+        try:
+            dep = hubmod.deposit(self.hub, job["game"], job["ledger"]["gates"])
+        except (hubmod.HubError, OSError, ValueError, ssl.SSLError) as e:
+            log(f"{job.id}: deposit failed: {e}")
+            return {"error": str(e)[:200]}
+        dep["url"] = f"{self.hub.portal}/g/{job['game']}/r/{head}"
+        log(f"{job.id}: build {dep['object'][:12]} in the depot")
+        return dep
+
+    def post_manifest(self, job, timeout=60):
+        h = job["hub"]
+        self.hub.call("POST", "/v1/builds", h["manifest"], timeout=timeout)
+        h["posted"] = True
+        job.set(hub=h)
+
+    def sync_hub(self):
+        """Manifests the hub hasn't taken yet; every 10 minutes, the state of MRs still open there.
+        A hub that doesn't answer is tried again at the next poll."""
+        if not self.hub:
+            return
+        check_mrs = time.time() - self.mr_synced > 600
+        cutoff = now() - dt.timedelta(days=31)
+        for job in Job.all():
+            h = job.get("hub")
+            if not h or not job.get("finished_at") or ts(job["finished_at"]) < cutoff:
+                continue
+            mr = h["manifest"].get("mr")
+            try:
+                if not h.get("posted"):
+                    self.post_manifest(job, timeout=15)
+                elif check_mrs and mr and mr.get("state") == "opened":
+                    cur = self.gl.item("mr", mr["project_id"], mr["iid"])
+                    if (cur["state"], cur["title"]) != (mr["state"], mr["title"]):
+                        self.hub.call("POST", "/v1/mr-state", {"game": job["game"], "iid": mr["iid"],
+                                                               "state": cur["state"], "title": cur["title"]},
+                                      timeout=15)
+                        mr.update(state=cur["state"], title=cur["title"])
+                        job.set(hub=h)
+            except (OSError, ssl.SSLError) as e:
+                log(f"hub sync: the hub didn't answer ({e}); next poll")
+                return
+            except (hubmod.HubError, GitLabError) as e:
+                log(f"{job.id}: hub sync: {e}")
+        if check_mrs:
+            self.mr_synced = time.time()
 
     def queue_review(self, job, mr):
         """The other vendor reviews the MR, without another approval: it's part of this one."""

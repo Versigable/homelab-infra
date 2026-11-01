@@ -1,0 +1,236 @@
+# The studio hub, step 2b-1a: the depot disk, the hub's firewall, its CA, and studio-hubd (the
+# depot, and the portal, read-only for now). Vault: 1-Projects/game-studio-platform/notes/
+# step-2b-1-plan. Play sessions (the broker) come in 2b-1b.
+
+- name: Packages
+  ansible.builtin.apt:
+    name: [nftables, openssl, sqlite3, e2fsprogs, curl]
+
+# --- Firewall, before any service listens ---------------------------------------------------
+
+- name: The nftables ruleset
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: The nftables service enabled
+  ansible.builtin.systemd_service:
+    name: nftables
+    state: started
+    enabled: true
+
+- name: Firewall applied before the services start
+  ansible.builtin.meta: flush_handlers
+
+# --- The depot disk ----------------------------------------------------------------------------
+
+- name: The hub's service user
+  ansible.builtin.user:
+    name: "{{ studio_hub_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+
+# Never reformats: the filesystem module leaves a disk that already has one alone.
+- name: The depot disk has a filesystem (ext4, label depot)
+  community.general.filesystem:
+    dev: "{{ studio_hub_depot_device }}"
+    fstype: ext4
+    opts: -L depot -m 0
+
+- name: The depot mounted
+  ansible.posix.mount:
+    path: "{{ studio_hub_depot }}"
+    src: LABEL=depot
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+- name: The depot belongs to the hub's service
+  ansible.builtin.file:
+    path: "{{ studio_hub_depot }}"
+    state: directory
+    owner: "{{ studio_hub_user }}"
+    group: "{{ studio_hub_user }}"
+    mode: "0750"
+
+# --- The CA and the hub's server certificate --------------------------------------------------
+
+- name: Hub directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ studio_hub_dir }}", group: "{{ studio_hub_user }}", mode: "0750"}
+    - {path: "{{ studio_hub_dir }}/ca", group: root, mode: "0700"}
+
+- name: The CA tool (signs client and server certificates)
+  ansible.builtin.template:
+    src: studio-hub-pki.j2
+    dest: /usr/local/sbin/studio-hub-pki
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: The CA
+  ansible.builtin.command: /usr/local/sbin/studio-hub-pki init
+  register: studio_hub_ca
+  changed_when: studio_hub_ca.stdout == 'created'
+
+- name: The hub's server key
+  ansible.builtin.shell: |
+    umask 077
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out {{ studio_hub_dir }}/hub.key
+  args:
+    creates: "{{ studio_hub_dir }}/hub.key"
+
+- name: The server key readable by the service
+  ansible.builtin.file:
+    path: "{{ studio_hub_dir }}/hub.key"
+    owner: root
+    group: "{{ studio_hub_user }}"
+    mode: "0640"
+
+- name: Is the server certificate good (this CA's, this key's, not near expiry)?
+  ansible.builtin.shell: |
+    set -e
+    d={{ studio_hub_dir }}
+    openssl verify -CAfile $d/ca.crt $d/hub.crt >/dev/null
+    openssl x509 -in $d/hub.crt -noout -checkend {{ studio_hub_cert_renew_seconds }} >/dev/null
+    [ "$(openssl x509 -in $d/hub.crt -noout -pubkey)" = "$(openssl pkey -in $d/hub.key -pubout)" ]
+  register: studio_hub_cert_ok
+  changed_when: false
+  failed_when: false
+
+- name: The hub's server certificate
+  ansible.builtin.shell: |
+    set -eo pipefail
+    d={{ studio_hub_dir }}
+    openssl req -new -key $d/hub.key -subj /CN={{ studio_hub_host }} \
+      | /usr/local/sbin/studio-hub-pki sign {{ studio_hub_host }} server {{ studio_hub_ip }} > $d/hub.crt.tmp
+    chmod 0644 $d/hub.crt.tmp
+    mv $d/hub.crt.tmp $d/hub.crt
+  args:
+    executable: /bin/bash
+  when: studio_hub_cert_ok.rc != 0
+  changed_when: true
+  notify: Restart studio-hubd
+
+# --- studio-hubd -------------------------------------------------------------------------------
+
+- name: Runtime directory
+  ansible.builtin.file:
+    path: /opt/studio/runtime
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: The runtime, as merged (code, then programs)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../studio/runtime/{{ item.src }}"
+    dest: "/opt/studio/runtime/{{ item.src }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: studio_runtime/, mode: "u=rwX,go=rX"}
+    - {src: bin/, mode: "0755"}
+    - {src: README.md, mode: "0644"}
+  notify: Restart studio-hubd
+
+- name: The hub's settings (listeners, TLS files, its clients)
+  ansible.builtin.template:
+    src: hub.json.j2
+    dest: "{{ studio_hub_dir }}/hub.json"
+    owner: root
+    group: "{{ studio_hub_user }}"
+    mode: "0640"
+    validate: python3 -c "import json, sys; json.load(open(sys.argv[1]))" %s
+  notify: Restart studio-hubd
+
+- name: The studio-hubd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/studio-hubd.service
+    content: |
+      # Managed by Ansible (role studio_hub).
+      [Unit]
+      Description=studio-hubd, the studio hub (depot, portal)
+      After=network-online.target nftables.service
+      Wants=network-online.target
+      RequiresMountsFor={{ studio_hub_depot }}
+
+      [Service]
+      User={{ studio_hub_user }}
+      Group={{ studio_hub_user }}
+      ExecStart=/opt/studio/runtime/bin/studio-hubd
+      Restart=on-failure
+      RestartSec=5
+      MemoryMax={{ studio_hub_memory_max }}
+      NoNewPrivileges=yes
+      ProtectSystem=strict
+      ProtectHome=yes
+      PrivateTmp=yes
+      PrivateDevices=yes
+      ProtectKernelTunables=yes
+      ProtectKernelModules=yes
+      ProtectControlGroups=yes
+      RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+      LockPersonality=yes
+      ReadWritePaths={{ studio_hub_depot }}
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: studio_hub_unit
+  notify:
+    - Reload systemd
+    - Restart studio-hubd
+
+- name: The studio-hubd service running
+  ansible.builtin.systemd_service:
+    name: studio-hubd
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: not (ansible_check_mode and studio_hub_unit.changed)
+
+- name: Changes applied before the checks
+  ansible.builtin.meta: flush_handlers
+
+# --- Checks ------------------------------------------------------------------------------------
+
+- name: The portal answers
+  ansible.builtin.uri:
+    url: "http://{{ studio_hub_ip }}:{{ studio_hub_portal_port }}/healthz"
+  register: studio_hub_health
+  until: studio_hub_health.status == 200
+  retries: 10
+  delay: 2
+  when: not ansible_check_mode
+
+# From the hub itself: not Traefik, so no person, however the request is dressed up.
+- name: The portal refuses callers other than Traefik
+  ansible.builtin.command:
+    argv: [curl, -sS, -o, /dev/null, -w, "%{http_code}", -H, "X-authentik-username: someone",
+           "http://{{ studio_hub_ip }}:{{ studio_hub_portal_port }}/"]
+  register: studio_hub_portal_refused
+  changed_when: false
+  failed_when: studio_hub_portal_refused.stdout != '403'
+  when: not ansible_check_mode
+
+- name: The API refuses a caller without a client certificate
+  ansible.builtin.command:
+    argv: [curl, -sS, -o, /dev/null, --cacert, "{{ studio_hub_dir }}/ca.crt",
+           "{{ studio_hub_api_url }}/v1/whoami"]
+  register: studio_hub_api_refused
+  changed_when: false
+  failed_when: studio_hub_api_refused.rc == 0
+  when: not ansible_check_mode

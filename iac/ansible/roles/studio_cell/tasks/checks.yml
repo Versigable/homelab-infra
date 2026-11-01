@@ -29,6 +29,9 @@
     - {user: unity, port: 3130, url: "https://api.anthropic.com/", expect: squid}
     - {user: unity, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     - {user: root, port: 3128, url: "{{ studio_cell_gitlab_url }}/api/v4/version", expect: through}
+    # The hub's API is the daemons' (root), never a job's.
+    - {user: agent, port: 0, url: "{{ studio_hub_api_url }}/v1/whoami", expect: firewall}
+    - {user: unity, port: 0, url: "{{ studio_hub_api_url }}/v1/whoami", expect: firewall}
   loop_control:
     label: "{{ item.user }} :{{ item.port }} {{ item.url }} -> {{ item.expect }}"
   when: not ansible_check_mode

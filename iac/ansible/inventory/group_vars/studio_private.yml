@@ -24,3 +24,14 @@ studio_proxy_env:
 # Checks in studio_guest: a name every class may reach, and one none may.
 studio_guest_check_allowed: https://deb.debian.org/debian/
 studio_guest_check_refused: https://example.org/
+
+# The hub (role studio_hub): its API for cells and the Forge (mutual TLS, certificates from
+# the hub's CA through role studio_hub_client), and the portal people open.
+studio_hub_host: studio-hub
+studio_hub_ip: 10.77.0.20
+studio_hub_api_port: 8443
+studio_hub_portal_port: 8080
+studio_hub_api_url: "https://{{ studio_hub_ip }}:{{ studio_hub_api_port }}"
+studio_portal_url: https://studio.ninjaprivacy.org
+# Where a client keeps its key (root only), its certificate and the hub's CA certificate.
+studio_hub_client_dir: /etc/studio-hub-client

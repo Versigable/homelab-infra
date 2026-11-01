@@ -2,12 +2,16 @@
 
   studio-admin workspace <game> <name>   fetch the game into its mirror and make a worktree
                                          for agent at /srv/studio/<game>/work/<name>
+  studio-admin upload <game> <revision>  put a revision's gated Linux build, already on this
+                                         cell, in the hub's depot (with its MR, if GitLab
+                                         knows one); the portal shows it from then on
 
 The mirror is fetched as root with the agent account's token, through Squid's default class,
 and the token reaches git only through an askpass helper: never on a command line, where any
 local user could read it.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -77,6 +81,28 @@ def workspace(cfg, game, name, branch=None):
     return wt.path
 
 
+def upload(cfg, game, rev):
+    """A gate result recorded by studio-unityd (/var/lib/studio/results/<game>/<rev>), its build
+    into the depot, and the manifest. rev may be a unique prefix."""
+    from . import hub as hubmod
+    from .gitlab import GitLab
+    if not common.NAME_RE.match(game):
+        raise ValueError("bad game name")
+    base = os.path.join(common.STATE_DIR, "results", game)
+    revs = [r for r in (os.listdir(base) if os.path.isdir(base) else []) if r.startswith(rev)]
+    if len(revs) != 1:
+        raise ValueError(f"{len(revs)} gate results match {rev!r} in {base}")
+    with open(os.path.join(base, revs[0], "gate-full.json"), encoding="utf-8") as f:
+        gate = json.load(f)
+    hub = hubmod.Hub(cfg)
+    dep = hubmod.deposit(hub, game, gate)
+    gl = GitLab(cfg)
+    pid = gl.project(GitLab.pid(f"{cfg['gitlab_group']}/{game}"))["id"]
+    mrs = gl.call("GET", f"/projects/{pid}/repository/commits/{gate['revision']}/merge_requests") or []
+    res = hub.call("POST", "/v1/builds", hubmod.manifest(game, gate, dep, mr=mrs[0] if mrs else None))
+    return {**res, "object": dep["object"], "mr": mrs[0]["web_url"] if mrs else None}
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if os.geteuid() != 0:
@@ -85,6 +111,9 @@ def main(argv=None):
     cfg = common.load_config()
     if len(argv) in (3, 4) and argv[0] == "workspace":
         print(workspace(cfg, argv[1], argv[2], argv[3] if len(argv) == 4 else None))
+        return 0
+    if len(argv) == 3 and argv[0] == "upload":
+        print(json.dumps(upload(cfg, argv[1], argv[2]), indent=2))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

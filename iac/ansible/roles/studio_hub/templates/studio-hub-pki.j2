@@ -1,0 +1,52 @@
+#!/bin/bash
+# Managed by Ansible (role studio_hub). The hub's CA. It signs the certificates studio clients
+# (cells, the Forge) present to studio-hubd, and the hub's own server certificate. Its key
+# never leaves {{ studio_hub_dir }}/ca; clients make their own keys and send only a CSR.
+#
+#   studio-hub-pki init                         make the CA's key and certificate, if missing
+#   studio-hub-pki sign <cn> client             a CSR on stdin -> the certificate on stdout;
+#   studio-hub-pki sign <cn> server <ip>        the CSR must name exactly CN=<cn>
+set -euo pipefail
+umask 077
+DIR={{ studio_hub_dir }}
+KEY=$DIR/ca/ca.key
+CRT=$DIR/ca.crt
+
+case "${1:-}" in
+init)
+  if [ -s "$KEY" ] && [ -s "$CRT" ]; then echo present; exit 0; fi
+  cfg=$(mktemp); trap 'rm -f "$cfg"' EXIT
+  printf '%s\n' '[req]' 'distinguished_name = dn' 'x509_extensions = ca' 'prompt = no' \
+    '[dn]' 'O = studio' 'CN = studio hub CA' \
+    '[ca]' 'basicConstraints = critical,CA:TRUE,pathlen:0' 'keyUsage = critical,keyCertSign,cRLSign' \
+    'subjectKeyIdentifier = hash' > "$cfg"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$KEY"
+  openssl req -x509 -new -key "$KEY" -config "$cfg" -days {{ studio_hub_ca_days }} -sha256 -out "$CRT.tmp"
+  chmod 0644 "$CRT.tmp"
+  mv "$CRT.tmp" "$CRT"
+  echo created
+  ;;
+sign)
+  cn=${2:-} kind=${3:-}
+  [[ $cn =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "bad name: $cn" >&2; exit 2; }
+  csr=$(mktemp) ext=$(mktemp); trap 'rm -f "$csr" "$ext"' EXIT
+  cat > "$csr"
+  openssl req -in "$csr" -noout -verify 2>/dev/null || { echo "not a valid CSR" >&2; exit 2; }
+  subject=$(openssl req -in "$csr" -noout -subject -nameopt RFC2253)
+  [ "$subject" = "subject=CN=$cn" ] || { echo "the CSR is for '$subject', not CN=$cn" >&2; exit 2; }
+  case $kind in
+  client) san="DNS:$cn" eku=clientAuth ;;
+  server) san="DNS:$cn,IP:${4:?a server certificate needs its IP}" eku=serverAuth ;;
+  *) echo "client or server" >&2; exit 2 ;;
+  esac
+  printf '%s\n' 'basicConstraints = critical,CA:FALSE' 'keyUsage = critical,digitalSignature' \
+    "extendedKeyUsage = $eku" "subjectAltName = $san" > "$ext"
+  openssl x509 -req -in "$csr" -CA "$CRT" -CAkey "$KEY" -set_serial "0x$(openssl rand -hex 16)" \
+    -days {{ studio_hub_cert_days }} -sha256 -extfile "$ext"
+  echo "signed $kind certificate for $cn" | systemd-cat -t studio-hub-pki
+  ;;
+*)
+  sed -n '2,9p' "$0" >&2
+  exit 2
+  ;;
+esac

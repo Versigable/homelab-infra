@@ -124,7 +124,8 @@ module "studio_forge" {
 }
 
 # The hub: the Forge's broker, the depot, the portal, the release publisher and the chat bot
-# (design: architecture §5). Services come in step 2b; for now the VM and its network.
+# (design: architecture §5; role studio_hub). The depot is its own disk, scsi1, mounted at
+# /srv/depot: 200 GB thin on rogue's local-lvm, grown online when it fills.
 module "studio_hub" {
   source = "../modules/vm"
 
@@ -137,6 +138,7 @@ module "studio_hub" {
   memory        = 3072
   memory_min    = 2048
   disk          = 64
+  data_disks    = [{ size = 200 }]
 
   bridge      = local.studio_net.bridge
   nic_mtu     = 1

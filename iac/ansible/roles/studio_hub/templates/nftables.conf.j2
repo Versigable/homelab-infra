@@ -1,0 +1,25 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role studio_hub). The hub's own firewall: it runs no Docker or other rule
+# owner, so the whole ruleset is ours. In, only along the design's paths:
+#   SSH       from studio-gw (Ansible jumps through it)
+#   :{{ studio_hub_portal_port }}     the portal, from Traefik only (studio-gw DNATs it in, keeping Traefik's address)
+#   :{{ studio_hub_api_port }}     the API (mutual TLS), from the cells and the Forge only
+# Out: unrestricted here; studio-gw is the only way off the studio network (apt via Squid).
+flush ruleset
+
+table inet studio_hub {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+		iif lo accept
+		meta l4proto { icmp, ipv6-icmp } accept
+		ip saddr {{ studio_hub_ssh_from }} tcp dport 22 accept
+		ip saddr { {{ studio_hub_portal_proxies | join(', ') }} } tcp dport {{ studio_hub_portal_port }} accept
+{% if studio_hub_client_ips %}
+		ip saddr { {{ studio_hub_client_ips | join(', ') }} } tcp dport {{ studio_hub_api_port }} accept
+{% endif %}
+		meta l4proto tcp reject with tcp reset
+		reject with icmpx admin-prohibited
+	}
+}

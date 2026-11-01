@@ -1,0 +1,37 @@
+# The studio hub (design: architecture §5; vault 1-Projects/game-studio-platform/notes/
+# step-2b-1-plan). Step 2b-1a: the depot, the portal (read-only) and the CA that signs the
+# client certificates of cells and the Forge. Shared names (address, ports, portal URL, the
+# clients' directory) are in group_vars/studio_private.yml.
+
+studio_hub_user: studio-hub
+studio_hub_dir: /etc/studio-hub
+
+# The depot is its own disk, which Terraform attaches as scsi1 (xmansion/studio.tf, data_disks).
+studio_hub_depot: /srv/depot
+studio_hub_depot_device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+
+# MR builds expire this many days after upload; an object goes with the last build using it.
+studio_hub_build_days: 30
+studio_hub_max_object_bytes: 4294967296
+
+# The hub's clients, from the inventory: every cell (with its person, studio_cell_owner) and
+# the Forge. A client is its certificate's name plus this address; a host that leaves the
+# inventory leaves the hub's list at the next run, which revokes it.
+studio_hub_client_hosts: "{{ (groups['studio_cell'] | default([])) + (groups['studio_forge'] | default([])) }}"
+studio_hub_client_ips: "{{ studio_hub_client_hosts | map('extract', hostvars, 'ansible_host') | list }}"
+
+# Traefik: the only caller whose word the portal takes on who the person is
+# (X-authentik-username, set by the authentik-forward middleware). studio-gw DNATs its
+# requests in, so they arrive from Traefik's own address.
+studio_hub_portal_proxies: [10.0.2.5]
+
+# Ansible jumps through studio-gw, so SSH arrives from the gateway's studio address.
+studio_hub_ssh_from: 10.77.0.1
+
+# The CA lives 10 years; server and client certificates 825 days, and the next run renews one
+# once fewer than 30 days remain.
+studio_hub_ca_days: 3650
+studio_hub_cert_days: 825
+studio_hub_cert_renew_seconds: 2592000
+
+studio_hub_memory_max: 1G

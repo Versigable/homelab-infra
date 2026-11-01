@@ -1,0 +1,19 @@
+{
+  "depot": {{ studio_hub_depot | to_json }},
+  "listen_api": "{{ studio_hub_ip }}:{{ studio_hub_api_port }}",
+  "listen_portal": "{{ studio_hub_ip }}:{{ studio_hub_portal_port }}",
+  "portal_url": {{ studio_portal_url | to_json }},
+  "portal_proxies": {{ studio_hub_portal_proxies | to_json }},
+  "build_days": {{ studio_hub_build_days | int }},
+  "max_object_bytes": {{ studio_hub_max_object_bytes | int }},
+  "tls": {
+    "ca": "{{ studio_hub_dir }}/ca.crt",
+    "cert": "{{ studio_hub_dir }}/hub.crt",
+    "key": "{{ studio_hub_dir }}/hub.key"
+  },
+  "clients": {
+{% for h in studio_hub_client_hosts %}
+    {{ h | to_json }}: {"kind": {{ ('cell' if h in groups['studio_cell'] | default([]) else 'forge') | to_json }}, "ip": {{ hostvars[h].ansible_host | to_json }}, "owner": {{ hostvars[h].studio_cell_owner | default(none) | to_json }}}{{ ',' if not loop.last else '' }}
+{% endfor %}
+  }
+}

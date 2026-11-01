@@ -118,6 +118,14 @@ variable "disk" {
   type        = number
 }
 
+variable "data_disks" {
+  description = "Empty disks after the boot disk, in order from scsi1, each size in GB on the VM's datastore. The guest formats and mounts them (Ansible)."
+  type = list(object({
+    size = number
+  }))
+  default = []
+}
+
 variable "datastore" {
   type    = string
   default = "local-lvm"

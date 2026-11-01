@@ -90,6 +90,20 @@ resource "proxmox_virtual_environment_vm" "this" {
     discard      = "on"
   }
 
+  # Data disks (the studio hub's depot), scsi1 onwards. SCSI disks hot-plug, so adding one
+  # to a running VM needs no restart.
+  dynamic "disk" {
+    for_each = var.data_disks
+    content {
+      datastore_id = var.datastore
+      interface    = "scsi${disk.key + 1}"
+      size         = disk.value.size
+      file_format  = "raw"
+      iothread     = true
+      discard      = "on"
+    }
+  }
+
   network_device {
     bridge      = var.bridge
     model       = "virtio"
