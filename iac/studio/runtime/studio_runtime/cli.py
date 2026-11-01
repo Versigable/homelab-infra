@@ -26,9 +26,11 @@ USAGE = """usage: studio <verb> [args]
   studio gate [quick|full]          cold gates on the committed HEAD: quick = EditMode
                                     tests; full = + PlayMode tests + a Linux build
   studio build linux|windows        a cold build of the committed HEAD
+  studio docs [--manual] <name>     Unity's docs for the pinned Editor, offline, as text
+                                    (studio docs Mathf.Sin; studio docs --manual Prefabs);
+                                    a partial name lists the matching pages
 
-Run it inside a worktree (/srv/studio/<game>/work/<name>). Unity's docs for the pinned
-Editor: `unity docs <topic> --content`.
+Run it inside a worktree (/srv/studio/<game>/work/<name>); `docs` works anywhere.
 """
 
 LATER = {
@@ -69,6 +71,10 @@ def main(argv=None):
     if verb in LATER:
         print(f"studio: {LATER[verb]}", file=sys.stderr)
         return 2
+    if verb == "docs":
+        # Local and read-only: the pages are on disk, readable by everyone; no daemon involved.
+        from . import docs
+        return docs.main(args)
     return call(common.UNITYD_SOCKET, verb, args)
 
 

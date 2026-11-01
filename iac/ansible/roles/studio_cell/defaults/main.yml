@@ -27,17 +27,19 @@ studio_cell_packages:
   - libxtst6
 
 # Egress per user. Each user listed here reaches the outside only through its own Squid port
-# on studio-gw, whose class lists what that user may reach (cells_agent and cells_unity in
-# group_vars/studio_gw.yml): agent only the AI vendors, unity only Unity. Everyone else, root
-# and the owner included, uses the default port (class cells). The cell's nftables enforces
-# it (templates/nftables.conf.j2).
+# on studio-gw, whose class says what that user may reach (cells_agent and cells_unity in
+# group_vars/studio_gw.yml): agent the open web over HTTPS, unity only Unity. Everyone else,
+# root and the owner included, uses the default port (class cells). The cell's nftables
+# enforces it (templates/nftables.conf.j2).
 studio_cell_user_proxy_ports:
   agent: 3129
   unity: 3130
-# Users that keep loopback TCP. The Editor talks to its licensing client, its build workers
-# and the Pipeline bridge over loopback. agent doesn't get it, so it can't reach an editor's
-# command port except through the broker's verbs.
-studio_cell_loopback_users: [unity]
+# Loopback ports a pinned user may not reach; the rest of loopback is open to it (the Unity
+# CLI, for one, sends its web requests through a helper of its own on a random loopback port).
+# 7800-7999 are Pipeline's servers in editors and players: agent reaches an editor only
+# through the broker's verbs (the servers also want a bearer token only unity can read).
+studio_cell_loopback_deny:
+  agent: [7800-7999]
 studio_cell_proxy_host: "{{ studio_proxy_url | urlsplit('hostname') }}"
 
 # Group shared by agent and unity for job worktrees: agents edit the code, the editor writes

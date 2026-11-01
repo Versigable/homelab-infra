@@ -25,14 +25,44 @@
     - {user: agent, port: 3129, url: "https://10.0.1.5/", expect: squid}
     - {user: agent, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     - {user: agent, port: 3130, url: "https://unity.com/", expect: firewall}
-    # An editor's command port is loopback TCP: agent can't reach it (sshd stands in here).
-    - {user: agent, port: 0, url: "http://127.0.0.1:22/", expect: firewall}
     - {user: unity, port: 3130, url: "https://unity.com/", expect: through}
     - {user: unity, port: 3130, url: "https://api.anthropic.com/", expect: squid}
     - {user: unity, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     - {user: root, port: 3128, url: "{{ studio_cell_gitlab_url }}/api/v4/version", expect: through}
   loop_control:
     label: "{{ item.user }} :{{ item.port }} {{ item.url }} -> {{ item.expect }}"
+  when: not ansible_check_mode
+
+# Loopback: agent reaches a loopback listener (the Unity CLI's own helper is one), but not
+# Pipeline's ports, where editors take commands. Two throwaway listeners, as root and serving
+# an empty directory, stand in for both; curl's 7 there is the firewall's reset.
+- name: Agent reaches loopback, but not Pipeline's ports
+  ansible.builtin.shell:
+    cmd: |
+      set -u
+      d=$(mktemp -d)
+      python3 -m http.server 7701 --bind 127.0.0.1 --directory "$d" >/dev/null 2>&1 & a=$!
+      python3 -m http.server 7801 --bind 127.0.0.1 --directory "$d" >/dev/null 2>&1 & b=$!
+      sleep 1
+      runuser -u agent -- curl -sS -m 5 --noproxy '*' -o /dev/null http://127.0.0.1:7701/; open=$?
+      runuser -u agent -- curl -sS -m 5 --noproxy '*' -o /dev/null http://127.0.0.1:7801/; pipeline=$?
+      kill "$a" "$b"; rmdir "$d"
+      echo "open=$open pipeline=$pipeline"
+    executable: /bin/bash
+  register: studio_cell_loopback
+  changed_when: false
+  failed_when: studio_cell_loopback.stdout | trim != 'open=0 pipeline=7'
+  when: not ansible_check_mode
+
+# Unity's docs for the pinned Editor, offline (`unity docs` fetches an index from
+# docs.unity.com with a client that ignores the proxy, so it fails on every cell).
+- name: Unity's docs work for agent, offline
+  ansible.builtin.command: studio docs Mathf.Sin
+  become: true
+  become_user: agent
+  register: studio_cell_docs
+  changed_when: false
+  failed_when: studio_cell_docs.rc != 0 or 'Returns the sine' not in studio_cell_docs.stdout
   when: not ansible_check_mode
 
 # The broker answers agent and refuses anyone else (13), whatever the socket's mode.
