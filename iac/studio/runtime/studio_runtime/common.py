@@ -11,6 +11,7 @@ import subprocess
 # Sockets live in /run/studio (the daemons' RuntimeDirectory); tests point elsewhere.
 RUN_DIR = os.environ.get("STUDIO_RUN_DIR", "/run/studio")
 UNITYD_SOCKET = os.path.join(RUN_DIR, "unityd.sock")
+AGENTD_SOCKET = os.path.join(RUN_DIR, "agentd.sock")
 # /srv/studio/<game>/{mirror.git, work/<name>, gate, builds/<rev>, results/<rev>}
 STUDIO_ROOT = os.environ.get("STUDIO_ROOT", "/srv/studio")
 STATE_DIR = os.environ.get("STUDIO_STATE_DIR", "/var/lib/studio")

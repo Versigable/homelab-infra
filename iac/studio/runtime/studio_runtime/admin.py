@@ -60,7 +60,10 @@ def workspace(cfg, game, name, branch=None):
         raise RuntimeError(f"{wt.path} already exists")
     git_root(cfg, ["clone", "--quiet", "--no-hardlinks", src, wt.path])
     if branch:
-        git_root(cfg, ["checkout", "--quiet", "-B", branch], cwd=wt.path)
+        # Continue the branch if GitLab has it (a fix on an open MR); otherwise start it here.
+        existing = subprocess.run(["git", "-C", wt.path, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                                  capture_output=True, check=False).returncode == 0
+        git_root(cfg, ["checkout", "--quiet", "-B", branch] + ([f"origin/{branch}"] if existing else []), cwd=wt.path)
     agent = cfg["agent_user"]
     for k, v in (("user.name", cfg["gitlab_agent"]), ("user.email", f"{cfg['gitlab_agent']}@studio.ninjaprivacy.org")):
         git_root(cfg, ["config", k, v], cwd=wt.path)

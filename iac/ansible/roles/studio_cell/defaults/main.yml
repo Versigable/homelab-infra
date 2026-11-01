@@ -2,13 +2,15 @@
 # host_vars/<cell>.yml.
 
 # Packages every cell needs: Git (with LFS, for game assets), a virtual display for Editor
-# runs that want one, the libraries the Linux Editor loads, and nftables for egress per user.
+# runs that want one, the libraries the Linux Editor loads, nftables for egress per user, and
+# bubblewrap, the sandbox Codex runs unattended jobs in.
 # ICU is for Unity's licensing client, a .NET program that stops at start without it
 # ("Couldn't find a valid ICU package"), which the CLI reports as "Can't reach the Unity
 # licensing client".
 studio_cell_packages:
   - git
   - git-lfs
+  - bubblewrap
   - nftables
   - unzip
   - xvfb
@@ -59,6 +61,90 @@ studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/hom
 
 # The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
 studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
+
+# studio-agentd (the runtime): whose agent-request labels this cell takes as approvals (until
+# the member register, step 6: the person's GitLab account), and its jobs' limits.
+#   ceilings: a job doesn't start when the vendor's last known usage is at or above these
+#   (decision 2026-10-17: queued work never spends credits or extra usage).
+#   home_paths: what of agent's home a job's unit sees (the sign-ins); the rest is a tmpfs.
+studio_cell_agentd:
+  approvers: ["{{ studio_cell_owner }}"]
+  poll_seconds: 60
+  max_jobs: 1
+  job_hours: 3
+  job_memory_max: 4G
+  ceilings: {five_hour: 0.6, seven_day: 0.7}
+  home_paths: [.claude, .claude.json, .codex]
+  review_after_implement: true
+  keep_worktrees: false
+# A job's environment: agent's own Squid port; Claude's auto memory and updater off, so one
+# job's notes never reach the next and apt keeps the version.
+studio_cell_agent_job_env:
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1"
+  DISABLE_AUTOUPDATER: "1"
+  http_proxy: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
+  https_proxy: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
+  HTTP_PROXY: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
+  HTTPS_PROXY: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
+  no_proxy: localhost,127.0.0.1
+  NO_PROXY: localhost,127.0.0.1
+
+# Claude's settings for unattended jobs (--settings, with --permission-mode dontAsk): anything
+# these don't allow is denied, never asked. Ordinary development tools and `studio`; edits only
+# under /srv/studio, which the job's unit narrows to its own worktree. Interactive sessions the
+# owner pairs in don't use this file.
+studio_cell_claude_job_settings:
+  autoMemoryEnabled: false
+  permissions:
+    allow:
+      - Bash(studio *)
+      - Bash(git *)
+      - Bash(ls *)
+      - Bash(cat *)
+      - Bash(head *)
+      - Bash(tail *)
+      - Bash(grep *)
+      - Bash(rg *)
+      - Bash(find *)
+      - Bash(wc *)
+      - Bash(diff *)
+      - Bash(sort *)
+      - Bash(uniq *)
+      - Bash(cut *)
+      - Bash(tr *)
+      - Bash(sed *)
+      - Bash(awk *)
+      - Bash(jq *)
+      - Bash(file *)
+      - Bash(stat *)
+      - Bash(du *)
+      - Bash(mkdir *)
+      - Bash(cp *)
+      - Bash(mv *)
+      - Bash(rm *)
+      - Bash(touch *)
+      - Bash(echo *)
+      - Bash(printf *)
+      - Bash(python3 *)
+      - Bash(curl *)
+      - Bash(sleep *)
+      - Bash(date *)
+      - Bash(pwd)
+      - Bash(which *)
+      - Bash(test *)
+      - Bash(true)
+      - Bash(for *)
+      - Bash(while *)
+      - Bash(if *)
+      - Edit(//srv/studio/**)
+      - Edit(//tmp/**)
+      - Read(//srv/studio/**)
+      - Read(//opt/unity/**)
+      - Read(//tmp/**)
+      - WebFetch
+      - WebSearch
+    deny:
+      - Bash(sudo *)
 
 # studio-unityd (the runtime): memory caps for a warm editor and for a cold gate or build run
 # (a 12 GiB cell holds two warm editors and a gate), and when an unused warm editor stops.

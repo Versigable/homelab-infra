@@ -103,7 +103,7 @@ class Broker:
                 os.makedirs(os.path.join(wt.path, "Logs"), exist_ok=True)
                 shutil.chown(os.path.join(wt.path, "Logs"), self.cfg["agent_user"], self.cfg["work_group"])
                 out(f"starting a warm editor for {wt.game}/{wt.name} (the first import can take minutes)")
-                subprocess.run(["systemctl", "reset-failed", self.unit(wt)], capture_output=True, check=False)
+                self.wait_unloaded(wt)
                 argv = ["systemd-run", "--quiet", "--collect", f"--unit={self.unit(wt)}",
                         f"--uid={self.unity_user}", f"--gid={self.unity_user}",
                         f"--working-directory={wt.path}", "--property=Type=exec",
@@ -139,6 +139,19 @@ class Broker:
     def stop(self, wt):
         subprocess.run(["systemctl", "stop", self.unit(wt)], capture_output=True, check=False)
         self.last_used.pop(wt.key, None)
+        self.wait_unloaded(wt)
+
+    def wait_unloaded(self, wt, seconds=30):
+        """A stopped transient unit stays loaded until systemd collects it, and systemd-run
+        refuses its name until then ("already loaded"): wait, clearing a failed state."""
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            r = subprocess.run(["systemctl", "show", "-P", "LoadState", self.unit(wt)],
+                               capture_output=True, text=True, check=False)
+            if r.stdout.strip() in ("not-found", ""):
+                return
+            subprocess.run(["systemctl", "reset-failed", self.unit(wt)], capture_output=True, check=False)
+            time.sleep(0.5)
 
     def adopt(self):
         """Warm editors outlive a broker restart (they're their own units): take them back."""
@@ -437,10 +450,15 @@ class Broker:
             json.dump(res, f, indent=2)
 
     def v_gate(self, caller, args, out):
+        wt = None
+        # studio-agentd (root) gates a job's worktree on the job's behalf, for `studio done`.
+        if caller.uid == 0 and args[:1] == ["--worktree"] and len(args) >= 2:
+            game, _, name = args[1].partition("/")
+            wt, args = common.Worktree(game, name), args[2:]
         kind = args[0] if args else "quick"
         if kind not in ("quick", "full") or len(args) > 1:
             raise Fail("usage: studio gate [quick|full]", rc=2)
-        wt = common.worktree_of(caller)
+        wt = wt or common.worktree_of(caller)
         fd = self.gate_lock(caller, out)
         try:
             gate, head, dirty = self.checkout_head(wt, out)
