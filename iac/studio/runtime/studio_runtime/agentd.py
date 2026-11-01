@@ -296,6 +296,9 @@ class Agentd:
             except Exception as e:  # noqa: BLE001
                 self.fail(job, f"couldn't make the worktree: {e}")
                 return
+            # Where the branch stood on GitLab as the job began ("" = it didn't exist): the push's
+            # lease. Kept in the journal, which the job can't touch.
+            job.set(lease=self.remote_head(wt, branch))
             with open(os.path.join(job.dir, "prompt.md"), "w", encoding="utf-8") as f:
                 f.write(self.prompt(job, branch))
         env = {"HOME": pwd.getpwnam(self.cfg["agent_user"]).pw_dir, "LANG": "C.UTF-8",
@@ -474,17 +477,54 @@ class Agentd:
             self.fail(job, f"write-back failed: {e}")
         self.cleanup(job)
 
+    @staticmethod
+    def remote_head(wt, branch):
+        """The branch's commit on GitLab as the worktree's clone saw it, or "" if it had none."""
+        return subprocess.run(["git", "-C", wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                              capture_output=True, text=True).stdout.strip()
+
     def push(self, job):
-        """The job's branch to GitLab, if it has commits; as root, as the agent account."""
+        """The job's branch to GitLab, if it has commits; as root, as the agent account.
+
+        Leased on where the branch stood when the job began (job["lease"]; "" = it must still
+        not exist), so the job may rewrite its own branch, and a continued branch (another
+        approval on the same issue) moves on from its MR's head, but nobody else's push in the
+        meantime is ever overwritten. A bare --force-with-lease can't do this: pushing to a
+        URL, git has no remote-tracking ref to compare, and refuses any branch that exists."""
         wt = job["worktree"]
         ahead = subprocess.run(["git", "-C", wt, "rev-list", "--count", "origin/HEAD..HEAD"],
                                capture_output=True, text=True).stdout.strip()
         if ahead in ("", "0"):
             return None
-        admin.git_root(self.cfg, ["push", "--quiet", "--force-with-lease",
-                                  f"{self.cfg['gitlab_url']}/{self.cfg['gitlab_group']}/{job['game']}.git",
-                                  f"HEAD:refs/heads/{job['branch']}"], cwd=wt)
-        return subprocess.run(["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        ref = f"refs/heads/{job['branch']}"
+        url = f"{self.cfg['gitlab_url']}/{self.cfg['gitlab_group']}/{job['game']}.git"
+        head = subprocess.run(["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        lease = job.get("lease")
+        if lease is None:                     # a job journalled before leases were recorded
+            lease = self.remote_head(wt, job["branch"])
+        try:
+            admin.git_root(self.cfg, ["push", "--quiet", f"--force-with-lease={ref}:{lease}", url, f"HEAD:{ref}"], cwd=wt)
+        except RuntimeError as e:
+            if "stale info" not in str(e):
+                raise
+            # A write-back retried after this push already went through finds its own commit.
+            if admin.git_root(self.cfg, ["ls-remote", url, ref], cwd=wt).split()[:1] != [head]:
+                raise RuntimeError(f"{job['branch']} changed on GitLab while the job ran (it expected "
+                                   f"{lease[:10] or 'no such branch'}), so the job's work wasn't pushed over it") from None
+        job.set(pushed=head)
+        return head
+
+    def unpushed(self, job):
+        """A failed job whose commits never reached GitLab: its worktree is kept, for republish."""
+        wt = job.get("worktree")
+        if job.get("state") != "failed" or not wt or not os.path.isdir(wt):
+            return False
+        head = subprocess.run(["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        if not head or head == job.get("pushed"):
+            return False
+        n = subprocess.run(["git", "-C", wt, "rev-list", "--count", f"{job.get('lease') or 'origin/HEAD'}..HEAD"],
+                           capture_output=True, text=True).stdout.strip()
+        return n not in ("", "0")
 
     def publish(self, job, res):
         item, pid = job["item"], job["item"]["project_id"]
@@ -632,19 +672,26 @@ class Agentd:
             if os.path.exists(err):
                 with open(err, encoding="utf-8", errors="replace") as f:
                     tail = "".join(f.readlines()[-15:])
+            kept = ""
+            if self.unpushed(job):
+                kept = (f"\n\nThe job's commits never reached GitLab, so they are kept on `cell-{self.cfg['owner']}` "
+                        f"at `{job['worktree']}`. Once the cause is fixed, `studio-admin republish {job.id}` "
+                        "(root on the cell) publishes them, with no new job.")
             self.gl.note(item["kind"], item["project_id"], item["iid"],
-                         f"Job `{job.id}` ended: {why}." + (f"\n\n```\n{tail[-3000:]}\n```" if tail.strip() else ""))
+                         f"Job `{job.id}` ended: {why}." + kept
+                         + (f"\n\n```\n{tail[-3000:]}\n```" if tail.strip() else ""))
         except GitLabError as e:
             log(f"{job.id}: couldn't report the failure: {e}")
         log(f"{job.id}: failed ({why})")
 
     def cleanup(self, job):
-        """The worktree goes once the job's work is in GitLab; its editor stops with it."""
+        """The worktree goes once the job's work is in GitLab; its editor stops with it. A failed
+        job's commits that GitLab doesn't have stay (`studio-admin republish`)."""
         wt = job.get("worktree")
         if job.get("state") in ("done", "blocked", "failed") and wt and os.path.isdir(wt):
             subprocess.run(["systemctl", "stop", f"studio-editor-{job['game']}-{job.id}.service"],
                            capture_output=True, check=False)
-            if self.a.get("keep_worktrees"):
+            if self.a.get("keep_worktrees") or self.unpushed(job):
                 return
             shutil.rmtree(wt, ignore_errors=True)
 

@@ -5,6 +5,9 @@
   studio-admin upload <game> <revision>  put a revision's gated Linux build, already on this
                                          cell, in the hub's depot (with its MR, if GitLab
                                          knows one); the portal shows it from then on
+  studio-admin republish <job>           publish a failed job's kept work: its write-back
+                                         failed after the gates passed (push, MR, ledger,
+                                         depot, review), with no new job
 
 The mirror is fetched as root with the agent account's token, through Squid's default class,
 and the token reaches git only through an askpass helper: never on a command line, where any
@@ -110,6 +113,29 @@ def upload(cfg, game, rev):
     return {**res, "object": dep["object"], "mr": mrs[0]["web_url"] if mrs else None}
 
 
+def republish(cfg, jid):
+    """A failed implement job whose gates passed and whose worktree studio-agentd kept: its
+    write-back again, through studio-agentd's own code. studio-agentd leaves failed jobs alone,
+    so this doesn't race it; the review it queues runs at the daemon's next poll."""
+    from .agentd import FAILED, Agentd, Job
+    job = Job(jid)
+    res = job.get("result") or {}
+    if job["state"] != "failed" or job["kind"] != "implement" or res.get("kind") != "summary" or not job.get("ledger"):
+        raise ValueError(f"{jid} isn't a failed implement job with gated work (state {job['state']})")
+    if not os.path.isdir(job.get("worktree") or ""):
+        raise ValueError(f"{jid}'s worktree {job.get('worktree')} is gone")
+    d = Agentd(cfg)
+    item = job["item"]
+    d.gl.relabel(item["kind"], item["project_id"], item["iid"], remove=[FAILED])
+    try:
+        d.publish(job, res)
+    except Exception as e:
+        d.fail(job, f"republish failed: {e}")
+        raise
+    d.cleanup(job)
+    return {"job": jid, "state": job["state"], "mr": job.get("mr_url"), "revision": job.get("pushed")}
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if os.geteuid() != 0:
@@ -121,6 +147,9 @@ def main(argv=None):
         return 0
     if len(argv) == 3 and argv[0] == "upload":
         print(json.dumps(upload(cfg, argv[1], argv[2]), indent=2))
+        return 0
+    if len(argv) == 2 and argv[0] == "republish":
+        print(json.dumps(republish(cfg, argv[1]), indent=2))
         return 0
     print(__doc__, file=sys.stderr)
     return 2
