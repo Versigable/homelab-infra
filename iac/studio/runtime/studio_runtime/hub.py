@@ -124,8 +124,11 @@ class Hub:
 # --- builds ------------------------------------------------------------------------------------
 
 def _norm(ti):
+    """No owners, and plain modes: the cell's setgid, group-writable work-group files become
+    0755 (directories and executables) or 0644, which a play container's user can read."""
     ti.uid = ti.gid = 0
     ti.uname = ti.gname = ""
+    ti.mode = 0o755 if ti.isdir() or ti.mode & 0o111 else 0o644
     return ti
 
 
