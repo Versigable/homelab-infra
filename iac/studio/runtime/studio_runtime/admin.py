@@ -85,7 +85,7 @@ def upload(cfg, game, rev):
     """A gate result recorded by studio-unityd (/var/lib/studio/results/<game>/<rev>), its build
     into the depot, and the manifest. rev may be a unique prefix."""
     from . import hub as hubmod
-    from .gitlab import GitLab
+    from .gitlab import GitLab, GitLabError
     if not common.NAME_RE.match(game):
         raise ValueError("bad game name")
     base = os.path.join(common.STATE_DIR, "results", game)
@@ -98,7 +98,14 @@ def upload(cfg, game, rev):
     dep = hubmod.deposit(hub, game, gate)
     gl = GitLab(cfg)
     pid = gl.project(GitLab.pid(f"{cfg['gitlab_group']}/{game}"))["id"]
-    mrs = gl.call("GET", f"/projects/{pid}/repository/commits/{gate['revision']}/merge_requests") or []
+    # A revision that was never pushed (a pair session's local commit) has no MR: GitLab
+    # doesn't know the commit at all and answers 404.
+    try:
+        mrs = gl.call("GET", f"/projects/{pid}/repository/commits/{gate['revision']}/merge_requests") or []
+    except GitLabError as e:
+        if e.status != 404:
+            raise
+        mrs = []
     res = hub.call("POST", "/v1/builds", hubmod.manifest(game, gate, dep, mr=mrs[0] if mrs else None))
     return {**res, "object": dep["object"], "mr": mrs[0]["web_url"] if mrs else None}
 

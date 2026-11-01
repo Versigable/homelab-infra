@@ -35,3 +35,9 @@ studio_hub_api_url: "https://{{ studio_hub_ip }}:{{ studio_hub_api_port }}"
 studio_portal_url: https://studio.ninjaprivacy.org
 # Where a client keeps its key (root only), its certificate and the hub's CA certificate.
 studio_hub_client_dir: /etc/studio-hub-client
+
+# Play sessions (hub's broker, forge-playd): slot n streams from the Forge's port base + n,
+# at studio.ninjaprivacy.org/play/s<n>/. studio_gw.yml and Traefik's studio.yml list the
+# same four ports; change all three together.
+studio_play_slots: 4
+studio_play_base_port: 3100

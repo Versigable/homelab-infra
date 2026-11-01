@@ -1,6 +1,6 @@
-# The studio hub, step 2b-1a: the depot disk, the hub's firewall, its CA, and studio-hubd (the
-# depot, and the portal, read-only for now). Vault: 1-Projects/game-studio-platform/notes/
-# step-2b-1-plan. Play sessions (the broker) come in 2b-1b.
+# The studio hub, step 2b-1: the depot disk, the hub's firewall, its CA, and studio-hubd (the
+# depot, the broker's play sessions, and the portal). Vault: 1-Projects/game-studio-platform/
+# notes/step-2b-1-plan.
 
 - name: Packages
   ansible.builtin.apt:
@@ -162,7 +162,7 @@
     content: |
       # Managed by Ansible (role studio_hub).
       [Unit]
-      Description=studio-hubd, the studio hub (depot, portal)
+      Description=studio-hubd, the studio hub (depot, play sessions, portal)
       After=network-online.target nftables.service
       Wants=network-online.target
       RequiresMountsFor={{ studio_hub_depot }}
@@ -233,4 +233,14 @@
   register: studio_hub_api_refused
   changed_when: false
   failed_when: studio_hub_api_refused.rc == 0
+  when: not ansible_check_mode
+
+# Traefik's stream check refuses anyone the hub can't see as Traefik, whatever they claim.
+- name: The stream check refuses callers other than Traefik
+  ansible.builtin.command:
+    argv: [curl, -sS, -o, /dev/null, -w, "%{http_code}", -H, "X-authentik-username: someone",
+           -H, "X-Forwarded-Uri: /play/s0/", "http://{{ studio_hub_ip }}:{{ studio_hub_portal_port }}/auth/stream"]
+  register: studio_hub_stream_refused
+  changed_when: false
+  failed_when: studio_hub_stream_refused.stdout != '403'
   when: not ansible_check_mode

@@ -36,3 +36,21 @@ forge_play_mem_limit: 3g
 # Docker bridges whose containers may only answer their stream (the host firewall above).
 # group_vars/studio_forge.yml adds the other lanes' bridges.
 forge_play_locked_bridges: [br-play]
+
+# Play sessions on demand (step 2b-1b; vault notes/step-2b-1-plan): forge-playd starts one
+# container per session the hub's broker asks for, on slots s0..s(n-1), each published on
+# the Forge at studio_play_base_port + n (group_vars/studio_private.yml). Their own Docker
+# network and bridge (locked like br-play), so the standing sessions' compose project never
+# meets them.
+forge_play_sessions_network: forge-sessions
+forge_play_sessions_bridge: br-sess
+forge_play_host_ip: 10.77.0.10
+# Unpacked builds, by hash; the oldest go past this size (never one in use).
+forge_play_sessions_cache: /srv/forge/play-cache
+forge_play_sessions_cache_max_bytes: 20000000000
+forge_play_sessions_state: /var/lib/forge-playd
+# Only Traefik's requests, which studio-gw forwards keeping Traefik's address, may open a
+# session's port; anyone else on the studio network is dropped before Docker's DNAT.
+forge_play_stream_from: [10.0.2.5]
+# Unity player flags for every session (as the standing session's).
+forge_play_sessions_player_args: -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -force-glcore

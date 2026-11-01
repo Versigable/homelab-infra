@@ -6,6 +6,11 @@
   "portal_proxies": {{ studio_hub_portal_proxies | to_json }},
   "build_days": {{ studio_hub_build_days | int }},
   "max_object_bytes": {{ studio_hub_max_object_bytes | int }},
+  "slots": {{ studio_play_slots | int }},
+  "idle_minutes": {{ studio_hub_idle_minutes | int }},
+  "cap_hours": {{ studio_hub_cap_hours }},
+  "start_minutes": {{ studio_hub_start_minutes | int }},
+  "play_min_seconds": {{ studio_hub_play_min_seconds | int }},
   "tls": {
     "ca": "{{ studio_hub_dir }}/ca.crt",
     "cert": "{{ studio_hub_dir }}/hub.crt",

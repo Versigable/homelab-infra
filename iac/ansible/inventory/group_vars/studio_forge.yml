@@ -9,5 +9,6 @@ docker_daemon_extra:
       args: []
 
 # Bridges whose containers can't open connections (role forge_play's host firewall): the play
-# lane's and the RomM webstation's (role forge_webstation).
-forge_play_locked_bridges: [br-play, br-romm]
+# lane's standing sessions, forge-playd's sessions, and the RomM webstation's (role
+# forge_webstation).
+forge_play_locked_bridges: [br-play, br-sess, br-romm]

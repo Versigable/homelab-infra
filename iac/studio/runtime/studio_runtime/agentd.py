@@ -554,6 +554,13 @@ class Agentd:
         A hub that doesn't answer is tried again at the next poll."""
         if not self.hub:
             return
+        try:
+            self.post_plays()
+        except (OSError, ssl.SSLError) as e:
+            log(f"hub sync: the hub didn't answer ({e}); next poll")
+            return
+        except (hubmod.HubError, GitLabError) as e:
+            log(f"hub sync: plays: {e}")
         check_mrs = time.time() - self.mr_synced > 600
         cutoff = now() - dt.timedelta(days=31)
         for job in Job.all():
@@ -579,6 +586,22 @@ class Agentd:
                 log(f"{job.id}: hub sync: {e}")
         if check_mrs:
             self.mr_synced = time.time()
+
+    def post_plays(self):
+        """Play evidence: each session someone watched, on a build this cell uploaded, becomes a
+        note on its MR and a studio/played status on the revision, once. The name is the
+        person's Authentik one, written plainly so GitLab notifies no one by mistake."""
+        for p in self.hub.call("GET", "/v1/plays", timeout=15) or []:
+            mins = max(1, round(p["viewer_seconds"] / 60))
+            url = f"{self.hub.portal}/g/{p['game']}/r/{p['revision']}"
+            if p.get("project_id") and p.get("mr_iid"):
+                self.gl.note("mr", p["project_id"], p["mr_iid"],
+                             f"**Played** by {p['person']} for {mins} min on `{p['revision'][:10]}` "
+                             f"(session `{p['id']}` on the Forge, ended: {p['end_reason']}). [The build]({url})")
+                self.gl.status(p["project_id"], p["revision"], "success", "studio/played",
+                               f"played by {p['person']}, {mins} min", target_url=url)
+            self.hub.call("POST", f"/v1/plays/{p['id']}/reported", {}, timeout=15)
+            log(f"play {p['id']}: {p['person']}, {mins} min on {p['game']}@{p['revision'][:10]} reported")
 
     def queue_review(self, job, mr):
         """The other vendor reviews the MR, without another approval: it's part of this one."""
