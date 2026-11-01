@@ -18,7 +18,8 @@ shopt -s inherit_errexit
 # configuration.yaml comes from git and is checked with Home Assistant's check_config before
 # it goes live. Everything set up in the UI stays in /config/.storage and is never touched.
 # Zigbee2MQTT stays off until the house's zigbee.env names the radio and the channel. Local
-# voice (Parakeet + Kokoro) runs only where the house's instance.env says HA_VOICE=on.
+# voice (Parakeet + Kokoro) runs only where the house's instance.env says HA_VOICE=on, and the
+# web tools (SearXNG + mcp-searxng) only where it says HA_WEB=on.
 #
 # Usage: HA_INSTANCE=<house> deploy.sh [home-assistant]   (CI sets HA_INSTANCE per job)
 # ============================================================
@@ -75,6 +76,11 @@ PARAKEET_DATA_DIR="${LIVE_DATA_DIR}/parakeet"
 REPO_ORT_HOOK="${REPO_HOST_DIR}/config/onnxruntime/sitecustomize.py"
 ORT_HOOK_DIR="${LIVE_CONFIG_DIR}/onnxruntime"
 VOICE_CONTAINERS=(home-assistant-parakeet home-assistant-kokoro)
+# Web tools: SearXNG's settings come from git, its secret key is generated here once.
+REPO_SEARXNG_SETTINGS="${REPO_HOST_DIR}/config/searxng/settings.yml"
+SEARXNG_CONFIG_DIR="${LIVE_CONFIG_DIR}/searxng"
+LIVE_SEARXNG_ENV="${LIVE_COMPOSE_DIR}/searxng.env"
+MCP_SEARXNG_URL="http://127.0.0.1:8932"
 
 REQUIRED_KEYS=(MQTT_HA_PASSWORD MQTT_Z2M_PASSWORD Z2M_FRONTEND_AUTH_TOKEN ZIGBEE_NETWORK_KEY)
 
@@ -90,7 +96,7 @@ sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "sops age key not readable: ${SOPS_AGE_KEY_FILE}"
 for f in "${REPO_COMPOSE}" "${REPO_HA_CONFIG}" "${REPO_MOSQUITTO_DIR}/mosquitto.conf" \
          "${REPO_MOSQUITTO_DIR}/acl" "${REPO_Z2M_CONFIG}" "${REPO_INSTANCE_ENV}" \
-         "${REPO_ZIGBEE_ENV}" "${REPO_SOPS_ENV}" "${REPO_ORT_HOOK}"; do
+         "${REPO_ZIGBEE_ENV}" "${REPO_SOPS_ENV}" "${REPO_ORT_HOOK}" "${REPO_SEARXNG_SETTINGS}"; do
   [[ -f "$f" ]] || die "missing: $f"
 done
 [[ -d "${LIVE_HUB}" ]] || die "missing live hub: ${LIVE_HUB} (run iac/ansible site.yml)"
@@ -137,6 +143,16 @@ case "${HA_VOICE:-off}" in
 esac
 voice_on() { (( VOICE_ON )); }
 
+# -------- Web tools --------
+HA_WEB=$(sed -n 's/^HA_WEB=//p' "${REPO_INSTANCE_ENV}" | tail -n 1)
+case "${HA_WEB:-off}" in
+  on)  COMPOSE_PROFILE_ARGS+=(--profile web); WEB_ON=1
+       log_info "Web tools on: SearXNG + mcp-searxng on 127.0.0.1:8932" ;;
+  off) WEB_ON=0; log_info "Web tools off (HA_WEB in instances/${HA_INSTANCE}/instance.env)" ;;
+  *)   die "HA_WEB in ${REPO_INSTANCE_ENV} must be on or off" ;;
+esac
+web_on() { (( WEB_ON )); }
+
 compose() { (cd "${LIVE_COMPOSE_DIR}" && sudo /usr/bin/docker compose "${COMPOSE_PROFILE_ARGS[@]}" "$@"); }
 
 # install -C copies only when content, owner or mode differ, and -v says so; the output
@@ -165,6 +181,9 @@ ensure_dirs() {
   if voice_on; then
     sudo /usr/bin/install -d -m 0750 -o "${PARAKEET_UID}" -g "${PARAKEET_UID}" "${PARAKEET_DATA_DIR}"
     sudo /usr/bin/install -d -m 0755 -o root -g root "${ORT_HOOK_DIR}"
+  fi
+  if web_on; then
+    sudo /usr/bin/install -d -m 0755 -o root -g root "${SEARXNG_CONFIG_DIR}"
   fi
   # install -d resets the mode, which is also the ACL mask, so these come after it.
   sudo /usr/bin/setfacl -m "u:gitlab-runner:rx" "${LIVE_DATA_DIR}" "${HA_CONFIG_DIR}" "${Z2M_DATA_DIR}"
@@ -237,6 +256,31 @@ sync_ort_hook() {
   voice_on || return 0
   log_info "Syncing the ONNX Runtime thread hook"
   ORT_HOOK_CHANGED=$(install_changed -m 0644 -o root -g root "${REPO_ORT_HOOK}" "${ORT_HOOK_DIR}/sitecustomize.py")
+}
+
+# SearXNG reads settings.yml only at startup, so a change restarts it (reload_changed).
+sync_searxng_config() {
+  SEARXNG_CONFIG_CHANGED=""
+  web_on || return 0
+  log_info "Syncing SearXNG's settings.yml"
+  SEARXNG_CONFIG_CHANGED=$(install_changed -m 0644 -o root -g root "${REPO_SEARXNG_SETTINGS}" "${SEARXNG_CONFIG_DIR}/settings.yml")
+}
+
+# SearXNG's secret key only signs its own URLs, and nothing outside home-assistant-net can
+# reach it, so it isn't kept in SOPS: it's made once on the guest and kept across deploys.
+ensure_searxng_secret() {
+  web_on || return 0
+  # The runner may look into the compose dir (ensure_runner_acls), so it can see the file
+  # without reading it.
+  if [[ -s "${LIVE_SEARXNG_ENV}" ]]; then
+    return 0
+  fi
+  log_info "Generating SearXNG's secret key -> searxng.env"
+  local tmp
+  tmp=$(mktemp)
+  printf 'SEARXNG_SECRET=%s\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" > "${tmp}"
+  sudo /usr/bin/install -m 0600 -o root -g root "${tmp}" "${LIVE_SEARXNG_ENV}"
+  rm -f "${tmp}"
 }
 
 # -------- Secrets --------
@@ -339,6 +383,10 @@ reload_changed() {
       fi
     done
   fi
+  if web_on && [[ -n "${SEARXNG_CONFIG_CHANGED}" ]] && started_before_deploy home-assistant-searxng; then
+    log_info "SearXNG's settings.yml changed: restarting it"
+    sudo /usr/bin/docker restart home-assistant-searxng >/dev/null
+  fi
 }
 
 # -------- Checks --------
@@ -404,6 +452,26 @@ wait_voice_ready() {
   done
 }
 
+# mcp-searxng answers /health on its own; SearXNG is checked from inside it, over the
+# network the two share (SearXNG has no published port).
+wait_web_ready() {
+  web_on || return 0
+  log_info "Waiting for mcp-searxng (${MCP_SEARXNG_URL}) and SearXNG behind it (up to 2 min)"
+  local i
+  for i in $(seq 1 24); do
+    if [[ "$(curl -fsS -m 5 "${MCP_SEARXNG_URL}/health" 2>/dev/null || true)" == *'"healthy"'* ]] \
+       && sudo /usr/bin/docker exec home-assistant-mcp-searxng node -e \
+            "fetch('http://searxng:8080/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"; then
+      log_success "mcp-searxng and SearXNG answer"
+      return 0
+    fi
+    sleep 5
+  done
+  sudo /usr/bin/docker logs --tail 20 home-assistant-searxng 2>&1 || true
+  sudo /usr/bin/docker logs --tail 20 home-assistant-mcp-searxng 2>&1 || true
+  die "the web tools did not answer within 2 minutes"
+}
+
 log_info "========================================"
 log_info "Home Assistant deployment"
 log_info "========================================"
@@ -414,7 +482,9 @@ check_ha_config
 sync_ha_config
 sync_mosquitto_config
 sync_ort_hook
+sync_searxng_config
 render_secrets
+ensure_searxng_secret
 seed_z2m_config
 DEPLOY_START=$(date +%s)
 compose_up
@@ -422,6 +492,7 @@ reload_changed
 check_mqtt
 wait_ha_ready
 wait_voice_ready
+wait_web_ready
 if zigbee_on; then
   sudo /usr/bin/docker logs --tail 15 home-assistant-zigbee2mqtt 2>&1 || true
 fi

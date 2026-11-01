@@ -1,0 +1,32 @@
+# SearXNG for the conversation agent's web tools (compose profile "web"). Only the MCP server
+# on home-assistant-net talks to it: no published port, no users. The secret key comes from
+# SEARXNG_SECRET in searxng.env, which deploy.sh generates on the guest.
+use_default_settings:
+  engines:
+    # Tor-only engines: they fail to load without a Tor proxy and only add log noise.
+    remove:
+      - ahmia
+      - torch
+
+general:
+  instance_name: "home-assistant"
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  # The MCP server reads results as JSON (off in SearXNG's defaults).
+  formats:
+    - html
+    - json
+
+server:
+  # Not public, so no bot limiter (it would also need Valkey) and no image proxy.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+outgoing:
+  # A spoken answer can't wait long for slow engines.
+  request_timeout: 3.0
+  max_request_timeout: 6.0

@@ -9,8 +9,10 @@ name: home-assistant
 #   Zigbee2MQTT UI   <HA_IP>:8080    profile "zigbee", off until the house's zigbee.env names the radio
 #   Parakeet (STT)   127.0.0.1:10300 profile "voice", Wyoming speech-to-text, on CPU
 #   Kokoro (TTS)     127.0.0.1:10210 profile "voice", Wyoming text-to-speech, on CPU
+#   mcp-searxng      127.0.0.1:8932  profile "web", MCP web tools for the conversation agent
+#   SearXNG          (no port)       profile "web", the search engine behind mcp-searxng
 # HA_IP comes from the house's instance.env, which deploy.sh installs as this project's .env;
-# HA_VOICE there switches the voice profile on per house.
+# HA_VOICE and HA_WEB there switch the voice and web profiles on per house.
 #
 # Everything lives under ../data on the LXC disk, which PBS backs up nightly (all guests).
 
@@ -117,6 +119,57 @@ services:
       - "127.0.0.1:10210:10210"
     volumes:
       - ../config/onnxruntime:/opt/onnxruntime-threads:ro
+    cap_drop: [ALL]
+
+  # Web tools for the conversation agent: Home Assistant's MCP integration connects to
+  # http://127.0.0.1:8932/mcp and hands the tools to the PGX agent (both set up in the UI).
+  # SearXNG is a self-hosted metasearch engine; mcp-searxng puts a search tool and a
+  # read-a-URL tool in front of it. web_url_read refuses private, loopback and link-local
+  # addresses, including after redirects, so a URL planted in a web page can't reach the LAB.
+  searxng:
+    image: searxng/searxng:2026.10.30-ffa88e3ba@sha256:f4aa660c54d062dedb268be84e821ea24e39f48c7a496af8dd02cc9eedb93847
+    container_name: home-assistant-searxng
+    profiles: [web]
+    restart: unless-stopped
+    logging: *logging
+    networks: [home-assistant-net]
+    # The image's own searxng user. As root, its entrypoint would chown its dirs and then
+    # serve as root; its dirs already belong to searxng and settings.yml is a read-only mount.
+    user: "977:977"
+    env_file:
+      # SEARXNG_SECRET, generated on the guest by deploy.sh (not in git).
+      - path: searxng.env
+        required: false
+    volumes:
+      - ../config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    cap_drop: [ALL]
+
+  mcp-searxng:
+    image: isokoliuk/mcp-searxng:2.9.0@sha256:8f1dd92a9e2875cb4e8df7036785ec4c088b7600cefb611de472a352a3dcba60
+    container_name: home-assistant-mcp-searxng
+    profiles: [web]
+    restart: unless-stopped
+    logging: *logging
+    networks: [home-assistant-net]
+    depends_on: [searxng]
+    # The image runs as 1000, which is ansible in the LXC; it needs no files of its own.
+    user: "1887:1887"
+    environment:
+      SEARXNG_URL: http://searxng:8080
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "8932"
+      MCP_HTTP_ALLOW_PRIVATE_URLS: "false"
+      # Query-only and URL-only tool schemas: the PGX model fumbles the full ones (13
+      # search parameters), measured 2026-11-01.
+      SEARXNG_LITE_TOOLS: "true"
+      SEARXNG_DEFAULT_LANGUAGE: en
+      # Tool output goes into a spoken answer's prompt, so keep it small: about 0.8k
+      # tokens per search and 1.7k per page.
+      SEARXNG_MAX_RESULTS: "5"
+      SEARXNG_MAX_RESULT_CHARS: "3000"
+      URL_READ_MAX_CHARS: "6000"
+    ports:
+      - "127.0.0.1:8932:8932"
     cap_drop: [ALL]
 
 networks:
