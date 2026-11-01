@@ -6,8 +6,8 @@ it connects from, never from what a request says. Only root reads the key: on a 
 studio-agentd and studio-admin, never a job.
 
 Builds travel as a gzipped tar of the build directory, packed deterministically (sorted, no
-owners, gzip without a timestamp), so the same build always has the same sha256 and the depot
-keeps it once.
+owners, plain modes, gzip without a timestamp or file name), so the same build always has the
+same sha256 and the depot keeps it once.
 """
 
 import gzip
@@ -136,7 +136,7 @@ def pack(build_dir, dest):
     """build_dir's contents as a deterministic .tar.gz at dest; returns (sha256, bytes)."""
     os.makedirs(os.path.dirname(dest), mode=0o700, exist_ok=True)
     tmp = dest + ".part"
-    with open(tmp, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0, compresslevel=6) as gz, \
+    with open(tmp, "wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as gz, \
             tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for dp, dns, fns in os.walk(build_dir):
             dns.sort()
