@@ -27,8 +27,8 @@ table inet studio_gw {
 		ct state established,related accept
 		ct state invalid drop
 {% for r in studio_gw_ingress %}
-		# {{ r.name }}: {{ r.from }} -> {{ studio_gw_lan_ip }}:{{ r.port }} -> {{ r.to_ip }}:{{ r.to_port }}
-		iifname $LAN oifname $STUDIO ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.to_port }} ct status dnat accept
+		# {{ r.name }}: {{ r.from }} -> {{ studio_gw_lan_ip }}:{{ r.port }} -> {{ r.to_ip }}:{{ r.to_port }} ({{ r.proto | default('tcp') }})
+		iifname $LAN oifname $STUDIO ip saddr {{ r.from }} ip daddr {{ r.to_ip }} {{ r.proto | default('tcp') }} dport {{ r.to_port }} ct status dnat accept
 {% endfor %}
 {% for r in studio_gw_lan_access %}
 		# {{ r.name }}: {{ r.from }} -> {{ r.to_ip }}:{{ r.port }}, as {{ studio_gw_lan_ip }}
@@ -39,7 +39,7 @@ table inet studio_gw {
 	chain prerouting {
 		type nat hook prerouting priority dstnat;
 {% for r in studio_gw_ingress %}
-		iifname $LAN ip saddr {{ r.from }} ip daddr {{ studio_gw_lan_ip }} tcp dport {{ r.port }} dnat ip to {{ r.to_ip }}:{{ r.to_port }}
+		iifname $LAN ip saddr {{ r.from }} ip daddr {{ studio_gw_lan_ip }} {{ r.proto | default('tcp') }} dport {{ r.port }} dnat ip to {{ r.to_ip }}:{{ r.to_port }}
 {% endfor %}
 	}
 

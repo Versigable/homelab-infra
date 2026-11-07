@@ -27,8 +27,9 @@ studio_gw_proxy_ports: >-
       + (studio_gw_egress.values() | selectattr('proxy_port', 'defined') | map(attribute='proxy_port') | map('int') | list))
      | unique | sort }}
 
-# Inbound from the LAN, by DNAT on the gateway's LAN address:
+# Inbound from the LAN, by DNAT on the gateway's LAN address. proto is tcp unless given:
 #   - {name: forge-play, from: 10.0.2.5, port: 3000, to_ip: 10.77.0.10, to_port: 3000}
+#   - {name: forge-romm-webrtc, from: 10.0.2.5, port: 7788, to_ip: 10.77.0.10, to_port: 7788, proto: udp}
 studio_gw_ingress: []
 
 # Outbound to LAN services studio guests reach directly, not through Squid: by address and
@@ -39,6 +40,16 @@ studio_gw_lan_access: []
 # Local names dnsmasq answers, as <name>.studio:
 #   - {name: studio-forge, ip: 10.77.0.10}
 studio_gw_hosts: []
+
+# Local names whose address the gateway looks up on the LAN side and publishes as
+# <name>.studio, re-checked every 5 minutes (studio-gw-publish-names.timer). For an outside
+# address a guest has to know (the WAN IP a WebRTC server advertises) without the studio
+# network getting an upstream resolver: guests still resolve only .studio names. Only a
+# public IPv4 that isn't Cloudflare's is published; a failed lookup keeps the last one.
+#   - {name: webstation-udp, lookup: webstation-udp.ninjaprivacy.org}
+studio_gw_published_names: []
+# Where the published names live: a dnsmasq hostsdir, re-read on change without a restart.
+studio_gw_hostsdir: /etc/dnsmasq-studio-hosts
 
 # Log every DNS query to the journal.
 studio_gw_log_queries: false

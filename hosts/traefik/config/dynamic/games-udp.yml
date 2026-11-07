@@ -85,11 +85,12 @@ udp:
     ark7785_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7785"  } ] } }
     ark7786_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7786"  } ] } }
 
-    # Ark: Map 5. Never set up. 7787 is borrowed (2026-11-07) for RomM webstation
-    # WebRTC media: jf instance 1 (hosts/jellyfin/compose/webstation.yml). 7788 is set
-    # aside for the Forge's webstation. To give 7787 back, point it at 10.0.1.9:7787.
+    # Ark: Map 5. Never set up; both ports borrowed (2026-11-07) for RomM webstation
+    # WebRTC media: 7787 -> jf instance 1 (hosts/jellyfin/compose/webstation.yml), 7788 ->
+    # the Forge's webstation through studio-gw (iac/ansible: studio_gw_ingress
+    # forge-romm-webrtc, role forge_webstation). To give them back, point them at 10.0.1.9.
     ark7787_svc:        { loadBalancer: { servers: [ { address: "10.0.1.8:7787"  } ] } }
-    ark7788_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7788"  } ] } }
+    ark7788_svc:        { loadBalancer: { servers: [ { address: "10.0.1.150:7788"  } ] } }
 
       # === Steam Query Port Services ===
     steam27015_svc: { loadBalancer: { servers: [ { address: "10.0.1.9:27015" } ] } } # SotF

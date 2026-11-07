@@ -19,6 +19,13 @@ forge_webstation_files: "{{ playbook_dir }}/../../../hosts/jellyfin/config/webst
 # Published on the Forge; studio-gw forwards :3040 to it from Traefik and from RomM
 # (studio_gw_ingress).
 forge_webstation_port: 3040
+# WebRTC media (UDP), as on jf's three (vault decision 5-Decisions/2026-11-07_webstations-webrtc-udp).
+# The ICE mux port must equal the WAN port players reach: 7788, borrowed from the never-built
+# Ark Map 5 server (pfSense -> Traefik's UDP router ark7788 -> studio-gw's forge-romm-webrtc
+# forward -> here). The candidate's public IP comes from webstation-udp.studio, which studio-gw
+# publishes from the DDNS name (studio_gw_published_names), since guests resolve only .studio.
+forge_webstation_webrtc_port: 7788
+forge_webstation_webrtc_host: webstation-udp.studio
 # The player path on games.* and arcade.* (hosts/traefik/config/dynamic/romm-streaming.yml).
 forge_webstation_path: /streaming-forge/
 # The ROM library, mounted read-only from TrueNAS by nfs_client (host_vars/studio-forge.yml).

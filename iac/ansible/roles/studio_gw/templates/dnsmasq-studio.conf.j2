@@ -1,7 +1,8 @@
 # Managed by Ansible (role studio_gw). DNS for the studio network: local names only.
 # No upstream at all (no-resolv, no server lines), so no outside name resolves here. Guests
 # reach the outside only through Squid, which resolves names itself; with no upstream, DNS
-# is not a way out either.
+# is not a way out either. The few outside addresses a guest needs as data (studio_gw_published_names)
+# are looked up by the gateway itself and published here as local .studio names.
 interface={{ studio_gw_studio_if }}
 bind-interfaces
 listen-address={{ studio_gw_studio_ip }}
@@ -19,3 +20,7 @@ local=/studio/
 {% for h in studio_gw_hosts %}
 host-record={{ h.name }}.studio,{{ h.ip }}
 {% endfor %}
+{% if studio_gw_published_names %}
+# Written by studio-gw-publish-names (one hosts file per name); dnsmasq re-reads changed files.
+hostsdir={{ studio_gw_hostsdir }}
+{% endif %}

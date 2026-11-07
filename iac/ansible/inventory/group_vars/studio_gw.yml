@@ -93,6 +93,9 @@ studio_gw_ingress:
     port: 3040
     to_ip: 10.77.0.10
     to_port: 3040
+  # Its WebRTC media (UDP): X-Mansion WAN 7788 -> pfSense -> Traefik's UDP router ark7788
+  # (borrowed from the never-built Ark Map 5 server) -> here -> the Forge's ICE mux port.
+  - {name: forge-romm-webrtc, from: 10.0.2.5, port: 7788, to_ip: 10.77.0.10, to_port: 7788, proto: udp}
   # The studio portal on the hub (role studio_hub): Traefik only, after Authentik. Traefik's
   # stream check (forwardAuth, /auth/stream) comes this way too.
   - name: hub-portal
@@ -120,3 +123,9 @@ studio_gw_hosts:
   - {name: studio-forge, ip: 10.77.0.10}
   - {name: studio-hub, ip: 10.77.0.20}
   - {name: cell-metaversig, ip: 10.77.0.60}
+
+# X-Mansion's WAN IP, which the Forge's webstation advertises as its WebRTC candidate
+# (role forge_webstation). webstation-udp.ninjaprivacy.org is a DNS-only CNAME to the
+# games-udp DDNS record; the gateway resolves it and guests see webstation-udp.studio.
+studio_gw_published_names:
+  - {name: webstation-udp, lookup: webstation-udp.ninjaprivacy.org}
