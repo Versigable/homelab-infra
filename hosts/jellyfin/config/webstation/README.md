@@ -61,7 +61,7 @@ its own `SUBFOLDER` and Traefik routers rather than one load-balanced path.
 
 Changing any of these files restarts all three containers on deploy, ending any running sessions.
 
-## WebRTC over UDP (all three, since 2026-11-07)
+## WebRTC over UDP (all four, since 2026-11-07)
 
 By default Selkies sends video, audio and input in one WebSocket, which is TCP from the
 browser through Cloudflare. One lost packet holds up everything behind it until it's resent,
@@ -79,11 +79,21 @@ Each instance borrows an idle GamingHub UDP forward (we have no access to X-Mans
 | 1 | 7787 | `ark7787` | Ark Map 5 (never set up; Ark is stopped) |
 | 2 | 7783 | `ark7783` | Ark Map 3 (never set up) |
 | 3 | 7784 | `ark7784` | Ark Map 3's second port |
+| Forge | 7788 | `ark7788` | Ark Map 5's second port |
 
 ```
 player -> X-Mansion WAN :77xx/udp -> pfSense -> Traefik VM :77xx
        -> UDP router ark77xx (hosts/traefik/config/dynamic/games-udp.yml) -> 10.0.1.8:77xx -> instance
+Forge: ... -> UDP router ark7788 -> studio-gw 10.0.1.150:7788 (studio_gw_ingress forge-romm-webrtc)
+       -> 10.77.0.10:7788 -> romm-webstation-forge
 ```
+
+The Forge's webstation sits on the studio network, whose DNS answers only `.studio` names
+(studio-gw's dnsmasq has no upstream, on purpose). So it can't resolve
+`webstation-udp.ninjaprivacy.org`. Instead studio-gw looks the name up itself every 5 minutes
+and publishes it as `webstation-udp.studio` (`studio_gw_published_names`, timer
+`studio-gw-publish-names`). The Forge sets `WEBRTC_PUBLIC_HOST=webstation-udp.studio`, and
+`40-webrtc-public-ip` and `svc-webrtc-ip-watch` work unchanged.
 
 - **Candidate address.** `SELKIES_WEBRTC_UDP_MUX_PORT` gives all of an instance's sessions one
   UDP port. `SELKIES_WEBRTC_ICE_LITE=true` makes the server offer only its host candidate,

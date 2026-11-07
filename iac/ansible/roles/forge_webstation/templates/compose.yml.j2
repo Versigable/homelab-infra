@@ -54,6 +54,14 @@ services:
       PCSX2_PATCHES_FETCH: "false"
       AZAHAR_BIN: /opt/webstation-bin/azahar-xcb
       SUBFOLDER: "{{ forge_webstation_path }}"
+      # WebRTC (UDP), jf's x-webrtc-env (hosts/jellyfin/compose/webstation.yml) with this
+      # instance's port and the .studio name for the public IP.
+      SELKIES_MODE: webrtc
+      SELKIES_WEBRTC_ICE_LITE: "true"
+      SELKIES_WEBRTC_UDP_MUX_PORT: "{{ forge_webstation_webrtc_port }}"
+      WEBRTC_PUBLIC_HOST: {{ forge_webstation_webrtc_host }}
+      SELKIES_RTC_CONFIG_JSON: /seed/webrtc-rtc.json
+      SELKIES_ENABLE_DUAL_MODE: "false"
     volumes:
       - ./config:/config
       - {{ forge_webstation_library }}:/romm/library:ro
@@ -65,6 +73,7 @@ services:
       - ./pcsx2-patches.zip:/usr/share/PCSX2/resources/patches.zip:ro
     ports:
       - "10.77.0.10:{{ forge_webstation_port }}:3000"
+      - "10.77.0.10:{{ forge_webstation_webrtc_port }}:{{ forge_webstation_webrtc_port }}/udp"
     logging:
       driver: json-file
       options:

@@ -75,6 +75,70 @@
     mode: "0644"
   notify: Restart dnsmasq
 
+# Outside addresses a guest needs as data (studio_gw_published_names): the gateway looks them
+# up on the LAN side and publishes them as local .studio names, so the studio network still
+# has no upstream resolver. In place before the dnsmasq config that reads them.
+- name: The directory of published names dnsmasq reads
+  ansible.builtin.file:
+    path: "{{ studio_gw_hostsdir }}"
+    state: directory
+    mode: "0755"
+
+- name: The name publisher
+  ansible.builtin.template:
+    src: studio-gw-publish-names.j2
+    dest: /usr/local/sbin/studio-gw-publish-names
+    mode: "0755"
+    validate: python3 -I -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" %s
+  register: studio_gw_publisher
+
+- name: The name publisher's service and 5-minute timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: studio-gw-publish-names.service
+      content: |
+        # Managed by Ansible (role studio_gw).
+        [Unit]
+        Description=Publish LAN-resolved addresses as local .studio names
+        Wants=network-online.target
+        After=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/studio-gw-publish-names
+    - name: studio-gw-publish-names.timer
+      content: |
+        # Managed by Ansible (role studio_gw).
+        [Unit]
+        Description=Re-check the published .studio names every 5 minutes
+
+        [Timer]
+        OnBootSec=30s
+        OnUnitActiveSec=5min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  register: studio_gw_publisher_units
+
+- name: The name publisher's timer
+  ansible.builtin.systemd_service:
+    name: studio-gw-publish-names.timer
+    daemon_reload: "{{ studio_gw_publisher_units.changed }}"
+    enabled: "{{ studio_gw_published_names | length > 0 }}"
+    state: "{{ 'started' if studio_gw_published_names else 'stopped' }}"
+  # A check run doesn't write a new unit, so systemd can't find it yet.
+  when: not (ansible_check_mode and studio_gw_publisher_units.changed)
+
+- name: The names published now, not at the timer's first tick
+  ansible.builtin.command: /usr/local/sbin/studio-gw-publish-names
+  when: (studio_gw_published_names | length > 0) and (studio_gw_publisher.changed or studio_gw_publisher_units.changed)
+  changed_when: true
+
 - name: The dnsmasq config
   ansible.builtin.template:
     src: dnsmasq-studio.conf.j2
