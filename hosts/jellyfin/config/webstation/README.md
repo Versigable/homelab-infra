@@ -6,9 +6,10 @@ the romm-broker shipped with `lscr.io/linuxserver/webstation:romm-version-v0.15.
 
 | File | Mounted at | Why |
 |------|-----------|-----|
-| `custom-cont-init.d/40-webrtc-public-ip` | `/custom-cont-init.d` | Runs as root at every start; does nothing unless the instance sets `SELKIES_MODE=webrtc`. Resolves `WEBRTC_PUBLIC_HOST` and writes the address to `SELKIES_WEBRTC_PUBLIC_IP`, which Selkies accepts only as an IP. If the name gives no public IPv4 (missing record, or a proxied record answering with Cloudflare's IPs), the instance falls back to websockets mode. See "WebRTC over UDP" below. |
+| `custom-cont-init.d/40-webrtc-public-ip` | `/custom-cont-init.d` | Runs as root at every start; does nothing unless the instance sets `SELKIES_MODE=webrtc`. Resolves `WEBRTC_PUBLIC_HOST` with `bin/webrtc-public-ip` and writes the address to `SELKIES_WEBRTC_PUBLIC_IP`, which Selkies accepts only as an IP. If the name gives no public IPv4 (missing record, or a proxied record answering with Cloudflare's IPs), the instance falls back to websockets mode. See "WebRTC over UDP" below. |
 | `custom-cont-init.d/50-seed-emulators` | `/custom-cont-init.d` | Runs as root at every start. Copies the PS1, PS2 and Dreamcast BIOS from the RomM library into DuckStation, PCSX2, Flycast and RetroArch, and pins PCSX2 to the USA SCPH-39001 BIOS. Installs PCSX2's `patches.zip` (upstream's rolling release, validated, refreshed weekly). Sets up xemu: `xemu.toml` with the library's MCPX and Complex 4627 images, a blank HDD, and port 1 on the virtual pad. Installs the full PPSSPP and Wii control maps, and sets PPSSPP's memory stick to 1 GB. Copies RetroArch's controller profiles and menu assets from the image (`/usr/share/libretro`) when `/config` has none; without the profiles RetroArch ignores Selkies' virtual pads ("Microsoft X-Box 360 pad (0/0) not configured"). Adds the performance defaults below to Dolphin's `GFX.ini`, `PCSX2.ini` and `xemu.toml`. Copy-if-missing or set-if-missing only, except the three Selkies page scripts (gamepad shim, video sink, playout buffer), which it installs into the Selkies web root (`/usr/share/selkies/web`, container layer) and loads from `index.html` on every start. |
 | `custom-services.d/svc-ppsspp-shm-reaper` | `/custom-services.d` | s6 service. Deletes `/dev/shm/PPSSPP_ID` whenever PPSSPP isn't running; otherwise every launch after a broker stop is a "secondary instance" with game volume 0. |
+| `custom-services.d/svc-webrtc-ip-watch` | `/custom-services.d` | s6 service; sleeps on instances without `WEBRTC_PUBLIC_HOST`. Every 5 minutes it re-resolves the public address. When the WAN IP changes (DDNS), it writes the new one and restarts Selkies at once, since sessions on the old address are already broken. When the instance fell back to websockets at start and the name resolves again, it restarts Selkies into WebRTC, but only while nobody is connected. |
 | `seed/ppsspp-controls.ini` | `/seed` | PPSSPP 1.20.4's default Linux map (QWERTY keyboard + pad 0) plus the broker's `[`/`]` save/load keys, generated from the v1.20.4 sources. The broker's own seed holds only those two keys, and PPSSPP unbinds everything a `[ControlMapping]` section leaves out. |
 | `seed/dolphin-WiimoteNew.ini` | `/seed` | Wiimotes 1-4 as emulated Wiimotes with a Classic Controller, bound to SDL pads 0-3 using the names the broker's own GameCube template uses (`SDL/<n>/Xbox 360 Controller`). The broker configures only GameCube pads, leaving Wii games on Dolphin's keyboard/mouse default. |
 | `seed/selkies-gamepad-shim.js` | `/seed` | Loaded by the Selkies page ahead of its own bundle. Rewrites controllers Chrome reports without a standard layout into the standard one, from per-controller profiles keyed by OS, browser and USB vendor/product ID. Without it, the Selkies client turns raw axes 4/5 into the d-pad and ignores hats, so a PowerA GameCube-style pad (`20d6:a711`) has its C-stick driving the d-pad and no working d-pad, and its stock jsdb profile crosses A and B in Dolphin. Profiled: PowerA GameCube-style wired, Chrome on Windows. To add a pad, read `navigator.getGamepads()` on that machine while pressing each control. |
@@ -17,6 +18,7 @@ the romm-broker shipped with `lscr.io/linuxserver/webstation:romm-version-v0.15.
 | `seed/webrtc-rtc.json` | `/seed` | The RTC config (`SELKIES_RTC_CONFIG_JSON`) for instances in WebRTC mode: no STUN or TURN servers. It outranks Selkies' other STUN/TURN sources, the last of which is a public third-party relay (`staticauth.openrelay.metered.ca`, with a published shared secret). Selkies trusts the file only if root owns it and it isn't group- or world-writable, as deploy installs it. |
 | `seed/xemu-xbox_hdd.qcow2.zip` | `/seed` | xemu's official blank 8 GiB HDD (xemu-project/xemu-hdd-image 1.0, sha256 `d9f5a4c1…bb39`). It's extracted to `/config/xemu/xbox_hdd.qcow2` once, and the broker converts it to raw on first launch. |
 | `bin/azahar-xcb` | `/opt/webstation-bin` | The `AZAHAR_BIN` launch wrapper. It forces `QT_QPA_PLATFORM=xcb` because on native Wayland Azahar's frames never reach the window on NVIDIA (the game runs with audio, but the screen stays black). |
+| `bin/webrtc-public-ip` | `/opt/webstation-bin` | `webrtc-public-ip <host>` prints the public IPv4 a WebRTC instance should advertise, or exits 1 with a reason when the name doesn't resolve, isn't public, or answers with a Cloudflare proxy address. Used by `40-webrtc-public-ip` and `svc-webrtc-ip-watch`. |
 
 Each container's `/config` (cores, BIOS copies, emulator settings, broker exports) lives
 in `/home/jf/webstation-hub/config`, `config-2` or `config-3` and is not in git.
@@ -59,41 +61,47 @@ its own `SUBFOLDER` and Traefik routers rather than one load-balanced path.
 
 Changing any of these files restarts all three containers on deploy, ending any running sessions.
 
-## WebRTC over UDP (test on instance 1, 2026-11-07)
+## WebRTC over UDP (all three, since 2026-11-07)
 
 By default Selkies sends video, audio and input in one WebSocket, which is TCP from the
 browser through Cloudflare. One lost packet holds up everything behind it until it's resent,
-so players see brief freezes. In WebRTC mode only the signalling stays on that WebSocket. The
-media goes over UDP, where a lost packet delays only its own frame (resent by NACK/RTX).
-Design and results: the vault note
+so players see brief freezes, audio included. In WebRTC mode only the signalling stays on that
+WebSocket. The media goes over UDP, where a lost packet delays only its own frame (resent by
+NACK/RTX), and audio is a separate stream sent ahead of video. An A/B on instance 1
+(2026-11-07) settled it: WebRTC "5x better", websockets latency "unplayable". Decision: vault
+`5-Decisions/2026-11-07_webstations-webrtc-udp.md`; design and checks:
 `1-Projects/romm-emulator-streaming/notes/webrtc-udp-transport-plan.md`.
 
-Path, using the stopped Ark Map 5 server's port (we have no access to X-Mansion's pfSense):
+Each instance borrows an idle GamingHub UDP forward (we have no access to X-Mansion's pfSense):
+
+| Instance | WAN UDP port | Traefik UDP router | Borrowed from |
+|---|---|---|---|
+| 1 | 7787 | `ark7787` | Ark Map 5 (never set up; Ark is stopped) |
+| 2 | 7783 | `ark7783` | Ark Map 3 (never set up) |
+| 3 | 7784 | `ark7784` | Ark Map 3's second port |
 
 ```
-player -> X-Mansion WAN :7787/udp -> pfSense -> Traefik VM :7787
-       -> UDP router ark7787 (hosts/traefik/config/dynamic/games-udp.yml) -> 10.0.1.8:7787 -> instance 1
+player -> X-Mansion WAN :77xx/udp -> pfSense -> Traefik VM :77xx
+       -> UDP router ark77xx (hosts/traefik/config/dynamic/games-udp.yml) -> 10.0.1.8:77xx -> instance
 ```
 
-- **Candidate address.** `SELKIES_WEBRTC_UDP_MUX_PORT=7787` gives all of the instance's
-  sessions one UDP port. `SELKIES_WEBRTC_ICE_LITE=true` makes the server offer only its host
-  candidate, rewritten to the public IP from `40-webrtc-public-ip`. The mux port must equal
-  the WAN port, because the candidate carries it. The public name is
-  `webstation-udp.ninjaprivacy.org`, a **DNS-only** CNAME to the DDNS record `games-udp`.
-  After a WAN IP change, restart the instance.
-- **WebRTC settings stay per instance.** The image's `init-selkies-config` treats any WebRTC
-  setting (`SELKIES_RTC_CONFIG_JSON`, `SELKIES_TURN_*`, `SELKIES_STUN_*`,
-  `SELKIES_WEBRTC_PUBLIC_IP`, ...) as "WebRTC configured". It then sets `SELKIES_MODE=webrtc`
-  on an instance that doesn't set its own mode, and turns dual mode on. With none set, dual
-  mode is off.
-- **Dual mode on instance 1** (`SELKIES_ENABLE_DUAL_MODE=true`) lets a controller-role player
-  switch the instance between WebRTC and websockets for a same-session A/B. A switch restarts
-  the stream for everyone on the instance. Turn it off at rollout.
+- **Candidate address.** `SELKIES_WEBRTC_UDP_MUX_PORT` gives all of an instance's sessions one
+  UDP port. `SELKIES_WEBRTC_ICE_LITE=true` makes the server offer only its host candidate,
+  rewritten to the public IP from `40-webrtc-public-ip`. The mux port must equal the WAN port,
+  because the candidate carries it. The public name is `webstation-udp.ninjaprivacy.org`, a
+  **DNS-only** CNAME to the DDNS record `games-udp`; `svc-webrtc-ip-watch` follows it.
+- **WebRTC settings live in `x-webrtc-env`,** never in the shared `x-webstation-env`. The
+  image's `init-selkies-config` treats any WebRTC setting (`SELKIES_RTC_CONFIG_JSON`,
+  `SELKIES_TURN_*`, `SELKIES_STUN_*`, `SELKIES_WEBRTC_PUBLIC_IP`, ...) as "WebRTC configured".
+  It then sets `SELKIES_MODE=webrtc` on an instance that doesn't set its own mode, and turns
+  dual mode on unless it's set.
+- **Dual mode is off.** It would let any controller-role player switch an instance's transport
+  for everyone on it, and the switch outlives the session.
 - **No fallback** for players whose network blocks UDP: they can't use a WebRTC instance.
-- **Traefik relays every media packet** in userspace on its 1-vCPU VM, and its UDP sessions
-  idle out after 3 s. Watch both during the test.
-- **To roll back:** remove instance 1's WebRTC settings and its `7787/udp` port, and point
-  `ark7787_svc` back at `10.0.1.9:7787`.
+- **Traefik relays every media packet** in userspace on its 1-vCPU VM. One stream cost it
+  about 3% (12% peak). Its UDP sessions idle out after 3 s; a hidden tab still resumed.
+- **To roll back an instance:** drop `*webrtc-env`, its mux port and its `77xx/udp` port, and
+  point its `ark77xx_svc` back at `10.0.1.9`.
 
 ## A fourth on the studio Forge
 

@@ -74,18 +74,20 @@ udp:
     ark7781_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7781"  } ] } }
     ark7782_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7782"  } ] } }
 
-    # Ark: Map 3
-    ark7783_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7783"  } ] } }
-    ark7784_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7784"  } ] } }
+    # Ark: Map 3. Never set up; both ports borrowed (2026-11-07) for RomM webstation
+    # WebRTC media: 7783 -> jf instance 2, 7784 -> jf instance 3
+    # (hosts/jellyfin/compose/webstation.yml). To give them back, point them at
+    # 10.0.1.9 again.
+    ark7783_svc:        { loadBalancer: { servers: [ { address: "10.0.1.8:7783"  } ] } }
+    ark7784_svc:        { loadBalancer: { servers: [ { address: "10.0.1.8:7784"  } ] } }
 
     # Ark: Fjordur
     ark7785_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7785"  } ] } }
     ark7786_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7786"  } ] } }
 
-    # Ark: Map 5. 7787 is borrowed (2026-11-07) for the RomM webstation WebRTC test:
-    # jf instance 1's Selkies ICE mux (hosts/jellyfin/compose/webstation.yml). Ark is
-    # stopped and Map 5 was never set up; pfSense already forwards WAN 7787/udp here.
-    # To give it back, point it at 10.0.1.9:7787 again.
+    # Ark: Map 5. Never set up. 7787 is borrowed (2026-11-07) for RomM webstation
+    # WebRTC media: jf instance 1 (hosts/jellyfin/compose/webstation.yml). 7788 is set
+    # aside for the Forge's webstation. To give 7787 back, point it at 10.0.1.9:7787.
     ark7787_svc:        { loadBalancer: { servers: [ { address: "10.0.1.8:7787"  } ] } }
     ark7788_svc:        { loadBalancer: { servers: [ { address: "10.0.1.9:7788"  } ] } }
 

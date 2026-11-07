@@ -3,10 +3,15 @@
 # (same emulators and cores per platform) and a launch takes the first free one
 # in config order, so instance 1 stays the warm one.
 #
-#   instance  container          /config     vCPUs  broker (RomM, LAN)      player path (Traefik)
-#   1         romm-webstation    ../config   0-3    http://10.0.1.8:3010    /streaming
-#   2         romm-webstation-2  ../config-2 4-7    http://10.0.1.8:3020    /streaming-2
-#   3         romm-webstation-3  ../config-3 8-11   http://10.0.1.8:3030    /streaming-3
+#   instance  container          /config     vCPUs  broker (RomM, LAN)      player path (Traefik)  media (UDP)
+#   1         romm-webstation    ../config   0-3    http://10.0.1.8:3010    /streaming             7787
+#   2         romm-webstation-2  ../config-2 4-7    http://10.0.1.8:3020    /streaming-2           7783
+#   3         romm-webstation-3  ../config-3 8-11   http://10.0.1.8:3030    /streaming-3           7784
+#
+# Media goes over UDP (Selkies WebRTC mode) since 2026-11-07: vault decision
+# 5-Decisions/2026-11-07_webstations-webrtc-udp. Each instance's UDP port is an idle
+# GamingHub forward borrowed on X-Mansion's pfSense (WAN -> Traefik VM UDP router
+# ark77xx in hosts/traefik/config/dynamic/games-udp.yml -> here).
 #
 # RomM calls each broker over the LAN (X-Broker-Secret, shared by all three) and
 # players reach each stream same-origin through Traefik on games.* and arcade.*
@@ -43,11 +48,32 @@ x-webstation-env: &webstation-env
   # window on NVIDIA; the wrapper forces XWayland (see config/webstation/bin).
   AZAHAR_BIN: /opt/webstation-bin/azahar-xcb
   # Keep WebRTC settings (SELKIES_RTC_CONFIG_JSON, SELKIES_TURN_*, SELKIES_STUN_*,
-  # SELKIES_WEBRTC_PUBLIC_IP) out of this shared block. The image's
-  # init-selkies-config treats any of them as "WebRTC configured" and then sets
-  # SELKIES_MODE=webrtc on an instance that doesn't set its own mode. With none set
-  # it also turns dual mode off, so a websockets instance's players can't switch
-  # transport. See config/webstation/README.md, "WebRTC over UDP".
+  # SELKIES_WEBRTC_PUBLIC_IP) out of this block; they go in webrtc-env below. The
+  # image's init-selkies-config treats any of them as "WebRTC configured" and then
+  # sets SELKIES_MODE=webrtc on an instance that doesn't set its own mode. See
+  # config/webstation/README.md, "WebRTC over UDP".
+
+# Merged by each instance that streams over WebRTC (all three). Each adds its own
+# SELKIES_WEBRTC_UDP_MUX_PORT, which must equal its forwarded WAN port: it is the
+# port the server puts in its ICE candidate. Signalling stays on the WebSocket
+# through Cloudflare and Traefik; only the media moves to UDP.
+x-webrtc-env: &webrtc-env
+  SELKIES_MODE: webrtc
+  # Host candidates only, answering the client's checks: right for forwarded ports.
+  SELKIES_WEBRTC_ICE_LITE: "true"
+  # Resolved to SELKIES_WEBRTC_PUBLIC_IP (IP only) at container start by
+  # custom-cont-init.d/40-webrtc-public-ip, and re-checked every 5 min by
+  # custom-services.d/svc-webrtc-ip-watch. A DNS-only CNAME to games-udp (DDNS).
+  WEBRTC_PUBLIC_HOST: webstation-udp.ninjaprivacy.org
+  # With no RTC config, WebRTC mode falls back to a public third-party TURN relay
+  # (staticauth.openrelay.metered.ca, published shared secret). This file outranks
+  # every other STUN/TURN source and lists no ICE servers at all.
+  SELKIES_RTC_CONFIG_JSON: /seed/webrtc-rtc.json
+  # Dual mode would let any controller-role player switch the instance to
+  # websockets and back, restarting the stream for everyone on it; and the switch
+  # outlives the session. Off. (The image turns it on for WebRTC-configured
+  # instances unless it's set.)
+  SELKIES_ENABLE_DUAL_MODE: "false"
 
 x-webstation: &webstation
   image: lscr.io/linuxserver/webstation:romm-version-v0.15.0
@@ -109,28 +135,10 @@ services:
     # phoenix, jf itself is pinned to CCD0 (VM 108 affinity 0-7,16-23).
     cpuset: "0-3"
     environment:
-      <<: *webstation-env
+      <<: [*webstation-env, *webrtc-env]
       SUBFOLDER: /streaming/
-      # WebRTC test, 2026-11-07: media over UDP instead of the TCP WebSocket
-      # (signalling stays on the WebSocket through Cloudflare and Traefik).
-      # Players reach UDP 7787 on X-Mansion's WAN; pfSense forwards it to the
-      # Traefik VM, whose UDP router ark7787 (borrowed from the stopped Ark Map5
-      # server) relays it here. The mux port must equal that WAN port: it is the
-      # port the server puts in its ICE candidate.
-      SELKIES_MODE: webrtc
+      # WAN 7787/udp: borrowed from the stopped Ark Map 5 server (router ark7787).
       SELKIES_WEBRTC_UDP_MUX_PORT: "7787"
-      SELKIES_WEBRTC_ICE_LITE: "true"
-      # Resolved to SELKIES_WEBRTC_PUBLIC_IP (IP only) at container start by
-      # custom-cont-init.d/40-webrtc-public-ip; DNS-only CNAME to games-udp (DDNS).
-      WEBRTC_PUBLIC_HOST: webstation-udp.ninjaprivacy.org
-      # With no RTC config, WebRTC mode falls back to a public third-party TURN
-      # relay (staticauth.openrelay.metered.ca, published shared secret). This file
-      # outranks every other STUN/TURN source and lists no ICE servers at all.
-      SELKIES_RTC_CONFIG_JSON: /seed/webrtc-rtc.json
-      # Dual mode lets a controller-role player switch this instance between
-      # WebRTC and websockets (restarting the stream for everyone on it). On for
-      # the test's same-instance A/B; turn it off at rollout.
-      SELKIES_ENABLE_DUAL_MODE: "true"
     volumes:
       - ../config:/config
       - /mnt/gameroom:/romm/library:ro
@@ -149,8 +157,10 @@ services:
     container_name: romm-webstation-2
     cpuset: "4-7"
     environment:
-      <<: *webstation-env
+      <<: [*webstation-env, *webrtc-env]
       SUBFOLDER: /streaming-2/
+      # WAN 7783/udp: borrowed from the never-built Ark Map 3 server (router ark7783).
+      SELKIES_WEBRTC_UDP_MUX_PORT: "7783"
     volumes:
       - ../config-2:/config
       - /mnt/gameroom:/romm/library:ro
@@ -160,14 +170,17 @@ services:
       - ../bin:/opt/webstation-bin:ro
     ports:
       - "10.0.1.8:3020:3000" # HTTP: RomM broker calls and the Traefik /streaming-2 route
+      - "10.0.1.8:7783:7783/udp" # WebRTC media (ICE mux), from the Traefik VM's UDP router ark7783
 
   webstation-3:
     <<: *webstation
     container_name: romm-webstation-3
     cpuset: "8-11"
     environment:
-      <<: *webstation-env
+      <<: [*webstation-env, *webrtc-env]
       SUBFOLDER: /streaming-3/
+      # WAN 7784/udp: Ark Map 3's second port (router ark7784).
+      SELKIES_WEBRTC_UDP_MUX_PORT: "7784"
     volumes:
       - ../config-3:/config
       - /mnt/gameroom:/romm/library:ro
@@ -177,3 +190,4 @@ services:
       - ../bin:/opt/webstation-bin:ro
     ports:
       - "10.0.1.8:3030:3000" # HTTP: RomM broker calls and the Traefik /streaming-3 route
+      - "10.0.1.8:7784:7784/udp" # WebRTC media (ICE mux), from the Traefik VM's UDP router ark7784
