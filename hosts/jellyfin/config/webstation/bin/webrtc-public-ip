@@ -1,0 +1,36 @@
+#!/lsiopy/bin/python3 -I
+"""webrtc-public-ip <host>: print the public IPv4 a WebRTC webstation should advertise.
+
+Used by custom-cont-init.d/40-webrtc-public-ip (at container start) and
+custom-services.d/svc-webrtc-ip-watch (every 5 min). Selkies' SELKIES_WEBRTC_PUBLIC_IP
+takes an IP only, and X-Mansion's WAN IP is dynamic: <host> is the DNS-only CNAME
+webstation-udp.ninjaprivacy.org -> games-udp (DDNS).
+
+Prints the address and exits 0, or prints a reason on stderr and exits 1 when the
+name gives no usable address: it doesn't resolve, it isn't public, or it's one of
+Cloudflare's proxy addresses. A proxied record, or a missing name caught by the
+proxied *.ninjaprivacy.org wildcard, answers with those; Cloudflare doesn't carry
+this UDP.
+"""
+import ipaddress
+import socket
+import sys
+
+# https://www.cloudflare.com/ips-v4
+CLOUDFLARE = ["173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+              "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+              "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+              "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22"]
+
+if len(sys.argv) != 2:
+    sys.exit("usage: webrtc-public-ip <host>")
+host = sys.argv[1]
+try:
+    addr = ipaddress.ip_address(socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0])
+except Exception as e:
+    sys.exit(f"{host} did not resolve ({e})")
+if not addr.is_global:
+    sys.exit(f"{host} resolved to a non-public address")
+if any(addr in ipaddress.ip_network(n) for n in CLOUDFLARE):
+    sys.exit(f"{host} resolved to a Cloudflare proxy address (the record must be DNS-only)")
+print(addr)
