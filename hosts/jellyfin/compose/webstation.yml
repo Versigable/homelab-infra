@@ -41,6 +41,12 @@ x-webstation-env: &webstation-env
   # frames, which follow this rate; unlocked, the sidebar's framerate slider
   # (8-240, saved in the browser) would change game speed. Locked, it's hidden.
   SELKIES_FRAMERATE: "60-60"
+  # Encoders the sidebar offers; the first is the default. The image's own list
+  # also has av1enc, vp8enc and vp9enc, which the 3060 Ti can't encode in hardware,
+  # so Selkies falls back to CPU encoders on the 4 vCPUs the emulator runs on. An
+  # AV1 session on instance 1 (2026-11-07) ran svt-av1 at 16 Mbps beside PPSSPP.
+  # The Forge (RTX 5070 Ti, NVENC AV1) has its own template and keeps the full list.
+  SELKIES_ENCODER: "h264enc,h265enc,jpeg"
   # PCSX2's patches.zip is installed by custom-cont-init.d/50-seed-emulators;
   # the broker's own refresh needs sudo, which DISABLE_SUDO blocks.
   PCSX2_PATCHES_FETCH: "false"
