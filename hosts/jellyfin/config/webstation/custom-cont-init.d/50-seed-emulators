@@ -143,6 +143,40 @@ set_defaults "$PCSX2_INI" \
   EmuCore/GS SyncToHostRefreshRate true \
   EmuCore/GS UseVSyncForTiming true \
   EmuCore/Speedhacks vuThread true
+# PCSX2 player 2. The broker binds only Pad1 (port 1) to the first SDL pad, and
+# PCSX2 leaves port 2 unplugged, so a co-op player's pad did nothing in PS2 games.
+# Port 2 gets a DualShock 2 on SDL-1 (Selkies' second browser pad), with the broker's
+# own Pad1 bindings. No multitap: one that is always on breaks some 1- and 2-player
+# games, so 3-4 players are a per-game setting.
+set_defaults "$PCSX2_INI" \
+  Pad2 Type DualShock2 \
+  Pad2 Up SDL-1/DPadUp \
+  Pad2 Right SDL-1/DPadRight \
+  Pad2 Down SDL-1/DPadDown \
+  Pad2 Left SDL-1/DPadLeft \
+  Pad2 Triangle SDL-1/FaceNorth \
+  Pad2 Circle SDL-1/FaceEast \
+  Pad2 Cross SDL-1/FaceSouth \
+  Pad2 Square SDL-1/FaceWest \
+  Pad2 Select SDL-1/Back \
+  Pad2 Start SDL-1/Start \
+  Pad2 L1 SDL-1/LeftShoulder \
+  Pad2 L2 SDL-1/+LeftTrigger \
+  Pad2 R1 SDL-1/RightShoulder \
+  Pad2 R2 SDL-1/+RightTrigger \
+  Pad2 L3 SDL-1/LeftStick \
+  Pad2 R3 SDL-1/RightStick \
+  Pad2 LUp SDL-1/-LeftY \
+  Pad2 LRight SDL-1/+LeftX \
+  Pad2 LDown SDL-1/+LeftY \
+  Pad2 LLeft SDL-1/-LeftX \
+  Pad2 RUp SDL-1/-RightY \
+  Pad2 RRight SDL-1/+RightX \
+  Pad2 RDown SDL-1/+RightY \
+  Pad2 RLeft SDL-1/-RightX \
+  Pad2 Analog SDL-1/Guide \
+  Pad2 LargeMotor SDL-1/LargeMotor \
+  Pad2 SmallMotor SDL-1/SmallMotor
 
 # Wii controls. The broker binds GameCube pads to the virtual SDL pad but leaves
 # Wiimotes on Dolphin's keyboard/mouse default. Emulate a Wiimote with a Classic
