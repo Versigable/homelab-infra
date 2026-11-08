@@ -109,6 +109,10 @@ studio_gw_ingress:
   - {name: forge-session-s1, from: 10.0.2.5, port: 3101, to_ip: 10.77.0.10, to_port: 3101}
   - {name: forge-session-s2, from: 10.0.2.5, port: 3102, to_ip: 10.77.0.10, to_port: 3102}
   - {name: forge-session-s3, from: 10.0.2.5, port: 3103, to_ip: 10.77.0.10, to_port: 3103}
+  # Each person's browser terminal into their own cell (role studio_cell, studio-term on
+  # studio_cell_term_port): Traefik only, after Authentik and the hub's owner check.
+  - {name: term-metaversig, from: 10.0.2.5, port: 3200, to_ip: 10.77.0.60, to_port: 7681}
+  - {name: term-kannis, from: 10.0.2.5, port: 3201, to_ip: 10.77.0.61, to_port: 7681}
 
 # LAN services reached directly, not through Squid. The Forge's webstation reads the ROM
 # library from TrueNAS over NFSv4 (the gameroom share, mounted read-only by nfs_client).

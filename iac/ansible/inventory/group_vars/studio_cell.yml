@@ -26,3 +26,9 @@ studio_cell_unity_key_sha256: 50b6488eb573a02a96f897482fd190e965eaf58c60b7053aec
 studio_cell_unity_editor_version: 6000.3.27f1
 studio_cell_unity_editor_changeset: 672d562a42a7
 studio_cell_unity_modules: [linux-il2cpp, windows-mono, webgl, documentation]
+
+# ttyd, the owner's browser terminal (role studio_cell, term.yml). Not packaged in Debian 13,
+# so the release's static binary, downloaded and checked on the control node like Codex.
+# 1.7.7 was released 2024-03-30; the checksum is the release's own SHA256SUMS entry.
+studio_cell_ttyd_version: "1.7.7"
+studio_cell_ttyd_sha256: 8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55

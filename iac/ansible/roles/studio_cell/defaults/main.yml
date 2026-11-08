@@ -15,6 +15,7 @@ studio_cell_packages:
   - unzip
   - xvfb
   - libicu76
+  - tmux
   - libasound2t64
   - libegl1
   - libgbm1
@@ -43,6 +44,13 @@ studio_cell_user_proxy_ports:
 studio_cell_loopback_deny:
   agent: [7800-7999]
 studio_cell_proxy_host: "{{ studio_proxy_url | urlsplit('hostname') }}"
+
+# The owner's browser terminal (term.yml): ttyd on this port, a tmux session as the owner, at
+# https://studio.ninjaprivacy.org/term/<owner>/. Traefik reaches it through studio-gw (its
+# ingress term-<owner>), after Authentik and the hub's owner check (/auth/term), and the
+# cell's firewall takes the port from Traefik's address only, never from studio0 or loopback.
+studio_cell_term_port: 7681
+studio_cell_term_from: 10.0.2.5
 
 # Group shared by agent and unity for job worktrees: agents edit the code, the editor writes
 # Library/ and the scenes and prefabs the kit generates.

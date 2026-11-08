@@ -1,6 +1,7 @@
 # A person's cell (design: engine-and-agent-runtime §2): their agents, their games, their
 # Unity editor. Users:
-#   <owner>  the person: logs in through studio-gw's jump account, and may act as agent and
+#   <owner>  the person: logs in through the browser terminal (term.yml) or, on the LAN,
+#            studio-gw's jump account, and may act as agent and
 #            unity (sudo -iu) to sign in, but has no root here (root belongs to the IaC and,
 #            from step 2c-2, to studio-agentd and the Unity broker)
 #   agent    runs Claude Code and Codex; holds the person's AI sign-ins and nothing else;
@@ -23,6 +24,9 @@
 
 - name: Egress per user
   ansible.builtin.import_tasks: egress.yml
+
+- name: The owner's browser terminal
+  ansible.builtin.import_tasks: term.yml
 
 - name: Claude Code
   ansible.builtin.import_tasks: claude.yml

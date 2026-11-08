@@ -1,0 +1,75 @@
+# The owner's browser terminal: https://studio.ninjaprivacy.org/term/<owner>/. ttyd runs a tmux
+# session as the owner, so closing the tab keeps the session (and a pairing agent) running, and
+# opening it again reattaches. Who gets in is decided before ttyd: Authentik (the studio's own
+# provider), then the hub's /auth/term (only this cell's owner), then studio-gw's forward from
+# Traefik only, then the cell's firewall (the port from Traefik's address only; templates/
+# nftables.conf.j2). No passwords or keys: anyone outside the LAN signs in this way.
+
+- name: ttyd release binary, checked, on the control node
+  ansible.builtin.get_url:
+    url: "https://github.com/tsl0922/ttyd/releases/download/{{ studio_cell_ttyd_version }}/ttyd.x86_64"
+    dest: "{{ studio_cell_codex_cache }}/ttyd-{{ studio_cell_ttyd_version }}.x86_64"
+    checksum: "sha256:{{ studio_cell_ttyd_sha256 }}"
+    mode: "0600"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
+- name: ttyd
+  ansible.builtin.copy:
+    src: "{{ studio_cell_codex_cache }}/ttyd-{{ studio_cell_ttyd_version }}.x86_64"
+    dest: /usr/local/bin/ttyd
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart studio-term
+
+# Mouse on, so the browser's wheel scrolls tmux's history rather than the shell's input.
+- name: tmux settings for the browser terminal
+  ansible.builtin.copy:
+    dest: /etc/tmux.conf
+    content: |
+      # Managed by Ansible (role studio_cell): the owner's browser terminal runs in tmux.
+      set -g mouse on
+      set -g history-limit 50000
+      set -g default-terminal "tmux-256color"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: The browser terminal's unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/studio-term.service
+    content: |
+      # Managed by Ansible (role studio_cell). The owner's browser terminal, reached only through
+      # Traefik, Authentik and the hub's owner check (vault: game-studio-platform/design/people-and-membership).
+      [Unit]
+      Description=Browser terminal for {{ studio_cell_owner }} (ttyd + tmux)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User={{ studio_cell_owner }}
+      Group={{ studio_cell_owner }}
+      WorkingDirectory=/home/{{ studio_cell_owner }}
+      Environment=HOME=/home/{{ studio_cell_owner }} TERM=xterm-256color LANG=C.UTF-8
+      ExecStart=/usr/local/bin/ttyd --port {{ studio_cell_term_port }} --base-path /term/{{ studio_cell_owner }} --writable --check-origin --client-option titleFixed=cell-{{ studio_cell_owner }} /usr/bin/tmux new-session -A -s term
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart studio-term
+
+- name: The browser terminal runs
+  ansible.builtin.systemd_service:
+    name: studio-term
+    enabled: true
+    state: started
+    daemon_reload: true

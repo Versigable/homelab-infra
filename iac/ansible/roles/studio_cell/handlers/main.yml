@@ -23,3 +23,10 @@
   when:
     - studio_cell_token_file.stat.exists | default(false)
     - not (ansible_check_mode and (studio_cell_agentd_unit.changed | default(false)))
+
+# Open terminals drop and reconnect; the tmux session (and anything running in it) survives.
+- name: Restart studio-term
+  ansible.builtin.systemd_service:
+    name: studio-term
+    state: restarted
+  when: not ansible_check_mode
