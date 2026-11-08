@@ -9,7 +9,8 @@
 #   151 studio-hub       rogue    broker, depot, portal, publisher, chat bot (design step 2b)
 #   155 studio-forge     phoenix  the GPU VM; holds the RTX 5070 Ti for good
 #   160 cell-metaversig  rogue    MetaVersig's cell: his agents, games, Unity (design step 2c)
-# Later: 161 cell-kannis (rogue). Addresses: gw .1, Forge .10, hub .20, cells .60 and up.
+#   161 cell-kannis      rogue    Kannis's cell, the same shape (design step 6)
+# Addresses: gw .1, Forge .10, hub .20, cells .60 and up.
 locals {
   studio_net = {
     bridge  = "studio0"
@@ -48,6 +49,14 @@ locals {
       ip     = module.cell_metaversig.ip
       vmid   = module.cell_metaversig.vmid
       node   = module.cell_metaversig.node
+      groups = ["studio_cell", "studio_private"]
+      tags   = ["cell", "iac", "studio"]
+    }
+    "cell-kannis" = {
+      kind   = "vm"
+      ip     = module.cell_kannis.ip
+      vmid   = module.cell_kannis.vmid
+      node   = module.cell_kannis.node
       groups = ["studio_cell", "studio_private"]
       tags   = ["cell", "iac", "studio"]
     }
@@ -178,6 +187,35 @@ module "cell_metaversig" {
   mac_address = "BC:24:11:B0:64:29"
   smbios_uuid = "f03a17f0-c387-4096-b72e-76f1f0c9bad6"
   ip          = "10.77.0.60"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
+}
+
+# Kannis's cell: the same shape as MetaVersig's (above), with its own fixed identity. His own
+# Claude, ChatGPT and Unity sign-ins; his agents answer only to his approvals.
+module "cell_kannis" {
+  source = "../modules/vm"
+
+  hostname      = "cell-kannis"
+  node          = "rogue"
+  vmid          = 161
+  template_vmid = var.vm_template_vmids["rogue"]
+  description   = "Studio cell of Kannis: agents, games, Unity. Fixed identity; never clone. Vault: 1-Projects/game-studio-platform/design/people-and-membership."
+  cores         = 6
+  cpu_type      = "x86-64-v3"
+  cpu_units     = 50
+  memory        = 12288
+  memory_min    = 4096
+  disk          = 150
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  mac_address = "BC:24:11:48:E1:9A"
+  smbios_uuid = "f7170e71-3885-4199-a8c4-7d7d2563b61c"
+  ip          = "10.77.0.61"
   prefix      = local.studio_net.prefix
   gateway     = local.studio_net.gateway
   dns_servers = [local.studio_net.gateway]
