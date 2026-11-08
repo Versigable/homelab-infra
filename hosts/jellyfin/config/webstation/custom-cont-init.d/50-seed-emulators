@@ -308,9 +308,12 @@ done
 # - playout-buffer.js: the worker draws each frame the moment it's decoded, so bunched
 #   arrivals show as hitches. It holds frames ~50 ms and draws them on the display's
 #   refresh at a steady cadence (homelab.playoutMs in localStorage tunes it; 0 = off).
+# - webrtc-volume.js: in WebRTC mode the audio plays through the stream's <video>
+#   element, while Selkies applies RomM's volume and mute messages only to its
+#   websockets GainNode, so the slider did nothing. It applies them to the element.
 SELKIES_WEB=/usr/share/selkies/web
 if [[ -f "$SELKIES_WEB/index.html" ]]; then
-  for page_js in gamepad-shim video-sink playout-buffer; do
+  for page_js in gamepad-shim video-sink playout-buffer webrtc-volume; do
     install -m 0644 -o root -g root "/seed/selkies-$page_js.js" "$SELKIES_WEB/$page_js.js" || continue
     if ! grep -q "$page_js.js" "$SELKIES_WEB/index.html"; then
       sed -i "s|<head>|<head><script src=\"./$page_js.js\"></script>|" "$SELKIES_WEB/index.html"
