@@ -5,7 +5,7 @@
 # Traefik only, then the cell's firewall (the port from Traefik's address only; templates/
 # nftables.conf.j2). No passwords or keys: anyone outside the LAN signs in this way.
 
-- name: ttyd release binary, checked, on the control node
+- name: The ttyd release binary, checked, on the control node
   ansible.builtin.get_url:
     url: "https://github.com/tsl0922/ttyd/releases/download/{{ studio_cell_ttyd_version }}/ttyd.x86_64"
     dest: "{{ studio_cell_codex_cache }}/ttyd-{{ studio_cell_ttyd_version }}.x86_64"
@@ -16,7 +16,7 @@
   become: false
   check_mode: false
 
-- name: ttyd
+- name: The ttyd binary
   ansible.builtin.copy:
     src: "{{ studio_cell_codex_cache }}/ttyd-{{ studio_cell_ttyd_version }}.x86_64"
     dest: /usr/local/bin/ttyd
@@ -26,7 +26,7 @@
   notify: Restart studio-term
 
 # Mouse on, so the browser's wheel scrolls tmux's history rather than the shell's input.
-- name: tmux settings for the browser terminal
+- name: The tmux settings for the browser terminal
   ansible.builtin.copy:
     dest: /etc/tmux.conf
     content: |

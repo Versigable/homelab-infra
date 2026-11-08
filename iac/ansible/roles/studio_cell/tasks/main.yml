@@ -5,7 +5,7 @@
 #            unity (sudo -iu) to sign in, but has no root here (root belongs to the IaC and,
 #            from step 2c-2, to studio-agentd and the Unity broker)
 #   agent    runs Claude Code and Codex; holds the person's AI sign-ins and nothing else;
-#            reaches only the AI vendors
+#            has the internet, but nothing private (the LAN, studio0's hub and other cells)
 #   unity    runs the Unity CLI and Editor; holds the person's Unity sign-in and licence;
 #            reaches only Unity
 # Separate users so game code running in the editor can't read the AI sign-ins, and an agent

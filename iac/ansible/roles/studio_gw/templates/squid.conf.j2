@@ -1,6 +1,7 @@
 # Managed by Ansible (role studio_gw). Edit inventory/group_vars/studio_gw.yml, not this.
 #
-# The studio network's only way out: HTTP and HTTPS by hostname, per class of guest
+# The studio network's way out (the cells also have the internet directly: studio_gw_internet
+# in nftables.conf): HTTP and HTTPS by hostname, per class of guest
 # (studio_gw_egress). A class is matched by source address and by the proxy port it was
 # reached on (proxy_port, default {{ studio_gw_proxy_port }}), so one guest can have a class
 # per local user, each user pinned to its port by the guest's own firewall (role
@@ -44,8 +45,9 @@ acl http_port_80 port 80
 http_access deny CONNECT !https_port
 http_access deny !CONNECT !http_port_80
 # A class open to any name (any_name) still never reaches this side of the gateway: private,
-# loopback, link-local and CGNAT addresses, by the address the name resolves to.
-acl to_private dst 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 ::1 fc00::/7 fe80::/10
+# loopback, link-local, CGNAT and reserved addresses (studio_gw_private_nets), by the address
+# the name resolves to.
+acl to_private dst {{ studio_gw_private_nets | join(' ') }} ::1 fc00::/7 fe80::/10
 {% for class, c in studio_gw_egress.items() %}
 {% if c.any_name | default(false) %}
 http_access deny via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} to_private

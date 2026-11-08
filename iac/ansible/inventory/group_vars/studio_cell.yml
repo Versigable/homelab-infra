@@ -1,5 +1,9 @@
 # Every person's cell (role studio_cell). Pinned; bump through an MR.
 
+# Cells have the internet directly (studio-gw's studio_gw_internet): public resolvers for
+# outside names, and the guest checks expect to get out without Squid (role studio_guest).
+studio_guest_direct_internet: true
+
 # Claude Code: Anthropic's signed apt repository, stable channel (about a week behind latest,
 # skipping releases with major regressions). Key "Anthropic Claude Code Release Signing",
 # fingerprint 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE.

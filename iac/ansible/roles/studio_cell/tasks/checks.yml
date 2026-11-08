@@ -1,6 +1,7 @@
-# Egress per user, shown on every run. curl's exit code says who refused: 7 is the cell's
-# firewall (connection reset), anything else non-zero after connecting is Squid refusing
-# the name, 0 is a tunnel that went through.
+# Egress per user, shown on every run. Port 0 is direct, without Squid. curl's exit code says
+# who refused: 7 is a firewall (the cell's connection reset, or studio-gw's refusal of a
+# private address), anything else non-zero after connecting is Squid refusing the name, 0 went
+# through.
 
 - name: Egress checks (user, proxy port, URL, expected outcome)
   ansible.builtin.command:
@@ -17,23 +18,53 @@
     or (item.expect == 'firewall' and studio_cell_egress.rc != 7)
     or (item.expect == 'squid' and studio_cell_egress.rc in [0, 7])
   loop:
-    - {user: agent, port: 3129, url: "https://api.anthropic.com/", expect: through}
-    - {user: agent, port: 3129, url: "https://chatgpt.com/", expect: through}
-    # The open web over HTTPS (Unity's docs, GitHub), but nothing private: ServiceHub stands in.
-    - {user: agent, port: 3129, url: "https://docs.unity.com/", expect: through}
-    - {user: agent, port: 3129, url: "https://github.com/", expect: through}
-    - {user: agent, port: 3129, url: "https://10.0.1.5/", expect: squid}
+    # agent: the internet directly, plain HTTP too, but nothing private: ServiceHub stands in
+    # for the LAN, Squid for studio0.
+    - {user: agent, port: 0, url: "https://api.anthropic.com/", expect: through}
+    - {user: agent, port: 0, url: "https://chatgpt.com/", expect: through}
+    - {user: agent, port: 0, url: "https://docs.unity.com/", expect: through}
+    - {user: agent, port: 0, url: "https://github.com/", expect: through}
+    - {user: agent, port: 0, url: "http://deb.debian.org/debian/", expect: through}
+    - {user: agent, port: 0, url: "https://10.0.1.5/", expect: firewall}
     - {user: agent, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     - {user: agent, port: 3130, url: "https://unity.com/", expect: firewall}
+    # unity: Unity through its own port, and nothing directly.
     - {user: unity, port: 3130, url: "https://unity.com/", expect: through}
     - {user: unity, port: 3130, url: "https://api.anthropic.com/", expect: squid}
     - {user: unity, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
+    - {user: unity, port: 0, url: "https://github.com/", expect: firewall}
+    # root and the owner: the internet directly as well, and studio-gw refuses the LAN.
     - {user: root, port: 3128, url: "{{ studio_cell_gitlab_url }}/api/v4/version", expect: through}
+    - {user: root, port: 0, url: "https://github.com/", expect: through}
+    - {user: "{{ studio_cell_owner }}", port: 0, url: "https://github.com/", expect: through}
+    - {user: root, port: 0, url: "https://10.0.1.5/", expect: firewall}
     # The hub's API is the daemons' (root), never a job's.
     - {user: agent, port: 0, url: "{{ studio_hub_api_url }}/v1/whoami", expect: firewall}
     - {user: unity, port: 0, url: "{{ studio_hub_api_url }}/v1/whoami", expect: firewall}
   loop_control:
     label: "{{ item.user }} :{{ item.port }} {{ item.url }} -> {{ item.expect }}"
+  when: not ansible_check_mode
+
+# Beyond HTTP, as agent: outside names and .studio names resolve, SSH on GitHub answers (its
+# banner), studio-gw refuses SMTP at once (1: the connection was reset), and an SSH remote on
+# GitHub is fetched over HTTPS (studio_cell_agent_git_env, read from the job environment).
+- name: Agent's names, SSH, SMTP and Git remotes
+  ansible.builtin.shell:
+    cmd: |
+      set -uo pipefail
+      getent hosts github.com >/dev/null && names=ok || names=fail
+      studio=$(getent hosts studio-gw.studio | awk '{print $1}')
+      ssh=$(timeout 10 bash -c 'exec 3<>/dev/tcp/github.com/22 && head -c 4 <&3' 2>/dev/null)
+      timeout 10 bash -c 'exec 3<>/dev/tcp/smtp.gmail.com/25' 2>/dev/null; smtp=$?
+      git ls-remote git@github.com:octocat/Hello-World.git HEAD >/dev/null 2>&1 && git=ok || git=fail
+      echo "names=$names studio=$studio ssh=$ssh smtp=$smtp git=$git"
+    executable: /bin/bash
+  become: true
+  become_user: agent
+  environment: "{{ studio_cell_agent_git_env }}"
+  register: studio_cell_beyond_http
+  changed_when: false
+  failed_when: studio_cell_beyond_http.stdout | trim != 'names=ok studio=' ~ studio_cell_proxy_host ~ ' ssh=SSH- smtp=1 git=ok'
   when: not ansible_check_mode
 
 # Loopback: agent reaches a loopback listener (the Unity CLI's own helper is one), but not
