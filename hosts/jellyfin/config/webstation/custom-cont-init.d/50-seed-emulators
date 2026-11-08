@@ -154,6 +154,19 @@ if ! grep -q 'SDL/' "$DOLPHIN_CFG/WiimoteNew.ini" 2>/dev/null; then
     echo "[seed-emulators] installed Wii Classic Controller map"
 fi
 
+# Wii-only Dolphin settings: GameCube ports off and Wii Remotes 2-4 on. Dolphin
+# applies a one-letter game INI to every game ID starting with that letter, and every
+# Wii disc ID starts with R or S (GameCube discs start with G), so GameCube games keep
+# their ports. Missing files only: nothing else writes R.ini or S.ini.
+DOLPHIN_GAMESETTINGS=/config/.local/share/dolphin-emu/GameSettings
+mkdir_abc "$DOLPHIN_GAMESETTINGS"
+for letter in R S; do
+  if [[ ! -e "$DOLPHIN_GAMESETTINGS/$letter.ini" ]]; then
+    install -m 0644 -o abc -g abc /seed/dolphin-wii-GameSettings.ini "$DOLPHIN_GAMESETTINGS/$letter.ini" &&
+      echo "[seed-emulators] installed Wii game settings $letter.ini"
+  fi
+done
+
 # Dolphin graphics. GFX.ini starts empty, so Dolphin compiles each new shader
 # synchronously and the game hitches the first time an effect appears (worst on a
 # cold cache, e.g. instances 2 and 3). Hybrid ubershaders (mode 2) draw with an
