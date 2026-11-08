@@ -224,8 +224,13 @@ set_defaults "$DOLPHIN_CFG/GFX.ini" \
 # (compose turns that refresh off with PCSX2_PATCHES_FETCH=false). Fetch
 # upstream's rolling release here instead, as root, when missing or a week old.
 # It lives in the container layer, so a recreate fetches it again.
+# The Forge's container can't reach GitHub. Its role bind-mounts the host's copy
+# read-only over this path instead, and that copy is refreshed on the host (role
+# forge_webstation), so a read-only file is left alone.
 PATCHES=/usr/share/PCSX2/resources/patches.zip
-if [[ ! -f "$PATCHES" || -n "$(find "$PATCHES" -mtime +7 2>/dev/null)" ]]; then
+if [[ -f "$PATCHES" && ! -w "$PATCHES" ]]; then
+  echo "[seed-emulators] PCSX2 patches.zip is mounted read-only (dated $(date -r "$PATCHES" +%F)); not refreshing it here"
+elif [[ ! -f "$PATCHES" || -n "$(find "$PATCHES" -mtime +7 2>/dev/null)" ]]; then
   tmp="$(mktemp)"
   if curl -fsSL --max-time 60 --max-filesize 67108864 -o "$tmp" \
       https://github.com/PCSX2/pcsx2_patches/releases/download/latest/patches.zip &&
@@ -237,6 +242,8 @@ sys.exit(0 if ok else 1)
 PY
   then
     install -D -m 0644 -o root -g root "$tmp" "$PATCHES" && echo "[seed-emulators] installed PCSX2 patches.zip"
+  elif [[ -f "$PATCHES" ]]; then
+    echo "[seed-emulators] PCSX2 patches.zip fetch failed; keeping the one dated $(date -r "$PATCHES" +%F)"
   else
     echo "[seed-emulators] PCSX2 patches.zip fetch failed; PCSX2 runs without patches"
   fi

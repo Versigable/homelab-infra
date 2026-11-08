@@ -43,4 +43,9 @@ forge_webstation_bridge: br-romm
 #   config/.config/retroarch/cores    RetroArch's cores: the builds jf runs (the broker would
 #                                     fetch nightlies from buildbot.libretro.com).
 #   pcsx2-patches.zip                 PCSX2's patches.zip from jf (the cont-init script fetches
-#                                     it from GitHub).
+#                                     it from GitHub). Mounted read-only, so the cont-init leaves
+#                                     it alone. To refresh it, write jf's current copy over this
+#                                     file in place (`cat new > pcsx2-patches.zip`). mv, install
+#                                     or Ansible's copy put a new file there, and the container,
+#                                     which mounts the old one, sees it only after a restart.
+#                                     Refreshed from jf 2026-11-07, after the 10-25 copy.
