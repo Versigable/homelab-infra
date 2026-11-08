@@ -1,9 +1,10 @@
 #!/usr/sbin/nft -f
 # Managed by Ansible (role studio_gw). The studio network's policy. Guests reach the outside
-# through Squid on this host (HTTP(S) by name); the only traffic forwarded out goes to the LAN
-# services in studio_gw_lan_access, by address and port, source-NATed to this host. Inbound,
-# only the listed callers are forwarded in (DNAT). Edit inventory/group_vars/studio_gw.yml,
-# not this.
+# through Squid on this host (HTTP(S) by name). Forwarded out, source-NATed to this host: the
+# LAN services in studio_gw_lan_access, by address and port, and for the sources in
+# studio_gw_internet the internet itself (any public address, never this side of the gateway,
+# never the ports in studio_gw_internet_deny_tcp). Inbound, only the listed callers are
+# forwarded in (DNAT). Edit inventory/group_vars/studio_gw.yml, not this.
 flush ruleset
 
 define LAN = "{{ studio_gw_lan_if }}"
@@ -34,6 +35,17 @@ table inet studio_gw {
 		# {{ r.name }}: {{ r.from }} -> {{ r.to_ip }}:{{ r.port }}, as {{ studio_gw_lan_ip }}
 		iifname $STUDIO oifname $LAN ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.port }} accept
 {% endfor %}
+{% for r in studio_gw_internet %}
+{% set src = '{ ' ~ (r.sources | join(', ')) ~ ' }' %}
+		# {{ r.name }}: {{ r.sources | join(', ') }} -> the internet, as {{ studio_gw_lan_ip }}. Refused at once,
+		# not left to time out: this side of the gateway{{ ', and TCP ' ~ (studio_gw_internet_deny_tcp | join(', ')) if studio_gw_internet_deny_tcp else '' }}.
+		iifname $STUDIO oifname $LAN ip saddr {{ src }} ip daddr { {{ studio_gw_private_nets | join(', ') }} } counter reject with icmpx admin-prohibited
+{% if studio_gw_internet_deny_tcp %}
+		iifname $STUDIO oifname $LAN ip saddr {{ src }} tcp dport { {{ studio_gw_internet_deny_tcp | join(', ') }} } counter reject with tcp reset
+{% endif %}
+		iifname $STUDIO oifname $LAN ip saddr {{ src }} meta l4proto { tcp, udp } th dport != 53 limit rate {{ studio_gw_internet_log_rate }}/second burst {{ studio_gw_internet_log_rate * 5 }} packets log prefix "studio-out {{ r.name }}: " level info
+		iifname $STUDIO oifname $LAN ip saddr {{ src }} counter accept
+{% endfor %}
 	}
 
 	chain prerouting {
@@ -47,6 +59,10 @@ table inet studio_gw {
 		type nat hook postrouting priority srcnat;
 {% for r in studio_gw_lan_access %}
 		oifname $LAN ip saddr {{ r.from }} ip daddr {{ r.to_ip }} tcp dport {{ r.port }} snat ip to {{ studio_gw_lan_ip }}
+{% endfor %}
+{% for r in studio_gw_internet %}
+		# {{ r.name }}: the internet (the forward chain has already refused this side of the gateway)
+		oifname $LAN ip saddr { {{ r.sources | join(', ') }} } snat ip to {{ studio_gw_lan_ip }}
 {% endfor %}
 	}
 }

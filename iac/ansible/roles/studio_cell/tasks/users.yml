@@ -48,10 +48,12 @@
     mode: "0440"
     validate: visudo -cf %s
 
-# Every login on the cell reaches the outside through Squid on studio-gw, each user through
-# its own port (studio_cell_user_proxy_ports; the firewall allows no other). Claude Code,
-# Codex, Git and the Unity Editor read the proxy variables, the Unity CLI UNITY_PROXY. The
-# Editor's folder is on the PATH for batch runs (`Unity -batchmode ...`).
+# Logins on the cell: a user pinned to its own Squid port (studio_cell_user_proxy_ports; the
+# firewall allows it no other way out) gets that port as its proxy. Claude Code, Codex, Git
+# and the Unity Editor read the proxy variables, the Unity CLI UNITY_PROXY. Everyone else has
+# the internet directly and gets no proxy; agent gets its Git settings
+# (studio_cell_agent_git_env). The Editor's folder is on the PATH for batch runs
+# (`Unity -batchmode ...`).
 - name: Proxy and tool settings for every login
   ansible.builtin.copy:
     dest: /etc/profile.d/studio-cell.sh
@@ -59,14 +61,20 @@
       # Managed by Ansible (role studio_cell).
       case "$(id -un)" in
       {% for user, port in studio_cell_user_proxy_ports | dictsort %}
-        {{ user }}) studio_proxy=http://{{ studio_cell_proxy_host }}:{{ port }} ;;
+        {{ user }})
+          studio_proxy=http://{{ studio_cell_proxy_host }}:{{ port }}
+          export http_proxy=$studio_proxy https_proxy=$studio_proxy HTTP_PROXY=$studio_proxy HTTPS_PROXY=$studio_proxy
+          export UNITY_PROXY=$studio_proxy
+          unset studio_proxy
+          export no_proxy={{ studio_proxy_env.no_proxy }} NO_PROXY={{ studio_proxy_env.NO_PROXY }}
+          ;;
       {% endfor %}
-        *) studio_proxy={{ studio_proxy_url }} ;;
+        agent)
+      {% for k, v in studio_cell_agent_git_env | dictsort %}
+          export {{ k }}={{ v | quote }}
+      {% endfor %}
+          ;;
       esac
-      export http_proxy=$studio_proxy https_proxy=$studio_proxy HTTP_PROXY=$studio_proxy HTTPS_PROXY=$studio_proxy
-      export UNITY_PROXY=$studio_proxy
-      unset studio_proxy
-      export no_proxy={{ studio_proxy_env.no_proxy }} NO_PROXY={{ studio_proxy_env.NO_PROXY }}
       {% for k, v in studio_cell_unity_env | dictsort %}
       export {{ k }}={{ v }}
       {% endfor %}

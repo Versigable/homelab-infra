@@ -13,12 +13,12 @@ studio_gw_admin_net: 10.0.0.0/16
 
 # Outbound, per class of studio guest: who (sources), which ports (443 for HTTPS, 80 for
 # HTTP), and the hostnames they may reach through Squid (a leading dot: the domain and every
-# name under it). Nothing else gets out. A class may have its own proxy_port, so that one
-# guest can give each local user its own list (role studio_cell pins users to ports). A class
-# with any_name: true reaches any hostname on its ports, but never a private, loopback,
-# link-local or CGNAT address (the LAN is on the other side of this gateway).
+# name under it). Nothing else gets out through Squid. A class may have its own proxy_port,
+# so that one guest can give each local user its own list (role studio_cell pins users to
+# ports). A class with any_name: true reaches any hostname on its ports, but never a private,
+# loopback, link-local or CGNAT address (the LAN is on the other side of this gateway).
 #   forge: {sources: [10.77.0.10], ports: [80, 443], names: [deb.debian.org, ...]}
-#   cells_agent: {proxy_port: 3129, sources: [10.77.0.60], ports: [443], any_name: true}
+#   cells_unity: {proxy_port: 3130, sources: [10.77.0.60], ports: [80, 443], names: [.unity.com]}
 studio_gw_egress: {}
 
 # Every port Squid listens on: the default, plus each class's own.
@@ -26,6 +26,29 @@ studio_gw_proxy_ports: >-
   {{ ([studio_gw_proxy_port | int]
       + (studio_gw_egress.values() | selectattr('proxy_port', 'defined') | map(attribute='proxy_port') | map('int') | list))
      | unique | sort }}
+
+# Outbound to the internet directly, not through Squid: by source, to any public address,
+# port and protocol, source-NATed to the gateway's LAN address. Never to a private address
+# (studio_gw_private_nets), never to the TCP ports in studio_gw_internet_deny_tcp (SMTP: mail
+# from this lab's address). Each new connection but DNS goes to the kernel log, prefixed
+# "studio-out <name>:" (journalctl -k), at most studio_gw_internet_log_rate a second.
+#   - {name: cells, sources: [10.77.0.60, 10.77.0.61]}
+studio_gw_internet: []
+studio_gw_internet_deny_tcp: [25]
+studio_gw_internet_log_rate: 20
+# This side of the gateway, as studio guests must never reach it: private, loopback,
+# link-local, CGNAT (the tailnet), multicast and reserved IPv4. Squid's to_private uses the
+# same list for its any_name classes.
+studio_gw_private_nets:
+  - 0.0.0.0/8
+  - 10.0.0.0/8
+  - 100.64.0.0/10
+  - 127.0.0.0/8
+  - 169.254.0.0/16
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 224.0.0.0/4
+  - 240.0.0.0/4
 
 # Inbound from the LAN, by DNAT on the gateway's LAN address. proto is tcp unless given:
 #   - {name: forge-play, from: 10.0.2.5, port: 3000, to_ip: 10.77.0.10, to_port: 3000}

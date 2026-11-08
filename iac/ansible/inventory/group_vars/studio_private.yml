@@ -9,7 +9,8 @@ ansible_ssh_common_args: >-
 # Time comes from studio-gw (role studio_guest).
 studio_guest_ntp: 10.77.0.1
 
-# The only way out is Squid on studio-gw, by hostname (role studio_gw). apt is pointed at it
+# The way out is Squid on studio-gw, by hostname (role studio_gw); only the cells also reach
+# the internet directly (studio_gw_internet). apt is pointed at it
 # by role studio_guest; other tools get it explicitly (Docker's daemon, image builds, the
 # few download tasks), never as an ambient default.
 studio_proxy_url: http://10.77.0.1:3128

@@ -44,7 +44,68 @@
     state: started
     enabled: true
 
-# Checks: allowed through Squid, refused by Squid, and nothing out without it.
+# --- Names, for a guest with the internet directly (studio_guest_direct_internet) ------------
+# systemd-resolved, from the cloud image. netplan (cloud-init) gives the link studio-gw as its
+# DNS server; a drop-in for the .network file netplan generates keeps that server to .studio
+# names (a routing domain, and no default route for DNS), and every other name goes to the
+# public resolvers.
+
+- name: The link's .network file, as netplan generates it
+  ansible.builtin.stat:
+    path: "/run/systemd/network/10-netplan-{{ ansible_facts.default_ipv4.interface }}.network"
+  register: studio_guest_netplan_network
+  when: studio_guest_direct_internet
+
+- name: The link is netplan's
+  ansible.builtin.assert:
+    that: studio_guest_netplan_network.stat.exists
+    fail_msg: "No netplan .network file for {{ ansible_facts.default_ipv4.interface }}: where does this guest's DNS come from?"
+    quiet: true
+  when: studio_guest_direct_internet
+
+- name: Drop-in directories for resolved and the link
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/systemd/resolved.conf.d
+    - "/etc/systemd/network/10-netplan-{{ ansible_facts.default_ipv4.interface }}.network.d"
+  when: studio_guest_direct_internet
+
+- name: The link's DNS server, studio-gw, answers .studio names only
+  ansible.builtin.copy:
+    dest: "/etc/systemd/network/10-netplan-{{ ansible_facts.default_ipv4.interface }}.network.d/studio-dns.conf"
+    content: |
+      # Managed by Ansible (role studio_guest). netplan's file gives this link studio-gw as its
+      # DNS server, which answers .studio names and nothing else.
+      [Network]
+      Domains=~studio
+      DNSDefaultRoute=false
+    mode: "0644"
+  notify: Reload networkd
+  when: studio_guest_direct_internet
+
+- name: Public resolvers for every other name
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/studio.conf
+    content: |
+      # Managed by Ansible (role studio_guest). Outside names, reached directly through
+      # studio-gw like the rest of the internet.
+      [Resolve]
+      DNS={{ studio_guest_public_dns | join(' ') }}
+      FallbackDNS=
+      LLMNR=no
+      MulticastDNS=no
+    mode: "0644"
+  notify: Restart resolved
+  when: studio_guest_direct_internet
+
+- name: Names settled before the checks
+  ansible.builtin.meta: flush_handlers
+
+# Checks: allowed through Squid, refused by Squid, and nothing out without it (a guest with
+# the internet directly: out without it too).
 - name: An allowed name is reachable through Squid
   ansible.builtin.command:
     argv: [curl, -sS, -m, "15", -o, /dev/null, -w, "%{http_code}", -x, "{{ studio_proxy_url }}", "{{ studio_guest_check_allowed }}"]
@@ -59,9 +120,9 @@
   changed_when: false
   failed_when: studio_guest_check_refused_result.rc == 0
 
-- name: Nothing gets out without Squid
+- name: Out without Squid only with the internet directly (studio_guest_direct_internet)
   ansible.builtin.command:
     argv: [curl, -sS, -m, "10", -o, /dev/null, --noproxy, "*", "{{ studio_guest_check_allowed }}"]
   register: studio_guest_check_direct
   changed_when: false
-  failed_when: studio_guest_check_direct.rc == 0
+  failed_when: (studio_guest_check_direct.rc == 0) != (studio_guest_direct_internet | bool)

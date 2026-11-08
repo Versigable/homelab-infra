@@ -26,10 +26,11 @@ studio_gw_egress:
       # OS packages and security updates; its services (step 2b) add their own
       - deb.debian.org
       - security.debian.org
-  # Every person's cell (role studio_cell): one class per proxy port, and the cell's own
-  # firewall pins each local user to its port (studio_cell_user_proxy_ports), so egress is
-  # per user, not per VM. Exact names, seeded from the vendors' docs, plus anything a tool
-  # turns out to need from Squid's access log (TCP_DENIED). The one exception is Unity: its
+  # Every person's cell (role studio_cell). A cell reaches the internet directly
+  # (studio_gw_internet, below), except the user unity, which the cell's own firewall pins to
+  # its class's port (studio_cell_user_proxy_ports). Exact names, seeded from the vendors'
+  # docs, plus anything a tool turns out to need from Squid's access log (TCP_DENIED). The
+  # one exception is Unity: its
   # CLI, Editor and licensing reach many hosts under its own two domains, so those are
   # allowed whole (MetaVersig, 2026-10-25; a leading dot matches the domain and every name
   # under it). Seen there so far: the CLI's apt repository (hub, hub-dist.unity3d.com),
@@ -38,8 +39,8 @@ studio_gw_egress:
   # client the CLI fetches on first activation (public-stevedore.unity3d.com).
   # Refused on purpose: api2.amplitude.com, the Unity CLI's analytics (not a Unity domain).
   #
-  # :3128, root and the owner's shell: packages, GitLab for studio-agentd, Unity for the
-  # IaC's installs of the CLI and Editor.
+  # :3128, what names this proxy itself: apt, studio-agentd's GitLab calls, and the IaC's
+  # installs of Claude Code, the Unity CLI and the Editor.
   cells:
     sources: [10.77.0.60, 10.77.0.61]
     ports: [80, 443]
@@ -53,17 +54,6 @@ studio_gw_egress:
       - gitlab.ninjaprivacy.org
       - .unity3d.com
       - .unity.com
-  # :3129, the user agent (jobs, and sessions the owner pairs in): the open web over HTTPS
-  # (MetaVersig, 2026-10-31: development needs docs, package registries, GitHub and forum
-  # answers; `unity docs` alone needs docs.unity.com). Never the LAN or anything private
-  # (to_private in squid.conf), and GitLab, Unity's editor and the cell's daemons are still
-  # reachable only through `studio`: agent holds no token for them. Vault decision:
-  # 5-Decisions/2026-10-31_studio-agent-open-web.
-  cells_agent:
-    proxy_port: 3129
-    sources: [10.77.0.60, 10.77.0.61]
-    ports: [443]
-    any_name: true
   # :3130, the user unity (the CLI, the Editor and the game code it runs, the licensing
   # client, the package manager): Unity only.
   cells_unity:
@@ -73,6 +63,18 @@ studio_gw_egress:
     names:
       - .unity3d.com
       - .unity.com
+
+# The internet directly, not through Squid (MetaVersig, 2026-11-08): jobs and the sessions
+# the owner pairs in are handed repositories and links to anything, over any protocol. Any
+# public address, port and protocol, source-NATed to the gateway's LAN address; never a
+# private, loopback, link-local or CGNAT address (studio_gw_private_nets: the LAN and the
+# tailnet), and never SMTP (studio_gw_internet_deny_tcp). Each new connection is logged
+# (journalctl -k, prefix "studio-out <name>:"). On a cell, everyone but unity (role
+# studio_cell); the user agent still reaches nothing private, studio0 included, by the cell's
+# own firewall. Vault decision: 5-Decisions/2026-11-08_studio-cells-direct-internet.
+studio_gw_internet:
+  - name: cells
+    sources: [10.77.0.60, 10.77.0.61]
 
 # Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
 studio_gw_ingress:

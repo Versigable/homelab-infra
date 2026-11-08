@@ -1,0 +1,6 @@
+# A guest with the internet directly, not only through Squid (studio-gw's studio_gw_internet
+# lists its address): the cells. It resolves outside names with public resolvers, reached
+# like the rest of the internet; .studio names still come from studio-gw's dnsmasq, which
+# answers nothing else. Every other guest resolves .studio names only.
+studio_guest_direct_internet: false
+studio_guest_public_dns: [9.9.9.9, 1.1.1.1]

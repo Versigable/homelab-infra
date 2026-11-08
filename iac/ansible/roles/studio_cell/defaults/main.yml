@@ -2,8 +2,10 @@
 # host_vars/<cell>.yml.
 
 # Packages every cell needs: Git (with LFS, for game assets), a virtual display for Editor
-# runs that want one, the libraries the Linux Editor loads, nftables for egress per user, and
-# bubblewrap, the sandbox Codex runs unattended jobs in.
+# runs that want one, the libraries the Linux Editor loads, nftables for egress per user,
+# bubblewrap, the sandbox Codex runs unattended jobs in, and the toolchains agents build and
+# try other code with (Python's venv and pip, Node.js and npm, C and C++), since a job can't
+# install packages itself.
 # ICU is for Unity's licensing client, a .NET program that stops at start without it
 # ("Couldn't find a valid ICU package"), which the CLI reports as "Can't reach the Unity
 # licensing client".
@@ -16,6 +18,11 @@ studio_cell_packages:
   - xvfb
   - libicu76
   - tmux
+  - python3-venv
+  - python3-pip
+  - nodejs
+  - npm
+  - build-essential
   - libasound2t64
   - libegl1
   - libgbm1
@@ -29,15 +36,21 @@ studio_cell_packages:
   - libxss1
   - libxtst6
 
-# Egress per user. Each user listed here reaches the outside only through its own Squid port
-# on studio-gw, whose class says what that user may reach (cells_agent and cells_unity in
-# group_vars/studio_gw.yml): agent the open web over HTTPS, unity only Unity. Everyone else,
-# root and the owner included, uses the default port (class cells). The cell's nftables
-# enforces it (templates/nftables.conf.j2).
+# Egress per user (templates/nftables.conf.j2). A cell has the internet directly through
+# studio-gw (studio_gw_internet in group_vars/studio_gw.yml: any public address, port and
+# protocol; never the LAN, the tailnet or SMTP). Here:
+#   studio_cell_user_proxy_ports: users that reach the outside only through their own Squid
+#     port, whose class says what they may reach: unity (and the game code the Editor runs)
+#     only Unity (cells_unity).
+#   studio_cell_internet_users: users with the internet, but nothing private from here either
+#     (studio_cell_private_nets: studio0's hub, Squid and other cells, the LAN, the tailnet).
+# Root and the owner aren't filtered here. The daemons and the IaC still name Squid's default
+# port (studio_proxy_url, class cells) for what they fetch.
 studio_cell_user_proxy_ports:
-  agent: 3129
   unity: 3130
-# Loopback ports a pinned user may not reach; the rest of loopback is open to it (the Unity
+studio_cell_internet_users: [agent]
+studio_cell_private_nets: [10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
+# Loopback ports a filtered user may not reach; the rest of loopback is open to it (the Unity
 # CLI, for one, sends its web requests through a helper of its own on a random loopback port).
 # 7800-7999 are Pipeline's servers in editors and players: agent reaches an editor only
 # through the broker's verbs (the servers also want a bearer token only unity can read).
@@ -85,17 +98,32 @@ studio_cell_agentd:
   home_paths: [.claude, .claude.json, .codex]
   review_after_implement: true
   keep_worktrees: false
-# A job's environment: agent's own Squid port; Claude's auto memory and updater off, so one
-# job's notes never reach the next and apt keeps the version.
-studio_cell_agent_job_env:
-  CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1"
-  DISABLE_AUTOUPDATER: "1"
-  http_proxy: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
-  https_proxy: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
-  HTTP_PROXY: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
-  HTTPS_PROXY: "http://{{ studio_cell_proxy_host }}:{{ studio_cell_user_proxy_ports.agent }}"
-  no_proxy: localhost,127.0.0.1
-  NO_PROXY: localhost,127.0.0.1
+# agent holds no SSH key, so SSH remotes on the big public forges are fetched over HTTPS
+# instead (a public repository needs no sign-in). In agent's environment only (jobs, and its
+# logins through /etc/profile.d/studio-cell.sh), so the owner's own Git setup is untouched.
+studio_cell_agent_git_env:
+  GIT_CONFIG_COUNT: "8"
+  GIT_CONFIG_KEY_0: url.https://github.com/.insteadOf
+  GIT_CONFIG_VALUE_0: "git@github.com:"
+  GIT_CONFIG_KEY_1: url.https://github.com/.insteadOf
+  GIT_CONFIG_VALUE_1: ssh://git@github.com/
+  GIT_CONFIG_KEY_2: url.https://gitlab.com/.insteadOf
+  GIT_CONFIG_VALUE_2: "git@gitlab.com:"
+  GIT_CONFIG_KEY_3: url.https://gitlab.com/.insteadOf
+  GIT_CONFIG_VALUE_3: ssh://git@gitlab.com/
+  GIT_CONFIG_KEY_4: url.https://bitbucket.org/.insteadOf
+  GIT_CONFIG_VALUE_4: "git@bitbucket.org:"
+  GIT_CONFIG_KEY_5: url.https://bitbucket.org/.insteadOf
+  GIT_CONFIG_VALUE_5: ssh://git@bitbucket.org/
+  GIT_CONFIG_KEY_6: url.https://codeberg.org/.insteadOf
+  GIT_CONFIG_VALUE_6: "git@codeberg.org:"
+  GIT_CONFIG_KEY_7: url.https://codeberg.org/.insteadOf
+  GIT_CONFIG_VALUE_7: ssh://git@codeberg.org/
+# A job's environment: Claude's auto memory and updater off, so one job's notes never reach
+# the next and apt keeps the version, and agent's Git settings. No proxy: agent has the
+# internet directly.
+studio_cell_agent_job_env: >-
+  {{ {'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1', 'DISABLE_AUTOUPDATER': '1'} | combine(studio_cell_agent_git_env) }}
 
 # Claude's settings for unattended jobs (--settings, with --permission-mode dontAsk): anything
 # these don't allow is denied, never asked. Ordinary development tools and `studio`; edits only
@@ -134,7 +162,20 @@ studio_cell_claude_job_settings:
       - Bash(echo *)
       - Bash(printf *)
       - Bash(python3 *)
+      - Bash(.venv/bin/*)
+      - Bash(pip *)
+      - Bash(pip3 *)
+      - Bash(node *)
+      - Bash(npm *)
+      - Bash(npx *)
+      - Bash(make *)
+      - Bash(cc *)
+      - Bash(gcc *)
+      - Bash(g++ *)
       - Bash(curl *)
+      - Bash(wget *)
+      - Bash(tar *)
+      - Bash(unzip *)
       - Bash(sleep *)
       - Bash(date *)
       - Bash(pwd)
