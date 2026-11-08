@@ -5,9 +5,10 @@ http:
     # The Forge sits on the studio network (10.77.0.0/24), so Traefik reaches it through
     # studio-gw (10.0.1.150), which forwards :3000 to the Forge only from this host (10.0.2.5).
     #
-    # Build step 1, temporary gate: the operators' forward_domain provider (Hokagis), because
-    # only MetaVersig plays at this stage. The studio's own Authentik provider, bound to
-    # studio-members, replaces it before anyone else joins (design: people-and-membership).
+    # Gate: the studio's own Authentik provider (StudioForwardAuth, forward_single for this host
+    # only), bound to Hokagis and studio-members, so studio members get this host and nothing
+    # else behind Authentik. The authentik-forward middleware is the same; the outpost picks the
+    # provider by host (design: people-and-membership; set up 2026-11-08).
     #
     # Only Selkies' fixed UI and the game's pixels reach the browser; no game code runs in
     # it, so this hostname serves no agent-built code (decision 2026-10-17, no separate
@@ -63,12 +64,36 @@ http:
       tls: {}
       middlewares: [authentik-forward, studio-stream]
 
+    # Each person's browser terminal into their own cell (role studio_cell, studio-term: ttyd +
+    # tmux as the cell's owner). After Authentik, studio-term asks the hub whether this person
+    # owns the cell named in the path. studio-gw forwards :320n from this host only, and the
+    # cell takes the port from this host's address only. One router and service per cell;
+    # studio_gw.yml's ingress term-<owner> has the port.
+    studio-term-metaversig-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/term/metaversig/`)"
+      service: studio-term-metaversig-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-term]
+    studio-term-kannis-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/term/kannis/`)"
+      service: studio-term-kannis-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-term]
+
   middlewares:
     # The hub's stream check. Only the person's name goes to the hub (no cookies); Traefik
     # adds X-Forwarded-Uri, from which the hub reads the slot.
     studio-stream:
       forwardAuth:
         address: "http://10.0.1.150:8080/auth/stream"
+        authRequestHeaders:
+          - X-authentik-username
+    # The hub's terminal check: the person must own the cell in /term/<owner>/.
+    studio-term:
+      forwardAuth:
+        address: "http://10.0.1.150:8080/auth/term"
         authRequestHeaders:
           - X-authentik-username
 
@@ -104,4 +129,15 @@ http:
       loadbalancer:
         servers:
           - url: http://10.0.1.150:3103
+        passHostHeader: true
+
+    studio-term-metaversig-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3200
+        passHostHeader: true
+    studio-term-kannis-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3201
         passHostHeader: true

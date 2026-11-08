@@ -41,7 +41,7 @@ studio_gw_egress:
   # :3128, root and the owner's shell: packages, GitLab for studio-agentd, Unity for the
   # IaC's installs of the CLI and Editor.
   cells:
-    sources: [10.77.0.60]
+    sources: [10.77.0.60, 10.77.0.61]
     ports: [80, 443]
     names:
       # OS packages and security updates
@@ -61,14 +61,14 @@ studio_gw_egress:
   # 5-Decisions/2026-10-31_studio-agent-open-web.
   cells_agent:
     proxy_port: 3129
-    sources: [10.77.0.60]
+    sources: [10.77.0.60, 10.77.0.61]
     ports: [443]
     any_name: true
   # :3130, the user unity (the CLI, the Editor and the game code it runs, the licensing
   # client, the package manager): Unity only.
   cells_unity:
     proxy_port: 3130
-    sources: [10.77.0.60]
+    sources: [10.77.0.60, 10.77.0.61]
     ports: [80, 443]
     names:
       - .unity3d.com
@@ -109,6 +109,10 @@ studio_gw_ingress:
   - {name: forge-session-s1, from: 10.0.2.5, port: 3101, to_ip: 10.77.0.10, to_port: 3101}
   - {name: forge-session-s2, from: 10.0.2.5, port: 3102, to_ip: 10.77.0.10, to_port: 3102}
   - {name: forge-session-s3, from: 10.0.2.5, port: 3103, to_ip: 10.77.0.10, to_port: 3103}
+  # Each person's browser terminal into their own cell (role studio_cell, studio-term on
+  # studio_cell_term_port): Traefik only, after Authentik and the hub's owner check.
+  - {name: term-metaversig, from: 10.0.2.5, port: 3200, to_ip: 10.77.0.60, to_port: 7681}
+  - {name: term-kannis, from: 10.0.2.5, port: 3201, to_ip: 10.77.0.61, to_port: 7681}
 
 # LAN services reached directly, not through Squid. The Forge's webstation reads the ROM
 # library from TrueNAS over NFSv4 (the gameroom share, mounted read-only by nfs_client).
@@ -123,6 +127,7 @@ studio_gw_hosts:
   - {name: studio-forge, ip: 10.77.0.10}
   - {name: studio-hub, ip: 10.77.0.20}
   - {name: cell-metaversig, ip: 10.77.0.60}
+  - {name: cell-kannis, ip: 10.77.0.61}
 
 # X-Mansion's WAN IP, which the Forge's webstation advertises as its WebRTC candidate
 # (role forge_webstation). webstation-udp.ninjaprivacy.org is a DNS-only CNAME to the

@@ -597,6 +597,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         try:
             if path == "/auth/stream":
                 return self.stream_auth()
+            if path == "/auth/term":
+                return self.term_auth()
             if path == "/":
                 return self.home()
             m = re.fullmatch(r"/g/([a-z0-9-]+)/(mr|r)/([0-9a-f]{40}|\d+)", path)
@@ -641,12 +643,32 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             log("portal error:\n" + traceback.format_exc())
             self.page("Error", "<h1>Something broke</h1><p class=dim>It's in the hub's journal.</p>", 500)
 
+    def forwarded_path(self):
+        """The path Traefik asks about, or "" if it could mean another path once cleaned or
+        decoded (a dot segment, a backslash, any %-escape): Traefik may route on the cleaned
+        path while this check reads the raw one. Streams and terminals use none of those."""
+        path = self.headers.get("X-Forwarded-Uri", "").split("?", 1)[0]
+        if "%" in path or "\\" in path or any(seg in (".", "..") for seg in path.split("/")):
+            return ""
+        return path
+
     def stream_auth(self):
         """Traefik's forwardAuth for /play/s<n>/: only the person whose live session is on slot n."""
-        uri = self.headers.get("X-Forwarded-Uri", "")
-        m = re.match(r"/play/s(\d+)/", uri)
+        m = re.match(r"/play/s(\d+)/", self.forwarded_path())
         ok = bool(m) and self.server.broker.stream_ok(int(m.group(1)), self.person)
         self.send(200 if ok else 403, "ok\n" if ok else "not your session\n", "text/plain")
+
+    def cell_owners(self):
+        return {c.get("owner") for c in self.server.cfg["clients"].values() if c.get("kind") == "cell"} - {None}
+
+    def term_auth(self):
+        """Traefik's forwardAuth for /term/<owner>/, a cell's browser terminal: only that owner."""
+        uri = self.forwarded_path()
+        m = re.match(r"/term/([a-z][a-z0-9-]*)(/|$)", uri)
+        ok = bool(m) and m.group(1) == self.person and self.person in self.cell_owners()
+        if not ok:
+            log(f"terminal refused: {self.person} for {self.headers.get('X-Forwarded-Uri', '')[:80]!r}")
+        self.send(200 if ok else 403, "ok\n" if ok else "not your cell\n", "text/plain")
 
     def rows(self, sql, args=()):
         with self.server.depot.db() as db:
@@ -696,7 +718,11 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         games = {}
         for b in builds:
             games.setdefault(b["game"], []).append(b)
-        out = ["<h1>Live sessions</h1>", self.sessions_table(), "<h1>Games</h1>"]
+        out = []
+        if self.person in self.cell_owners():
+            out.append(f'<p><a href="/term/{e(self.person)}/" target="_blank">Your cell&#39;s terminal</a>'
+                       f' <span class="dim">(cell-{e(self.person)}: sign-ins, pairing with your agents)</span></p>')
+        out += ["<h1>Live sessions</h1>", self.sessions_table(), "<h1>Games</h1>"]
         if not games:
             out.append("<p class=dim>No builds yet. They arrive when an agent's gates pass.</p>")
         for game, bs in sorted(games.items()):

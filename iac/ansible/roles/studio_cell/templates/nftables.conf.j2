@@ -8,9 +8,20 @@
 # traffic is refused at once (TCP reset), not left to time out. Everyone else, root and the
 # owner included, is unrestricted here and meets Squid's default class. This host has no
 # Docker or other rule owner, so the whole ruleset is ours.
+#
+# In: only the owner's browser terminal (studio-term) is filtered. Its port is taken from
+# Traefik's address only (through studio-gw, after Authentik and the hub's owner check), never
+# from another guest on studio0, another person's cell, or this cell's own users over loopback.
 flush ruleset
 
 table inet studio_cell {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		tcp dport {{ studio_cell_term_port }} ip saddr {{ studio_cell_term_from }} accept
+		# everything else on that port, IPv4 and IPv6 (ttyd listens on both; ::1 too)
+		tcp dport {{ studio_cell_term_port }} counter reject with tcp reset
+	}
+
 	chain output {
 		type filter hook output priority filter; policy accept;
 {% for user, port in studio_cell_user_proxy_ports | dictsort %}

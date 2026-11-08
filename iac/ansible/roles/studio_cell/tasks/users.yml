@@ -3,8 +3,7 @@
     that:
       - studio_cell_owner is defined
       - studio_cell_owner is match('^[a-z][a-z0-9-]*$')
-      - studio_cell_owner_keys | default([]) | length > 0
-    fail_msg: "Set studio_cell_owner and studio_cell_owner_keys in host_vars/{{ inventory_hostname }}.yml"
+    fail_msg: "Set studio_cell_owner in host_vars/{{ inventory_hostname }}.yml"
     quiet: true
 
 - name: Service users (no password, no sudo)
@@ -22,11 +21,20 @@
     create_home: true
     password: "!"
 
+# Owners on the LAN may also come in over SSH through studio-gw's jump account, with their own
+# keys. An owner with no keys (anyone outside: no WARP, no tailnet) has no SSH login at all.
 - name: The owner logs in with their own keys, nothing else
   ansible.posix.authorized_key:
     user: "{{ studio_cell_owner }}"
     key: "{{ studio_cell_owner_keys | join('\n') }}"
     exclusive: true
+  when: studio_cell_owner_keys | default([]) | length > 0
+
+- name: No keys, no SSH login for the owner
+  ansible.builtin.file:
+    path: "/home/{{ studio_cell_owner }}/.ssh/authorized_keys"
+    state: absent
+  when: studio_cell_owner_keys | default([]) | length == 0
 
 # The owner acts as agent or unity to sign in and to work with their agents. No root.
 - name: The owner may act as agent and unity
