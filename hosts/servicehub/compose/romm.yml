@@ -69,6 +69,16 @@ services:
       - ../data/assets:/romm/assets
       - ../config/app:/romm/config
       - /mnt/gameroom:/romm/library:ro
+    # Web-player save fix (RomM 5.4.0): a state resume never loaded the in-game save, and
+    # Cloud Sync then filed the blank SRAM/card as the newest autosave. The wrapper adds a
+    # small shim to index.html at start; see configs below. Remove once RomM fixes it.
+    configs:
+      - source: romm_homelab_player_save_shim
+        target: /romm-homelab/player-save-shim.js
+      - source: romm_homelab_start
+        target: /romm-homelab/start.sh
+    entrypoint: ["/bin/bash", "/romm-homelab/start.sh"]
+    command: ["/init"]
     ports:
       - "10.0.1.5:8080:8080"
     networks: [romm-net1]
@@ -81,3 +91,111 @@ services:
 networks:
   romm-net1:
     driver: bridge
+
+# Inline so the compose file stays the one deployable unit (deploy.sh syncs only it).
+# Compose interpolates $ in content, so the wrapper writes $$@ for "$@".
+configs:
+  romm_homelab_player_save_shim:
+    content: |
+      /* homelab-infra (hosts/servicehub/compose/romm.yml): RomM web player, load the in-game save
+       * before a resumed state.
+       *
+       * RomM 5.4.0's player loads EITHER the picked state OR a save at start, never both: a
+       * state resume leaves the game on a blank SRAM / memory card, and Cloud Sync then files
+       * that blank as the newest autosave, so the in-game save is lost from then on. This hooks
+       * EmulatorJS's own gameManager: when a state is about to be applied and no save has been
+       * loaded this session, it first writes the player's newest save for this core (as RomM
+       * itself writes one: into the save path, then loadSaveFiles), then applies the state.
+       * Re-uploading that same save is harmless: RomM skips content its slot already holds.
+       * Uses only EmulatorJS's public API and RomM's REST API, not RomM's minified bundle.
+       */
+      (function () {
+        if (window.__homelabPlayerSaveShim) return;
+        window.__homelabPlayerSaveShim = true;
+
+        function log(msg) { try { console.info("[homelab save shim] " + msg); } catch (e) { /* no console */ } }
+
+        function newestSave(romId, core) {
+          return fetch("/api/roms/" + romId, { credentials: "same-origin" })
+            .then(function (r) { if (!r.ok) throw new Error("rom " + romId + ": HTTP " + r.status); return r.json(); })
+            .then(function (rom) {
+              var saves = (rom.user_saves || []).filter(function (s) { return s.emulator === core && s.download_path; });
+              saves.sort(function (a, b) { return String(b.updated_at).localeCompare(String(a.updated_at)); });
+              return saves[0] || null;
+            });
+        }
+
+        function writeSave(gm, bytes) {
+          var FS = gm.FS, path = gm.getSaveFilePath(), parts = path.split("/"), dir = "";
+          for (var i = 0; i < parts.length - 1; i++) {
+            if (!parts[i]) continue;
+            dir += "/" + parts[i];
+            if (!FS.analyzePath(dir).exists) FS.mkdir(dir);
+          }
+          if (FS.analyzePath(path).exists) FS.unlink(path);
+          FS.writeFile(path, bytes);
+          gm.__homelabOrigLoadSaveFiles();
+        }
+
+        function hook(gm) {
+          if (gm.__homelabHooked) return;
+          gm.__homelabHooked = true;
+          gm.__homelabSaveLoaded = false;
+          gm.__homelabOrigLoadSaveFiles = gm.loadSaveFiles.bind(gm);
+          var origLoadState = gm.loadState.bind(gm);
+          // RomM's own save load ends in loadSaveFiles(): after that, a state is applied as is.
+          gm.loadSaveFiles = function () {
+            gm.__homelabSaveLoaded = true;
+            return gm.__homelabOrigLoadSaveFiles.apply(null, arguments);
+          };
+          gm.loadState = function () {
+            var args = arguments;
+            if (gm.__homelabSaveLoaded || !window.EJS_gameID || !window.EJS_core) return origLoadState.apply(null, args);
+            gm.__homelabSaveLoaded = true;  // once per game: later state loads pass straight through
+            newestSave(window.EJS_gameID, window.EJS_core)
+              .then(function (save) {
+                if (!save) { log("no " + window.EJS_core + " save to load before the state"); return; }
+                return fetch(save.download_path, { credentials: "same-origin" })
+                  .then(function (r) { if (!r.ok) throw new Error("save " + save.id + ": HTTP " + r.status); return r.arrayBuffer(); })
+                  .then(function (buf) {
+                    writeSave(gm, new Uint8Array(buf));
+                    log("loaded save " + save.id + " (" + buf.byteLength + " bytes) before the resumed state");
+                  });
+              })
+              .catch(function (e) { log("could not load the save before the state: " + e.message); })
+              .then(function () { origLoadState.apply(null, args); });
+          };
+        }
+
+        // EJS_emulator appears when the player loads a game; its gameManager once the core runs.
+        setInterval(function () {
+          var gm = window.EJS_emulator && window.EJS_emulator.gameManager;
+          if (gm && typeof gm.loadState === "function" && typeof gm.loadSaveFiles === "function") hook(gm);
+        }, 50);
+      })();
+  romm_homelab_start:
+    content: |
+      #!/usr/bin/env bash
+      # homelab-infra: RomM entrypoint wrapper (hosts/servicehub/compose/romm.yml). Adds the
+      # web-player save shim (config romm_homelab_player_save_shim) to index.html, which nginx
+      # serves no-cache, then starts RomM exactly as the image would.
+      /src/.venv/bin/python3 -I - <<'PY' || echo "[homelab shim] not applied; RomM starts unpatched"
+      import gzip, pathlib, sys
+      MARK = "homelab-player-save-shim"
+      idx = pathlib.Path("/var/www/html/index.html")
+      html = idx.read_text()
+      if MARK in html:
+          print("[homelab shim] index.html already has the web-player save shim")
+          sys.exit(0)
+      if html.count("<head>") != 1:
+          print("[homelab shim] index.html has no single <head>; shim not applied")
+          sys.exit(0)
+      shim = pathlib.Path("/romm-homelab/player-save-shim.js").read_text()
+      html = html.replace("<head>", '<head><script id="' + MARK + '">' + shim + "</script>", 1)
+      idx.write_text(html)
+      gz = idx.with_name("index.html.gz")
+      if gz.exists():
+          gz.write_bytes(gzip.compress(html.encode(), 9))
+      print("[homelab shim] added the web-player save shim to index.html")
+      PY
+      exec /docker-entrypoint.sh "$$@"
