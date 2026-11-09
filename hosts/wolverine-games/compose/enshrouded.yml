@@ -52,7 +52,7 @@ services:
       # owned by it, and the ids stay the same across a rebuild from code.
       - PUID=4711
       - PGID=4711
-      - SERVER_NAME=MetaVersig's Enshrouded
+      - SERVER_NAME=NinjaShrouded
       - SERVER_SLOT_COUNT=8
       - SERVER_QUERYPORT=15637
       - SERVER_ENABLE_TEXT_CHAT=true
