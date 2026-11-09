@@ -1,0 +1,96 @@
+# Enshrouded dedicated server for MetaVersig and friends (4-8 players at peak), on
+# wolverine-games (LXC 304 on wolverine, built by iac/). Deployed by
+# scripts/deploy.sh enshrouded. Vault: 1-Projects/enshrouded-server.
+#
+# The game ships its server for Windows only; this image runs it under GE-Proton and
+# manages it with supervisord (update, backup, restart jobs).
+#
+# One port since the 1.0 release: 15637/udp, the Steam query port, which also carries
+# game traffic. pfSense VM 300 forwards WAN 15637/udp straight here (no Traefik hop).
+# Friends find the server by name in the game's server list, or join through
+# wolverine.ninjaprivacy.org:15637.
+name: enshrouded
+
+services:
+  enshrouded:
+    # PINNED by tag and digest (Docker Hub only; there's no ghcr copy). This is the
+    # wrapper image, not the game: the game updates itself through UPDATE_CRON below.
+    # Upgrade the wrapper deliberately, in its own MR.
+    image: mornedhels/enshrouded-server:1.8.1-proton@sha256:160d469d7a2dbed3a8dac2b1904df387302bfa0f524a26344582e1b76ca46fe4
+    container_name: enshrouded
+    hostname: enshrouded
+    restart: unless-stopped
+    # The server saves on a clean stop; supervisord gives it 90 s (stopwaitsecs).
+    stop_grace_period: 90s
+    # The image's docs/SECURITY_HARDENING.md set: supervisord starts as root, then drops to
+    # PUID:PGID for the game, updater and backups. These five are what that needs.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+      - KILL
+    ulimits:
+      core: 0
+    # Inside the LXC's 12 GiB, leaving room for Docker, the runner and SteamCMD's
+    # temporary copy during updates.
+    mem_limit: 10g
+    ports:
+      - "15637:15637/udp"
+    volumes:
+      # Game files, enshrouded_server.json, savegame/ and logs/. About 4 GB of game, and
+      # updates briefly need about twice that.
+      - /home/wolverine-games/wolverine-games-hub/data/enshrouded:/opt/enshrouded
+      # Save backups (zips) outside the game dir, so a reinstall can't touch them.
+      - /home/wolverine-games/wolverine-games-hub/backups/enshrouded:/backups
+    environment:
+      # A fixed id that no account on the host uses. deploy.sh creates both directories
+      # owned by it, and the ids stay the same across a rebuild from code.
+      - PUID=4711
+      - PGID=4711
+      - SERVER_NAME=MetaVersig's Enshrouded
+      - SERVER_SLOT_COUNT=8
+      - SERVER_QUERYPORT=15637
+      - SERVER_ENABLE_TEXT_CHAT=true
+      - SERVER_ENABLE_VOICE_CHAT=false
+      # Default, Relaxed, Hard, Survival or Custom. Safe to change later.
+      - SERVER_GS_PRESET=Default
+      # Two roles, and only these two (the image writes them into enshrouded_server.json
+      # on every start). Admin is MetaVersig's; Friend is the one shared password.
+      # The passwords come from .env (secrets/enshrouded.env.sops) by interpolation, so
+      # nothing else from that file reaches the container.
+      - SERVER_ROLE_0_NAME=Admin
+      - SERVER_ROLE_0_PASSWORD=${ENSHROUDED_ADMIN_PASSWORD:?}
+      - SERVER_ROLE_0_CAN_KICK_BAN=true
+      - SERVER_ROLE_0_CAN_ACCESS_INVENTORIES=true
+      - SERVER_ROLE_0_CAN_EDIT_WORLD=true
+      - SERVER_ROLE_0_CAN_EDIT_BASE=true
+      - SERVER_ROLE_0_CAN_EXTEND_BASE=true
+      - SERVER_ROLE_0_RESERVED_SLOTS=1
+      - SERVER_ROLE_1_NAME=Friend
+      - SERVER_ROLE_1_PASSWORD=${ENSHROUDED_FRIEND_PASSWORD:?}
+      - SERVER_ROLE_1_CAN_KICK_BAN=false
+      - SERVER_ROLE_1_CAN_ACCESS_INVENTORIES=true
+      - SERVER_ROLE_1_CAN_EDIT_WORLD=true
+      - SERVER_ROLE_1_CAN_EDIT_BASE=true
+      - SERVER_ROLE_1_CAN_EXTEND_BASE=true
+      - SERVER_ROLE_1_RESERVED_SLOTS=0
+      # The game AUTO-UPDATES, unlike Palworld and Satisfactory (pinned on GamingHub).
+      # Steam updates every client, and a server left on the old build locks them all out.
+      # It checks every 30 minutes and skips while anyone is online.
+      - UPDATE_CRON=*/30 * * * *
+      - UPDATE_CHECK_PLAYERS=true
+      # Save backups every 30 minutes, keeping 96 (2 days). The nightly PBS backup of the
+      # whole LXC keeps the longer history.
+      - BACKUP_CRON=*/30 * * * *
+      - BACKUP_DIR=/backups
+      - BACKUP_MAX_COUNT=96
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
