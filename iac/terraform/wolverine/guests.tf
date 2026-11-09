@@ -28,6 +28,23 @@ locals {
       groups      = ["docker_hosts", "home_assistant"]
       description = "Home Assistant (Container) + Mosquitto + Zigbee2MQTT, MetaVersig's house. App: homelab-infra hosts/home-assistant (GitOps). Vault: 1-Projects/home-assistant (phase 1b)."
     }
+
+    # Public game servers on Wolverine's own edge: pfSense VM 300 forwards their ports
+    # straight here, with no Traefik hop (vault: 5-Decisions/2026-11-08_wolverine-game-host).
+    # Enshrouded first, for 4-8 players at peak: the server is Windows-only and runs under
+    # Proton, about 6-8 GiB in use. Generic name so later public games can join it.
+    "wolverine-games" = {
+      vmid        = 304
+      ip          = "10.1.0.14"
+      mac_address = "BC:24:11:1D:79:0C"
+      cores       = 4
+      memory      = 12288
+      swap        = 1024
+      disk        = 64
+      tags        = ["game-servers"]
+      groups      = ["docker_hosts", "game_hosts"]
+      description = "Public game servers (Enshrouded first), forwarded by pfSense VM 300. App: homelab-infra hosts/wolverine-games (GitOps). Vault: 1-Projects/enshrouded-server."
+    }
   }
 }
 
