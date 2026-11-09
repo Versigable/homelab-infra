@@ -55,6 +55,11 @@ creation_rules:
   # (no operator copy; a new ND_PASSWORDENCRYPTIONKEY means users reset their passwords).
   - path_regex: ^hosts/navidrome/secrets/.*\.env\.sops$
     age: ["age184nehpc5mxw5r9pl5mrc7tjlmxkguvpk7tdrxn4lz0rpyq9ke99sug8u3p"]
+  # Wolverine game host (LXC 304 on wolverine, built by iac/), one file per game. After a
+  # rebuild, update this key and re-encrypt each game's file from the operator copies
+  # (MetaVersig's api-keys.env: ENSHROUDED_ADMIN_PASSWORD, ENSHROUDED_FRIEND_PASSWORD).
+  - path_regex: ^hosts/wolverine-games/secrets/.*\.env\.sops$
+    age: ["age1n9wdn96pq8a0xmlqn88uft6n7mam648crqc7rlvclsw9axhf03nqrnrz57"]
   # ============================================================
   # Future: Kubernetes / Argo secrets
   # ============================================================

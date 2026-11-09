@@ -414,3 +414,21 @@ deploy-navidrome:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/navidrome/**/*
+
+# ============================================================
+# Wolverine game host (LXC 304 on wolverine, built by iac/). One job per game.
+# The first deploy downloads the game and waits for it to answer Steam queries.
+# ============================================================
+deploy-wolverine-games-enshrouded:
+  stage: deploy
+  tags: ["wolverine-games"]
+  timeout: 45m
+  resource_group: wolverine-games-enshrouded
+  script:
+    - bash hosts/wolverine-games/scripts/deploy.sh enshrouded
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/wolverine-games/compose/enshrouded.yml
+        - hosts/wolverine-games/scripts/**/*
+        - hosts/wolverine-games/secrets/enshrouded.env.sops
