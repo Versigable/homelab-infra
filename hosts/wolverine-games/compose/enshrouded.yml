@@ -42,8 +42,8 @@ services:
     ports:
       - "15637:15637/udp"
     volumes:
-      # Game files, enshrouded_server.json, savegame/ and logs/. About 4 GB of game, and
-      # updates briefly need about twice that.
+      # Game files, enshrouded_server.json, savegame/ and logs/. About 8 GB of game (8.1 GB
+      # on the first download, 2026-11-08), and updates briefly need about twice that.
       - /home/wolverine-games/wolverine-games-hub/data/enshrouded:/opt/enshrouded
       # Save backups (zips) outside the game dir, so a reinstall can't touch them.
       - /home/wolverine-games/wolverine-games-hub/backups/enshrouded:/backups

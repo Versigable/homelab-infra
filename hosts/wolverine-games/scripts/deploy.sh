@@ -58,7 +58,7 @@ case "${GAME}" in
     QUERY_PORT=15637
     REQUIRED_KEYS=(ENSHROUDED_ADMIN_PASSWORD ENSHROUDED_FRIEND_PASSWORD)
     EXPECTED_ROLES='["Admin","Friend"]'
-    # The first start downloads the game (about 4 GB) and builds the Proton prefix.
+    # The first start downloads the game (8.1 GB) and builds the Proton prefix.
     READY_TIMEOUT_MIN=30
     ;;
 esac
@@ -193,7 +193,7 @@ check_roles() {
   local roles names
   roles=$(sudo /usr/bin/docker exec "${CONTAINER}" jq -c \
     '[.userGroups[] | {name, canKickBan, canAccessInventories, canEditWorld, canEditBase, canExtendBase, reservedSlots, hasPassword: ((.password // "") != "")}]' \
-    /opt/enshrouded/enshrouded_server.json)
+    /opt/enshrouded/server/enshrouded_server.json)
   echo "${roles}"
   names=$(python3 -c 'import json,sys; print(json.dumps([r["name"] for r in json.loads(sys.argv[1])], separators=(",", ":")))' "${roles}")
   [[ "${names}" == "${EXPECTED_ROLES}" ]] || die "roles are ${names}, expected ${EXPECTED_ROLES}"
