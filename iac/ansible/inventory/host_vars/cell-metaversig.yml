@@ -2,5 +2,7 @@
 # only opens this cell's SSH) and signs in to Claude, ChatGPT and Unity in person, as the users
 # agent and unity. Until the studio's membership register exists, the owner is set here.
 studio_cell_owner: metaversig
+# MetaVersig's desk account (studio-desk on their computer; OK'd 2026-11-02).
+studio_cell_desk_account: mv-agent
 studio_cell_owner_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzHA3h36dpCR5DeRS62qwvK6hocFaUCQPCXsncfOtbN metaversig@ninjaprivacy"
