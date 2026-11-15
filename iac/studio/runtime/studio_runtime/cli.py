@@ -42,6 +42,21 @@ For the person (from your own shell):
   studio jobs                       the cell's recent jobs
   studio attach <job> / detach <job>
                                     take over a running job's session, then hand it back
+  studio vendor [list]              the AI vendors jobs may run, in your order: the first
+                                    implements, the next reviews; a vendor:<name> label
+                                    on an issue or MR picks one for that job
+  studio vendor add <name> -- <command...>
+                                    add any agent CLI (installed as agent): a job runs the
+                                    command headless in its worktree, the prompt on stdin
+                                    or wherever {prompt} appears; it must finish with
+                                    `studio done` (the prompt says how). Also adds the
+                                    label vendor:<name>
+  studio vendor add claude|codex    use a built-in again after `remove`
+  studio vendor resume <name> -- <command with {session}...>
+                                    how an added vendor carries on a session handed back
+  studio vendor remove <name>       stop using it (built-ins: until `add` again)
+  studio vendor order <name>...     your preference, first to last (Claude first until
+                                    you change it)
 
 Run it inside a worktree (/srv/studio/<game>/work/<name>); `docs` works anywhere.
 """
@@ -85,7 +100,7 @@ def main(argv=None):
         # Local and read-only: the pages are on disk, readable by everyone; no daemon involved.
         from . import docs
         return docs.main(args)
-    if verb in ("done", "jobs", "attach", "detach"):
+    if verb in ("done", "jobs", "attach", "detach", "vendor"):
         if verb == "done" and len(args) == 2:
             # Read here, inside the job: its /tmp is private to its unit, so the daemon couldn't.
             try:
