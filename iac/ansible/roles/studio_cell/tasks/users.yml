@@ -53,7 +53,8 @@
 # and the Unity Editor read the proxy variables, the Unity CLI UNITY_PROXY. Everyone else has
 # the internet directly and gets no proxy; agent gets its Git settings
 # (studio_cell_agent_git_env), and its own installs in ~/.local (npm's global prefix, and
-# ~/.local/bin on the PATH, after the system's). The Editor's folder is on the PATH for batch runs
+# ~/.local/bin on the PATH, after the system's) and where the studio brain's read-only copy
+# is (STUDIO_BRAIN). The Editor's folder is on the PATH for batch runs
 # (`Unity -batchmode ...`).
 - name: Proxy and tool settings for every login
   ansible.builtin.copy:
@@ -75,6 +76,7 @@
           export {{ k }}={{ v | quote }}
       {% endfor %}
           export NPM_CONFIG_PREFIX="$HOME/.local"
+          export STUDIO_BRAIN={{ studio_cell_brain.dir }}
           case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$PATH:$HOME/.local/bin" ;; esac
           ;;
       esac

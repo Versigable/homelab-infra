@@ -80,6 +80,22 @@ studio_cell_gitlab_token: >-
 # Where the control node keeps the Codex archive it checks before copying it to cells.
 studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-iac/studio-cell"
 
+# The studio brain, read-only, as files for the cell's agents (tasks/brain.yml; vault decision
+# 2026-11-15). The cell's CouchDB account is studio-cell-<owner>: lock-studio-brain.py on
+# ServiceHub makes it with the brain's reader role (it reads; the database refuses its writes)
+# and prints its password once, as STUDIO_BRAIN_CELL_<OWNER>_PASSWORD, for the control node's
+# secrets env file. Left out of the copy: the desk agents' memory and the archive. The check
+# also asks the infra brains, which must refuse the account.
+studio_cell_brain:
+  url: https://brain.ninjaprivacy.org
+  db: studio-brain
+  user: "studio-cell-{{ studio_cell_owner }}"
+  dir: /srv/studio/_brain
+  exclude: [memory/, Archive/]
+  refused: [homelab-brain, agent-brain]
+studio_cell_brain_password: >-
+  {{ lookup('ansible.builtin.env', 'STUDIO_BRAIN_CELL_' ~ (studio_cell_owner | upper | replace('-', '_')) ~ '_PASSWORD') }}
+
 # The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
 studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
 

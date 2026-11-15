@@ -124,3 +124,29 @@
   changed_when: false
   failed_when: studio_cell_vendor_list.rc != 0 or (studio_cell_vendor_list.stdout | from_json) is not sequence
   when: not ansible_check_mode
+
+# The studio brain's copy (brain.yml): the cell's account reads the brain, the database refuses
+# its writes, the infra brains refuse it, and the copy is there without the left-out folders.
+# The first sync after a start takes a few seconds.
+- name: The brain copy is there, and the cell's account can't write the brain
+  ansible.builtin.command: /opt/studio/runtime/bin/studio-brain-sync --check
+  register: studio_cell_brain_check
+  changed_when: false
+  until: studio_cell_brain_check.rc == 0
+  retries: 12
+  delay: 5
+  when: studio_cell_brain_password_file.stat.exists and not ansible_check_mode
+
+- name: Agent reads the brain copy and unity doesn't
+  ansible.builtin.command: ls {{ studio_cell_brain.dir }}/
+  become: true
+  become_user: "{{ item.user }}"
+  register: studio_cell_brain_read
+  changed_when: false
+  failed_when: (studio_cell_brain_read.rc == 0) != item.reads
+  loop:
+    - {user: agent, reads: true}
+    - {user: unity, reads: false}
+  loop_control:
+    label: "{{ item.user }} -> {{ 'reads' if item.reads else 'refused' }}"
+  when: studio_cell_brain_password_file.stat.exists and not ansible_check_mode
