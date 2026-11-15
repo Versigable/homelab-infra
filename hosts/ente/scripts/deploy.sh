@@ -66,6 +66,8 @@ require_cmd docker
 require_cmd sudo
 require_cmd curl
 require_cmd stat
+require_cmd tar
+require_cmd sha256sum
 sudo -n /usr/bin/docker ps >/dev/null 2>&1 || die "runner needs NOPASSWD sudo for /usr/bin/docker"
 sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD sudo for /usr/bin/install"
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "sops age key not readable: ${SOPS_AGE_KEY_FILE}"
@@ -134,6 +136,24 @@ ensure_data_dirs() {
   sudo /usr/bin/install -d -m 0700 "${DATA_MOUNT}/garage" "${DATA_MOUNT}/garage-meta-snapshots"
 }
 
+# -------- Restart when a config file changed --------
+# museum.yaml and garage.toml are single-file bind mounts. install replaces the file,
+# a running container keeps seeing the old one, and compose up only recreates a
+# container when the compose file changes. So compare what the container sees with
+# the repo's file and restart the service if they differ (a restart mounts the new
+# file). docker cp works on the minimal Garage image, which has no shell.
+restart_on_config_change() {
+  local service="$1" container="$2" path="$3" repo_file="$4" seen want
+  seen="$(sudo /usr/bin/docker cp "${container}:${path}" - 2>/dev/null | tar -xO | sha256sum | cut -d' ' -f1)"
+  want="$(sha256sum < "${repo_file}" | cut -d' ' -f1)"
+  if [[ "${seen}" != "${want}" ]]; then
+    log_info "${path} changed, restarting ${service}"
+    (cd "${LIVE_COMPOSE_DIR}" && sudo /usr/bin/docker compose restart "${service}")
+    seen="$(sudo /usr/bin/docker cp "${container}:${path}" - 2>/dev/null | tar -xO | sha256sum | cut -d' ' -f1)"
+    [[ "${seen}" == "${want}" ]] || die "${container} still has an old ${path} after a restart"
+  fi
+}
+
 # -------- Compose up --------
 compose_up() {
   log_info "docker compose pull && up -d"
@@ -143,6 +163,11 @@ compose_up() {
     # The project has its own name (name: ente), so --remove-orphans only touches
     # this stack.
     sudo /usr/bin/docker compose up -d --remove-orphans
+  )
+  restart_on_config_change museum ente-museum /museum.yaml "${REPO_MUSEUM}"
+  restart_on_config_change garage ente-s3 /etc/garage.toml "${REPO_GARAGE}"
+  (
+    cd "${LIVE_COMPOSE_DIR}"
     sudo /usr/bin/docker compose ps
   )
 }
