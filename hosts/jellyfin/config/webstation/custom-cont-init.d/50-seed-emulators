@@ -143,6 +143,40 @@ set_defaults "$PCSX2_INI" \
   EmuCore/GS SyncToHostRefreshRate true \
   EmuCore/GS UseVSyncForTiming true \
   EmuCore/Speedhacks vuThread true
+# PCSX2 player 2. The broker binds only Pad1 (port 1) to the first SDL pad, and
+# PCSX2 leaves port 2 unplugged, so a co-op player's pad did nothing in PS2 games.
+# Port 2 gets a DualShock 2 on SDL-1 (Selkies' second browser pad), with the broker's
+# own Pad1 bindings. No multitap: one that is always on breaks some 1- and 2-player
+# games, so 3-4 players are a per-game setting.
+set_defaults "$PCSX2_INI" \
+  Pad2 Type DualShock2 \
+  Pad2 Up SDL-1/DPadUp \
+  Pad2 Right SDL-1/DPadRight \
+  Pad2 Down SDL-1/DPadDown \
+  Pad2 Left SDL-1/DPadLeft \
+  Pad2 Triangle SDL-1/FaceNorth \
+  Pad2 Circle SDL-1/FaceEast \
+  Pad2 Cross SDL-1/FaceSouth \
+  Pad2 Square SDL-1/FaceWest \
+  Pad2 Select SDL-1/Back \
+  Pad2 Start SDL-1/Start \
+  Pad2 L1 SDL-1/LeftShoulder \
+  Pad2 L2 SDL-1/+LeftTrigger \
+  Pad2 R1 SDL-1/RightShoulder \
+  Pad2 R2 SDL-1/+RightTrigger \
+  Pad2 L3 SDL-1/LeftStick \
+  Pad2 R3 SDL-1/RightStick \
+  Pad2 LUp SDL-1/-LeftY \
+  Pad2 LRight SDL-1/+LeftX \
+  Pad2 LDown SDL-1/+LeftY \
+  Pad2 LLeft SDL-1/-LeftX \
+  Pad2 RUp SDL-1/-RightY \
+  Pad2 RRight SDL-1/+RightX \
+  Pad2 RDown SDL-1/+RightY \
+  Pad2 RLeft SDL-1/-RightX \
+  Pad2 Analog SDL-1/Guide \
+  Pad2 LargeMotor SDL-1/LargeMotor \
+  Pad2 SmallMotor SDL-1/SmallMotor
 
 # Wii controls. The broker binds GameCube pads to the virtual SDL pad but leaves
 # Wiimotes on Dolphin's keyboard/mouse default. Emulate a Wiimote with a Classic
@@ -153,6 +187,19 @@ if ! grep -q 'SDL/' "$DOLPHIN_CFG/WiimoteNew.ini" 2>/dev/null; then
   install -m 0644 -o abc -g abc /seed/dolphin-WiimoteNew.ini "$DOLPHIN_CFG/WiimoteNew.ini" &&
     echo "[seed-emulators] installed Wii Classic Controller map"
 fi
+
+# Wii-only Dolphin settings: GameCube ports off and Wii Remotes 2-4 on. Dolphin
+# applies a one-letter game INI to every game ID starting with that letter, and every
+# Wii disc ID starts with R or S (GameCube discs start with G), so GameCube games keep
+# their ports. Missing files only: nothing else writes R.ini or S.ini.
+DOLPHIN_GAMESETTINGS=/config/.local/share/dolphin-emu/GameSettings
+mkdir_abc "$DOLPHIN_GAMESETTINGS"
+for letter in R S; do
+  if [[ ! -e "$DOLPHIN_GAMESETTINGS/$letter.ini" ]]; then
+    install -m 0644 -o abc -g abc /seed/dolphin-wii-GameSettings.ini "$DOLPHIN_GAMESETTINGS/$letter.ini" &&
+      echo "[seed-emulators] installed Wii game settings $letter.ini"
+  fi
+done
 
 # Dolphin graphics. GFX.ini starts empty, so Dolphin compiles each new shader
 # synchronously and the game hitches the first time an effect appears (worst on a
@@ -177,8 +224,13 @@ set_defaults "$DOLPHIN_CFG/GFX.ini" \
 # (compose turns that refresh off with PCSX2_PATCHES_FETCH=false). Fetch
 # upstream's rolling release here instead, as root, when missing or a week old.
 # It lives in the container layer, so a recreate fetches it again.
+# The Forge's container can't reach GitHub. Its role bind-mounts the host's copy
+# read-only over this path instead, and that copy is refreshed on the host (role
+# forge_webstation), so a read-only file is left alone.
 PATCHES=/usr/share/PCSX2/resources/patches.zip
-if [[ ! -f "$PATCHES" || -n "$(find "$PATCHES" -mtime +7 2>/dev/null)" ]]; then
+if [[ -f "$PATCHES" && ! -w "$PATCHES" ]]; then
+  echo "[seed-emulators] PCSX2 patches.zip is mounted read-only (dated $(date -r "$PATCHES" +%F)); not refreshing it here"
+elif [[ ! -f "$PATCHES" || -n "$(find "$PATCHES" -mtime +7 2>/dev/null)" ]]; then
   tmp="$(mktemp)"
   if curl -fsSL --max-time 60 --max-filesize 67108864 -o "$tmp" \
       https://github.com/PCSX2/pcsx2_patches/releases/download/latest/patches.zip &&
@@ -190,6 +242,8 @@ sys.exit(0 if ok else 1)
 PY
   then
     install -D -m 0644 -o root -g root "$tmp" "$PATCHES" && echo "[seed-emulators] installed PCSX2 patches.zip"
+  elif [[ -f "$PATCHES" ]]; then
+    echo "[seed-emulators] PCSX2 patches.zip fetch failed; keeping the one dated $(date -r "$PATCHES" +%F)"
   else
     echo "[seed-emulators] PCSX2 patches.zip fetch failed; PCSX2 runs without patches"
   fi
@@ -279,6 +333,21 @@ if ! grep -q '^MemStickSize' "$INI" 2>/dev/null; then
   echo "[seed-emulators] set PPSSPP MemStickSize = 1"
 fi
 
+# RetroArch's controller profiles and menu assets. The broker's retroarch.cfg points
+# joypad_autoconfig_dir at ~/.config/retroarch/autoconfig, but nothing fills it on a
+# fresh /config. Without the profiles RetroArch shows "Microsoft X-Box 360 pad (0/0)
+# not configured" for Selkies' virtual pads and ignores them (found 2026-10-25 on the
+# Forge and on jf's instances 2 and 3; instance 1 had them from its first setup). The
+# image ships both under /usr/share/libretro: copy whatever is missing, as abc.
+for ra_dir in autoconfig assets; do
+  [[ -d "/usr/share/libretro/$ra_dir" ]] || continue
+  if [[ -z "$(ls -A "/config/.config/retroarch/$ra_dir" 2>/dev/null)" ]]; then
+    mkdir_abc "/config/.config/retroarch/$ra_dir"
+    s6-setuidgid abc cp -r --update=none "/usr/share/libretro/$ra_dir/." "/config/.config/retroarch/$ra_dir/" \
+      && echo "[seed-emulators] seeded RetroArch $ra_dir from the image"
+  fi
+done
+
 # Selkies page scripts, loaded from index.html ahead of the client's own bundle. The
 # web root sits in the container layer, so this runs on every start.
 # - gamepad-shim.js: Chrome gives some controllers no standard layout, and for those
@@ -290,9 +359,15 @@ fi
 #   MediaStreamTrackGenerator -> <video>, and streams froze there for about a second
 #   at a time. Hiding the generator makes Chromium decode and draw in the client's
 #   video worker, the path Firefox takes.
+# - playout-buffer.js: the worker draws each frame the moment it's decoded, so bunched
+#   arrivals show as hitches. It holds frames ~50 ms and draws them on the display's
+#   refresh at a steady cadence (homelab.playoutMs in localStorage tunes it; 0 = off).
+# - webrtc-volume.js: in WebRTC mode the audio plays through the stream's <video>
+#   element, while Selkies applies RomM's volume and mute messages only to its
+#   websockets GainNode, so the slider did nothing. It applies them to the element.
 SELKIES_WEB=/usr/share/selkies/web
 if [[ -f "$SELKIES_WEB/index.html" ]]; then
-  for page_js in gamepad-shim video-sink; do
+  for page_js in gamepad-shim video-sink playout-buffer webrtc-volume; do
     install -m 0644 -o root -g root "/seed/selkies-$page_js.js" "$SELKIES_WEB/$page_js.js" || continue
     if ! grep -q "$page_js.js" "$SELKIES_WEB/index.html"; then
       sed -i "s|<head>|<head><script src=\"./$page_js.js\"></script>|" "$SELKIES_WEB/index.html"

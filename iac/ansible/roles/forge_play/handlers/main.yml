@@ -1,0 +1,8 @@
+# Running sessions are containers of their own and outlive a restart; the daemon finds them
+# again by label. Not in a check-mode run that would install the unit file for the first time.
+- name: Restart forge-playd
+  ansible.builtin.systemd_service:
+    name: forge-playd
+    state: restarted
+    daemon_reload: true
+  when: not (ansible_check_mode and (forge_play_sessions_unit.changed | default(false)))

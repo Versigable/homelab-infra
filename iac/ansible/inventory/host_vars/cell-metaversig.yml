@@ -1,0 +1,6 @@
+# MetaVersig's cell (VM 160). Its owner logs in here (through studio-gw's jump account, which
+# only opens this cell's SSH) and signs in to Claude, ChatGPT and Unity in person, as the users
+# agent and unity. Until the studio's membership register exists, the owner is set here.
+studio_cell_owner: metaversig
+studio_cell_owner_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzHA3h36dpCR5DeRS62qwvK6hocFaUCQPCXsncfOtbN metaversig@ninjaprivacy"

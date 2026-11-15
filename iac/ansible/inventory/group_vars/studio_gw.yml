@@ -1,0 +1,138 @@
+# studio-gw (role studio_gw). Vault: 1-Projects/game-studio-platform/design/architecture §3.
+
+# Outbound through Squid, by exact hostname, per class of studio guest. HTTPS is spliced
+# only when the TLS SNI is on the same list.
+studio_gw_egress:
+  forge:
+    sources: [10.77.0.10]
+    ports: [80, 443]
+    names:
+      # OS packages and security updates
+      - deb.debian.org
+      - security.debian.org
+      # NVIDIA driver (forge_gpu)
+      - developer.download.nvidia.com
+      # NVIDIA container toolkit repository (forge_gpu)
+      - nvidia.github.io
+      # Docker Engine (docker role)
+      - download.docker.com
+      # Selkies base image (forge_play); ghcr.io redirects blobs to the second name
+      - ghcr.io
+      - pkg-containers.githubusercontent.com
+  hub:
+    sources: [10.77.0.20]
+    ports: [80, 443]
+    names:
+      # OS packages and security updates; its services (step 2b) add their own
+      - deb.debian.org
+      - security.debian.org
+  # Every person's cell (role studio_cell). A cell reaches the internet directly
+  # (studio_gw_internet, below), except the user unity, which the cell's own firewall pins to
+  # its class's port (studio_cell_user_proxy_ports). Exact names, seeded from the vendors'
+  # docs, plus anything a tool turns out to need from Squid's access log (TCP_DENIED). The
+  # one exception is Unity: its
+  # CLI, Editor and licensing reach many hosts under its own two domains, so those are
+  # allowed whole (MetaVersig, 2026-10-25; a leading dot matches the domain and every name
+  # under it). Seen there so far: the CLI's apt repository (hub, hub-dist.unity3d.com),
+  # Editor downloads (services.api.unity.com, download.unity3d.com, cloudmedia-docs for the
+  # documentation module), sign-in (api.unity.com, core.cloud.unity3d.com) and the licensing
+  # client the CLI fetches on first activation (public-stevedore.unity3d.com).
+  # Refused on purpose: api2.amplitude.com, the Unity CLI's analytics (not a Unity domain).
+  #
+  # :3128, what names this proxy itself: apt, studio-agentd's GitLab calls, and the IaC's
+  # installs of Claude Code, the Unity CLI and the Editor.
+  cells:
+    sources: [10.77.0.60, 10.77.0.61]
+    ports: [80, 443]
+    names:
+      # OS packages and security updates
+      - deb.debian.org
+      - security.debian.org
+      # Claude Code's apt repository
+      - downloads.claude.ai
+      # GitLab, the way the internet reaches it (studio-agentd, as the person's agent account)
+      - gitlab.ninjaprivacy.org
+      - .unity3d.com
+      - .unity.com
+  # :3130, the user unity (the CLI, the Editor and the game code it runs, the licensing
+  # client, the package manager): Unity only.
+  cells_unity:
+    proxy_port: 3130
+    sources: [10.77.0.60, 10.77.0.61]
+    ports: [80, 443]
+    names:
+      - .unity3d.com
+      - .unity.com
+
+# The internet directly, not through Squid (MetaVersig, 2026-11-08): jobs and the sessions
+# the owner pairs in are handed repositories and links to anything, over any protocol. Any
+# public address, port and protocol, source-NATed to the gateway's LAN address; never a
+# private, loopback, link-local or CGNAT address (studio_gw_private_nets: the LAN and the
+# tailnet), and never SMTP (studio_gw_internet_deny_tcp). Each new connection is logged
+# (journalctl -k, prefix "studio-out <name>:"). On a cell, everyone but unity (role
+# studio_cell); the user agent still reaches nothing private, studio0 included, by the cell's
+# own firewall. Vault decision: 5-Decisions/2026-11-08_studio-cells-direct-internet.
+studio_gw_internet:
+  - name: cells
+    sources: [10.77.0.60, 10.77.0.61]
+
+# Play streams: Traefik (VM 100) -> studio-gw:3000 -> the Forge's play container.
+studio_gw_ingress:
+  - name: forge-play
+    from: 10.0.2.5
+    port: 3000
+    to_ip: 10.77.0.10
+    to_port: 3000
+  # The RomM webstation on the Forge (role forge_webstation): Traefik -> :3040 for players'
+  # streams, and RomM on ServiceHub (LXC 103) -> :3040 for the broker API it calls.
+  - name: forge-romm-stream
+    from: 10.0.2.5
+    port: 3040
+    to_ip: 10.77.0.10
+    to_port: 3040
+  - name: forge-romm-broker
+    from: 10.0.1.5
+    port: 3040
+    to_ip: 10.77.0.10
+    to_port: 3040
+  # Its WebRTC media (UDP): X-Mansion WAN 7788 -> pfSense -> Traefik's UDP router ark7788
+  # (borrowed from the never-built Ark Map 5 server) -> here -> the Forge's ICE mux port.
+  - {name: forge-romm-webrtc, from: 10.0.2.5, port: 7788, to_ip: 10.77.0.10, to_port: 7788, proto: udp}
+  # The studio portal on the hub (role studio_hub): Traefik only, after Authentik. Traefik's
+  # stream check (forwardAuth, /auth/stream) comes this way too.
+  - name: hub-portal
+    from: 10.0.2.5
+    port: 8080
+    to_ip: 10.77.0.20
+    to_port: 8080
+  # Play sessions on the Forge (forge-playd; studio_play_slots from studio_play_base_port in
+  # studio_private.yml): Traefik only, after Authentik and the hub's stream check.
+  - {name: forge-session-s0, from: 10.0.2.5, port: 3100, to_ip: 10.77.0.10, to_port: 3100}
+  - {name: forge-session-s1, from: 10.0.2.5, port: 3101, to_ip: 10.77.0.10, to_port: 3101}
+  - {name: forge-session-s2, from: 10.0.2.5, port: 3102, to_ip: 10.77.0.10, to_port: 3102}
+  - {name: forge-session-s3, from: 10.0.2.5, port: 3103, to_ip: 10.77.0.10, to_port: 3103}
+  # Each person's browser terminal into their own cell (role studio_cell, studio-term on
+  # studio_cell_term_port): Traefik only, after Authentik and the hub's owner check.
+  - {name: term-metaversig, from: 10.0.2.5, port: 3200, to_ip: 10.77.0.60, to_port: 7681}
+  - {name: term-kannis, from: 10.0.2.5, port: 3201, to_ip: 10.77.0.61, to_port: 7681}
+
+# LAN services reached directly, not through Squid. The Forge's webstation reads the ROM
+# library from TrueNAS over NFSv4 (the gameroom share, mounted read-only by nfs_client).
+studio_gw_lan_access:
+  - name: forge-gameroom-nfs
+    from: 10.77.0.10
+    to_ip: 10.0.1.7
+    port: 2049
+
+studio_gw_hosts:
+  - {name: studio-gw, ip: 10.77.0.1}
+  - {name: studio-forge, ip: 10.77.0.10}
+  - {name: studio-hub, ip: 10.77.0.20}
+  - {name: cell-metaversig, ip: 10.77.0.60}
+  - {name: cell-kannis, ip: 10.77.0.61}
+
+# X-Mansion's WAN IP, which the Forge's webstation advertises as its WebRTC candidate
+# (role forge_webstation). webstation-udp.ninjaprivacy.org is a DNS-only CNAME to the
+# games-udp DDNS record; the gateway resolves it and guests see webstation-udp.studio.
+studio_gw_published_names:
+  - {name: webstation-udp, lookup: webstation-udp.ninjaprivacy.org}

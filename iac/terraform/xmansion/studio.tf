@@ -1,0 +1,224 @@
+# The game studio's guests (vault: 1-Projects/game-studio-platform/design/).
+#
+# They live on the studio network: VNet studio0 in the Proxmox SDN zone "studio" (VXLAN,
+# phoenix + rogue), created by ansible/playbooks/pve-cluster.yml before `tf apply`. Nothing
+# on studio0 has a route to vmbr0; studio-gw is the network's only way in or out.
+#
+# Studio VMIDs are 150-169; studio0 addresses are 10.77.0.0/24.
+#   150 studio-gw        phoenix  router: Squid egress by hostname, DNS, NTP, play-stream ingress
+#   151 studio-hub       rogue    broker, depot, portal, publisher, chat bot (design step 2b)
+#   155 studio-forge     phoenix  the GPU VM; holds the RTX 5070 Ti for good
+#   160 cell-metaversig  rogue    MetaVersig's cell: his agents, games, Unity (design step 2c)
+#   161 cell-kannis      rogue    Kannis's cell, the same shape (design step 6)
+# Addresses: gw .1, Forge .10, hub .20, cells .60 and up.
+locals {
+  studio_net = {
+    bridge  = "studio0"
+    prefix  = 24
+    gateway = "10.77.0.1"
+  }
+
+  # Inventory entries for the `guests` output (outputs.tf), read by `iac.sh inventory`.
+  studio_inventory = {
+    "studio-gw" = {
+      kind   = "vm"
+      ip     = module.studio_gw.ip
+      vmid   = module.studio_gw.vmid
+      node   = module.studio_gw.node
+      groups = ["studio_gw"]
+      tags   = ["iac", "studio"]
+    }
+    "studio-forge" = {
+      kind   = "vm"
+      ip     = module.studio_forge.ip
+      vmid   = module.studio_forge.vmid
+      node   = module.studio_forge.node
+      groups = ["docker_hosts", "studio_forge", "studio_private"]
+      tags   = ["gpu", "iac", "studio"]
+    }
+    "studio-hub" = {
+      kind   = "vm"
+      ip     = module.studio_hub.ip
+      vmid   = module.studio_hub.vmid
+      node   = module.studio_hub.node
+      groups = ["studio_hub", "studio_private"]
+      tags   = ["iac", "studio"]
+    }
+    "cell-metaversig" = {
+      kind   = "vm"
+      ip     = module.cell_metaversig.ip
+      vmid   = module.cell_metaversig.vmid
+      node   = module.cell_metaversig.node
+      groups = ["studio_cell", "studio_private"]
+      tags   = ["cell", "iac", "studio"]
+    }
+    "cell-kannis" = {
+      kind   = "vm"
+      ip     = module.cell_kannis.ip
+      vmid   = module.cell_kannis.vmid
+      node   = module.cell_kannis.node
+      groups = ["studio_cell", "studio_private"]
+      tags   = ["cell", "iac", "studio"]
+    }
+  }
+}
+
+# On phoenix with the Forge, so play streams go Traefik -> gw -> Forge without leaving the
+# node. It holds no credentials and runs no app: nftables, dnsmasq and chrony (role studio_gw).
+module "studio_gw" {
+  source = "../modules/vm"
+
+  hostname      = "studio-gw"
+  node          = "phoenix"
+  vmid          = 150
+  template_vmid = var.vm_template_vmids["phoenix"]
+  description   = "Studio network router: egress allow-list, DNS, NTP, play-stream ingress. Ansible role studio_gw. Vault: 1-Projects/game-studio-platform/design/architecture."
+  cores         = 1
+  memory        = 1024
+  disk          = 8
+
+  # net0 on the LAN (default route); net1 is the studio network's gateway address.
+  ip          = "10.0.1.150"
+  gateway     = var.gateway
+  dns_servers = var.dns_servers
+  extra_nics = [{
+    bridge = local.studio_net.bridge
+    ip     = local.studio_net.gateway
+    prefix = local.studio_net.prefix
+    mtu    = 1
+  }]
+
+  ssh_public_keys = local.operator_keys
+}
+
+# The GPU VM. Passthrough pins all of its RAM, so it is the one studio guest that can't
+# balloon: 16 GiB for the play lane now, 20 GiB when the gen lane lands (one planned restart).
+# It is pinned to phoenix's second CCD (CPUs 8-15 and their SMT siblings 24-31), away from
+# TrueNAS and GitLab: Ansible sets that (affinity is root-only; host_vars/studio-forge.yml),
+# and it takes effect at the VM's next start. q35 + OVMF without Secure Boot keys is the
+# recipe jf used on this card.
+module "studio_forge" {
+  source = "../modules/vm"
+
+  hostname      = "studio-forge"
+  node          = "phoenix"
+  vmid          = 155
+  template_vmid = var.vm_template_vmids["phoenix"]
+  description   = "Studio Forge: RTX 5070 Ti, lanes gen/play/render/seat. Ansible roles forge_gpu, forge_play. Vault: 1-Projects/game-studio-platform/design/architecture."
+  cores         = 8
+  memory        = 16384
+  disk          = 100
+
+  cpu_type = "host"
+  machine  = "q35"
+  bios     = "ovmf"
+  efi_disk = true
+  hostpci = [{
+    device  = "hostpci0"
+    mapping = "gpu-5070ti"
+  }]
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  ip          = "10.77.0.10"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
+
+  # The VNet and the GPU mapping come from pve-cluster.yml, outside Terraform; studio-gw
+  # must exist first so the Forge has DNS and a route when it boots.
+  depends_on = [module.studio_gw]
+}
+
+# The hub: the Forge's broker, the depot, the portal, the release publisher and the chat bot
+# (design: architecture §5; role studio_hub). The depot is its own disk, scsi1, mounted at
+# /srv/depot: 200 GB thin on rogue's local-lvm, grown online when it fills.
+module "studio_hub" {
+  source = "../modules/vm"
+
+  hostname      = "studio-hub"
+  node          = "rogue"
+  vmid          = 151
+  template_vmid = var.vm_template_vmids["rogue"]
+  description   = "Studio hub: broker, depot, portal, publisher, chat bot. Vault: 1-Projects/game-studio-platform/design/architecture."
+  cores         = 2
+  memory        = 3072
+  memory_min    = 2048
+  disk          = 64
+  data_disks    = [{ size = 200 }]
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  ip          = "10.77.0.20"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
+}
+
+# MetaVersig's cell: his agents (his own Claude and ChatGPT sign-ins), his games and his Unity
+# editor (design: engine-and-agent-runtime §2). Ballooned 4-12 GiB: an idle cell gives RAM
+# back to rogue. Low CPU weight, so jf's streams and GamingHub win contention. x86-64-v3
+# because Claude Code needs AVX2.
+#
+# Fixed machine identity: the MAC and the SMBIOS UUID below. systemd derives the machine-id
+# from the SMBIOS UUID at boot, so it is fixed too (role studio_cell checks). Unity licences
+# are per machine, so a rebuilt cell must look like the same machine. Never clone a cell.
+module "cell_metaversig" {
+  source = "../modules/vm"
+
+  hostname      = "cell-metaversig"
+  node          = "rogue"
+  vmid          = 160
+  template_vmid = var.vm_template_vmids["rogue"]
+  description   = "Studio cell of MetaVersig: agents, games, Unity. Fixed identity; never clone. Vault: 1-Projects/game-studio-platform/design/engine-and-agent-runtime."
+  cores         = 6
+  cpu_type      = "x86-64-v3"
+  cpu_units     = 50
+  memory        = 12288
+  memory_min    = 4096
+  disk          = 150
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  mac_address = "BC:24:11:B0:64:29"
+  smbios_uuid = "f03a17f0-c387-4096-b72e-76f1f0c9bad6"
+  ip          = "10.77.0.60"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
+}
+
+# Kannis's cell: the same shape as MetaVersig's (above), with its own fixed identity. His own
+# Claude, ChatGPT and Unity sign-ins; his agents answer only to his approvals.
+module "cell_kannis" {
+  source = "../modules/vm"
+
+  hostname      = "cell-kannis"
+  node          = "rogue"
+  vmid          = 161
+  template_vmid = var.vm_template_vmids["rogue"]
+  description   = "Studio cell of Kannis: agents, games, Unity. Fixed identity; never clone. Vault: 1-Projects/game-studio-platform/design/people-and-membership."
+  cores         = 6
+  cpu_type      = "x86-64-v3"
+  cpu_units     = 50
+  memory        = 12288
+  memory_min    = 4096
+  disk          = 150
+
+  bridge      = local.studio_net.bridge
+  nic_mtu     = 1
+  mac_address = "BC:24:11:48:E1:9A"
+  smbios_uuid = "f7170e71-3885-4199-a8c4-7d7d2563b61c"
+  ip          = "10.77.0.61"
+  prefix      = local.studio_net.prefix
+  gateway     = local.studio_net.gateway
+  dns_servers = [local.studio_net.gateway]
+
+  ssh_public_keys = local.operator_keys
+}

@@ -1,0 +1,47 @@
+# A person's cell (design: engine-and-agent-runtime §2): their agents, their games, their
+# Unity editor. Users:
+#   <owner>  the person: logs in through the browser terminal (term.yml) or, on the LAN,
+#            studio-gw's jump account, and may act as agent and
+#            unity (sudo -iu) to sign in, but has no root here (root belongs to the IaC and,
+#            from step 2c-2, to studio-agentd and the Unity broker)
+#   agent    runs Claude Code and Codex; holds the person's AI sign-ins and nothing else;
+#            has the internet, but nothing private (the LAN, studio0's hub and other cells)
+#   unity    runs the Unity CLI and Editor; holds the person's Unity sign-in and licence;
+#            reaches only Unity
+# Separate users so game code running in the editor can't read the AI sign-ins, and an agent
+# can't read the Unity licence (design: engine-and-agent-runtime §2). Egress is per user too
+# (egress.yml), so a job can reach GitLab, Unity and the editor only through the daemons.
+
+- name: Machine identity
+  ansible.builtin.import_tasks: identity.yml
+
+- name: Cell packages
+  ansible.builtin.apt:
+    name: "{{ studio_cell_packages }}"
+
+- name: Users and the owner's login
+  ansible.builtin.import_tasks: users.yml
+
+- name: Egress per user
+  ansible.builtin.import_tasks: egress.yml
+
+- name: The owner's browser terminal
+  ansible.builtin.import_tasks: term.yml
+
+- name: Claude Code
+  ansible.builtin.import_tasks: claude.yml
+
+- name: Codex
+  ansible.builtin.import_tasks: codex.yml
+
+- name: Unity CLI and Editor
+  ansible.builtin.import_tasks: unity.yml
+
+- name: What the studio runtime stands on
+  ansible.builtin.import_tasks: studio.yml
+
+- name: The studio runtime (studio-unityd, the studio CLI)
+  ansible.builtin.import_tasks: runtime.yml
+
+- name: Checks
+  ansible.builtin.import_tasks: checks.yml

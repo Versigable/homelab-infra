@@ -1,13 +1,26 @@
-# The cloud-init template Terraform clones VMs from (modules/vm). Built once per node; an
-# existing template is left alone, so bumping the image means removing the old template first.
-# It sits in the iac pool so the IaC token may clone it.
-- name: Is the VM template already there?
-  ansible.builtin.stat:
-    path: "/etc/pve/qemu-server/{{ pve_vm_template_vmid }}.conf"
+# The cloud-init templates Terraform clones VMs from (modules/vm). A template on local-lvm
+# can only be cloned on its own node, so each node has its own, with its own VMID
+# (pve_vm_template_vmids: phoenix 9000, rogue 9001). An existing template is left alone, so
+# bumping the image means removing the old templates first.
+# They sit in the iac pool so the IaC token may clone them.
+# Nodes not in the map (wolverine: LXC guests only, terraform/wolverine) get no template.
+- name: This node's template VMID
+  ansible.builtin.set_fact:
+    pve_vm_template_vmid: "{{ pve_vm_template_vmids[inventory_hostname] }}"
+  when: inventory_hostname in pve_vm_template_vmids
+
+- name: Is this node's template already there?
+  ansible.builtin.find:
+    paths: /etc/pve/nodes
+    patterns: "{{ pve_vm_template_vmid }}.conf"
+    recurse: true
   register: pve_vm_template_conf
+  when: inventory_hostname in pve_vm_template_vmids
 
 - name: Build the VM template
-  when: not pve_vm_template_conf.stat.exists
+  when:
+    - inventory_hostname in pve_vm_template_vmids
+    - pve_vm_template_conf.matched == 0
   block:
     - name: Directory for the cloud image
       ansible.builtin.file:

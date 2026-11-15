@@ -1,0 +1,143 @@
+http:
+  routers:
+    # Game studio play streams (vault: 1-Projects/game-studio-platform/design/). A Selkies
+    # session on the studio Forge (VM 155, RTX 5070 Ti) streams a game build to the browser.
+    # The Forge sits on the studio network (10.77.0.0/24), so Traefik reaches it through
+    # studio-gw (10.0.1.150), which forwards :3000 to the Forge only from this host (10.0.2.5).
+    #
+    # Gate: the studio's own Authentik provider (StudioForwardAuth, forward_single for this host
+    # only), bound to Hokagis and studio-members, so studio members get this host and nothing
+    # else behind Authentik. The authentik-forward middleware is the same; the outpost picks the
+    # provider by host (design: people-and-membership; set up 2026-11-08).
+    #
+    # Only Selkies' fixed UI and the game's pixels reach the browser; no game code runs in
+    # it, so this hostname serves no agent-built code (decision 2026-10-17, no separate
+    # studio domain).
+    studio-play-surfs-ahoy-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/surfs-ahoy/`)"
+      service: studio-play-surfs-ahoy-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+    # The portal (studio-hubd on the hub, VM 151): every other path on the hostname. Longer
+    # rules win in Traefik, so the play paths above keep theirs. studio-gw forwards :8080 to
+    # the hub only from this host, and the portal takes the person from X-authentik-username,
+    # which authentik-forward sets, only from this host. Studio code that people merge, never
+    # a game's own code.
+    studio-portal-router:
+      rule: "Host(`studio.ninjaprivacy.org`)"
+      service: studio-portal-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+    # Play sessions (forge-playd on the Forge; the hub's broker hands out the slots). Slot n
+    # is the Forge's :310n through studio-gw. After Authentik, studio-stream asks the hub
+    # whether this person owns the live session on the slot: the design's per-session stream
+    # token, with no change to Selkies. Four slots: studio_play_slots in homelab-infra's
+    # iac/ansible/inventory/group_vars/studio_private.yml, and studio_gw.yml's ingress.
+    studio-session-s0-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s0/`)"
+      service: studio-session-s0-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+    studio-session-s1-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s1/`)"
+      service: studio-session-s1-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+    studio-session-s2-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s2/`)"
+      service: studio-session-s2-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+    studio-session-s3-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/play/s3/`)"
+      service: studio-session-s3-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-stream]
+
+    # Each person's browser terminal into their own cell (role studio_cell, studio-term: ttyd +
+    # tmux as the cell's owner). After Authentik, studio-term asks the hub whether this person
+    # owns the cell named in the path. studio-gw forwards :320n from this host only, and the
+    # cell takes the port from this host's address only. One router and service per cell;
+    # studio_gw.yml's ingress term-<owner> has the port.
+    studio-term-metaversig-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/term/metaversig/`)"
+      service: studio-term-metaversig-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-term]
+    studio-term-kannis-router:
+      rule: "Host(`studio.ninjaprivacy.org`) && PathPrefix(`/term/kannis/`)"
+      service: studio-term-kannis-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares: [authentik-forward, studio-term]
+
+  middlewares:
+    # The hub's stream check. Only the person's name goes to the hub (no cookies); Traefik
+    # adds X-Forwarded-Uri, from which the hub reads the slot.
+    studio-stream:
+      forwardAuth:
+        address: "http://10.0.1.150:8080/auth/stream"
+        authRequestHeaders:
+          - X-authentik-username
+    # The hub's terminal check: the person must own the cell in /term/<owner>/.
+    studio-term:
+      forwardAuth:
+        address: "http://10.0.1.150:8080/auth/term"
+        authRequestHeaders:
+          - X-authentik-username
+
+  services:
+    studio-play-surfs-ahoy-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3000
+        passHostHeader: true
+
+    studio-portal-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:8080
+        passHostHeader: true
+
+    studio-session-s0-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3100
+        passHostHeader: true
+    studio-session-s1-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3101
+        passHostHeader: true
+    studio-session-s2-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3102
+        passHostHeader: true
+    studio-session-s3-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3103
+        passHostHeader: true
+
+    studio-term-metaversig-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3200
+        passHostHeader: true
+    studio-term-kannis-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3201
+        passHostHeader: true

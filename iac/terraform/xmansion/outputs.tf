@@ -21,5 +21,7 @@ output "guests" {
         tags   = sort(distinct(concat(["iac"], g.tags)))
       }
     },
+    # The studio's guests (studio.tf).
+    local.studio_inventory,
   )
 }

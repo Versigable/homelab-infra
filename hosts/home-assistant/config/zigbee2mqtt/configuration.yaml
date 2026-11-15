@@ -1,6 +1,6 @@
 # Zigbee2MQTT's configuration, seeded by deploy.sh on the first start only (the @...@
-# values come from config/zigbee.env). After that Zigbee2MQTT owns this file: it writes
-# device names and options into it, so later changes here don't reach the live copy.
+# values come from instances/<house>/zigbee.env). After that Zigbee2MQTT owns this file: it
+# writes device names and options into it, so later changes here don't reach the live copy.
 # The secrets live in secret.yaml next to it, which deploy.sh rewrites from SOPS.
 version: 5
 

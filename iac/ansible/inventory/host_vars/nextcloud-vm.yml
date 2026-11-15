@@ -2,7 +2,7 @@
 # The VM mounts its TrueNAS share itself (role nfs_client), at the same path the LXC had, so
 # hosts/nextcloud's compose file and deploy.sh don't change. No node mount, bind mount,
 # hookscript or uid mapping.
-nextcloud_nfs_pool: Twelve_TB_Mirror
+nextcloud_nfs_pool: Twelve_TB_RAIDZ1
 
 nfs_client_mounts:
   - src: "10.0.1.7:/mnt/{{ nextcloud_nfs_pool }}/nextcloud"

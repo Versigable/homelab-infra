@@ -1,0 +1,14 @@
+- name: Reload nftables
+  ansible.builtin.service:
+    name: nftables
+    state: reloaded
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart studio-hubd
+  ansible.builtin.systemd_service:
+    name: studio-hubd
+    state: restarted
+  when: not (ansible_check_mode and (studio_hub_unit.changed | default(false)))

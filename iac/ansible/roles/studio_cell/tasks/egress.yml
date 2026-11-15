@@ -1,0 +1,18 @@
+# Egress per user (templates/nftables.conf.j2). After the users exist: the ruleset names them.
+
+- name: The nftables ruleset (egress per user)
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: The nftables service enabled
+  ansible.builtin.service:
+    name: nftables
+    state: started
+    enabled: true
+
+- name: Ruleset active before anything runs as agent or unity
+  ansible.builtin.meta: flush_handlers

@@ -2,7 +2,8 @@ http:
   routers:
     # RomM emulator streaming: three webstation containers (Selkies desktop +
     # romm-broker) on jf, served under /streaming, /streaming-2 and
-    # /streaming-3 on RomM's own hostnames. Same origin is what lets RomM's
+    # /streaming-3 on RomM's own hostnames, and a fourth on the studio Forge
+    # (VM 155, RTX 5070 Ti) under /streaming-forge, to compare the cards. Same origin is what lets RomM's
     # player iframe them: both RomM hosts send COEP credentialless, and a
     # cross-origin iframe without COEP of its own is blocked. Each
     # webstation's SUBFOLDER matches its path, so no path rewrite.
@@ -12,11 +13,12 @@ http:
     #   2. The broker refuses stream/desktop/file sockets without the
     #      per-session stream_token RomM hands the claiming user at launch.
     #   3. The broker API wants RomM's X-Broker-Secret. RomM calls each broker
-    #      over the LAN (broker_host http://10.0.1.8:3010/3020/3030), not
-    #      through these routes.
+    #      over the LAN (broker_host http://10.0.1.8:3010/3020/3030, and
+    #      http://10.0.1.150:3040 for the Forge's), not through these routes.
     #
-    # PathPrefix(`/streaming`) also matches /streaming-2 and /streaming-3, so
-    # the numbered routers carry a higher explicit priority than the base one.
+    # PathPrefix(`/streaming`) also matches /streaming-2, /streaming-3 and
+    # /streaming-forge, so those routers carry a higher explicit priority than
+    # the base one.
     games-streaming-router:
       rule: "Host(`games.ninjaprivacy.org`) && PathPrefix(`/streaming`)"
       priority: 100
@@ -77,6 +79,29 @@ http:
         - romm-session-auth
         - games-coop-coep@file
 
+    # The Forge's webstation (iac role forge_webstation). The Forge is on the
+    # studio network, so this goes through studio-gw (10.0.1.150), which
+    # forwards :3040 to it only from this host and from RomM.
+    games-streaming-forge-router:
+      rule: "Host(`games.ninjaprivacy.org`) && PathPrefix(`/streaming-forge`)"
+      priority: 200
+      service: romm-webstation-forge-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - romm-session-auth
+        - games-coop-coep@file
+
+    arcade-streaming-forge-router:
+      rule: "Host(`arcade.ninjaprivacy.org`) && PathPrefix(`/streaming-forge`)"
+      priority: 200
+      service: romm-webstation-forge-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - romm-session-auth
+        - games-coop-coep@file
+
   services:
     # The webstations on jf: hosts/jellyfin/compose/webstation.yml.
     romm-webstation-svc:
@@ -95,6 +120,12 @@ http:
       loadbalancer:
         servers:
           - url: http://10.0.1.8:3030
+        passHostHeader: true
+
+    romm-webstation-forge-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.150:3040
         passHostHeader: true
 
   middlewares:

@@ -7,14 +7,21 @@ shopt -s inherit_errexit
 # deploy.sh (Home Assistant) — Model B GitOps
 #
 # Deploys Home Assistant + Mosquitto (+ Zigbee2MQTT) to /home/home-assistant/home-assistant-hub
-# on LXC 112. There is no manual bootstrap: the LXC, its runner, the runner's sudoers, the
-# SOPS age key and the directory layout all come from iac/ (Terraform + Ansible).
+# for one house (HA_INSTANCE): xmansion (LXC 112) or wolverine (LXC 303). There is no manual
+# bootstrap: the LXC, its runner, the runner's sudoers, the SOPS age key and the directory
+# layout all come from iac/ (Terraform + Ansible).
+#
+# The stack and its config are shared. Per house: instances/<house>/instance.env (HA_IP),
+# instances/<house>/zigbee.env and secrets/<house>.env.sops, which only that house's guest
+# can decrypt. The deploy stops unless HA_IP is an address of the guest it runs on.
 #
 # configuration.yaml comes from git and is checked with Home Assistant's check_config before
 # it goes live. Everything set up in the UI stays in /config/.storage and is never touched.
-# Zigbee2MQTT stays off until config/zigbee.env names the radio and the channel.
+# Zigbee2MQTT stays off until the house's zigbee.env names the radio and the channel. Local
+# voice (Parakeet + Kokoro) runs only where the house's instance.env says HA_VOICE=on, and the
+# web tools (SearXNG + mcp-searxng) only where it says HA_WEB=on.
 #
-# Usage: deploy.sh [home-assistant]
+# Usage: HA_INSTANCE=<house> deploy.sh [home-assistant]   (CI sets HA_INSTANCE per job)
 # ============================================================
 
 RED='\033[0;31m'
@@ -32,6 +39,8 @@ require_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
 TARGET="${1:-home-assistant}"
 [[ "$TARGET" == "home-assistant" ]] || die "Invalid target: '$TARGET'. Only 'home-assistant' is valid."
+HA_INSTANCE="${HA_INSTANCE:-}"
+[[ "${HA_INSTANCE}" =~ ^[a-z0-9-]+$ ]] || die "set HA_INSTANCE to a house under hosts/home-assistant/instances/"
 
 # -------- Paths --------
 REPO_DIR="${CI_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
@@ -40,6 +49,7 @@ export SOPS_AGE_KEY_FILE
 
 LIVE_HUB="/home/home-assistant/home-assistant-hub"
 LIVE_COMPOSE_DIR="${LIVE_HUB}/compose"
+LIVE_SECRETS_ENV="${LIVE_COMPOSE_DIR}/secrets.env"   # decrypted, root 0600; .env is the instance.env
 LIVE_CONFIG_DIR="${LIVE_HUB}/config"
 LIVE_DATA_DIR="${LIVE_HUB}/data"
 HA_CONFIG_DIR="${LIVE_DATA_DIR}/homeassistant"   # Home Assistant's /config
@@ -52,16 +62,29 @@ REPO_COMPOSE="${REPO_HOST_DIR}/compose/home-assistant.yml"
 REPO_HA_CONFIG="${REPO_HOST_DIR}/config/homeassistant/configuration.yaml"
 REPO_MOSQUITTO_DIR="${REPO_HOST_DIR}/config/mosquitto"
 REPO_Z2M_CONFIG="${REPO_HOST_DIR}/config/zigbee2mqtt/configuration.yaml"
-REPO_ZIGBEE_ENV="${REPO_HOST_DIR}/config/zigbee.env"
-REPO_SOPS_ENV="${REPO_HOST_DIR}/secrets/home-assistant.env.sops"
+REPO_INSTANCE_DIR="${REPO_HOST_DIR}/instances/${HA_INSTANCE}"
+REPO_INSTANCE_ENV="${REPO_INSTANCE_DIR}/instance.env"
+REPO_ZIGBEE_ENV="${REPO_INSTANCE_DIR}/zigbee.env"
+REPO_SOPS_ENV="${REPO_HOST_DIR}/secrets/${HA_INSTANCE}.env.sops"
 
 # The users the containers run as (see the compose file).
 MOSQUITTO_UID=1883
 Z2M_UID=1884
+PARAKEET_UID=1886
+PARAKEET_DATA_DIR="${LIVE_DATA_DIR}/parakeet"
+# Sizes ONNX Runtime's thread pool to the LXC for Parakeet and Kokoro (see the compose file).
+REPO_ORT_HOOK="${REPO_HOST_DIR}/config/onnxruntime/sitecustomize.py"
+ORT_HOOK_DIR="${LIVE_CONFIG_DIR}/onnxruntime"
+VOICE_CONTAINERS=(home-assistant-parakeet home-assistant-kokoro)
+# Web tools: SearXNG's settings come from git, its secret key is generated here once.
+REPO_SEARXNG_SETTINGS="${REPO_HOST_DIR}/config/searxng/settings.yml"
+SEARXNG_CONFIG_DIR="${LIVE_CONFIG_DIR}/searxng"
+LIVE_SEARXNG_ENV="${LIVE_COMPOSE_DIR}/searxng.env"
+MCP_SEARXNG_URL="http://127.0.0.1:8932"
 
 REQUIRED_KEYS=(MQTT_HA_PASSWORD MQTT_Z2M_PASSWORD Z2M_FRONTEND_AUTH_TOKEN ZIGBEE_NETWORK_KEY)
 
-log_info "REPO_DIR=${REPO_DIR}"
+log_info "REPO_DIR=${REPO_DIR} HA_INSTANCE=${HA_INSTANCE}"
 
 # -------- Pre-flight --------
 require_cmd sops
@@ -72,10 +95,18 @@ sudo -n /usr/bin/docker ps >/dev/null 2>&1 || die "runner needs NOPASSWD sudo fo
 sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD sudo for /usr/bin/install"
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "sops age key not readable: ${SOPS_AGE_KEY_FILE}"
 for f in "${REPO_COMPOSE}" "${REPO_HA_CONFIG}" "${REPO_MOSQUITTO_DIR}/mosquitto.conf" \
-         "${REPO_MOSQUITTO_DIR}/acl" "${REPO_Z2M_CONFIG}" "${REPO_ZIGBEE_ENV}" "${REPO_SOPS_ENV}"; do
+         "${REPO_MOSQUITTO_DIR}/acl" "${REPO_Z2M_CONFIG}" "${REPO_INSTANCE_ENV}" \
+         "${REPO_ZIGBEE_ENV}" "${REPO_SOPS_ENV}" "${REPO_ORT_HOOK}" "${REPO_SEARXNG_SETTINGS}"; do
   [[ -f "$f" ]] || die "missing: $f"
 done
 [[ -d "${LIVE_HUB}" ]] || die "missing live hub: ${LIVE_HUB} (run iac/ansible site.yml)"
+
+# The wrong house's settings on this guest would hand out the wrong URLs and bind the wrong
+# address, so stop before anything changes.
+HA_IP=$(sed -n 's/^HA_IP=//p' "${REPO_INSTANCE_ENV}" | tail -n 1)
+[[ "${HA_IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || die "HA_IP in ${REPO_INSTANCE_ENV} must be an IPv4 address"
+hostname -I | tr ' ' '\n' | grep -qxF "${HA_IP}" \
+  || die "HA_INSTANCE=${HA_INSTANCE} is for ${HA_IP}, which isn't an address of this guest ($(hostname))"
 
 git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
 echo
@@ -93,12 +124,34 @@ if [[ -n "${ZIGBEE_COORDINATOR}" ]]; then
     || die "set ZIGBEE_CHANNEL (11-26; 15, 20 or 25 recommended) before Zigbee2MQTT's first start"
   [[ "${ZIGBEE_PAN_ID}" =~ ^0x[0-9a-fA-F]{4}$ ]] || die "ZIGBEE_PAN_ID must look like 0x1a62"
   [[ "${ZIGBEE_EXT_PAN_ID}" =~ ^\[([0-9]{1,3},\ ){7}[0-9]{1,3}\]$ ]] || die "ZIGBEE_EXT_PAN_ID must be a list of 8 bytes"
-  COMPOSE_PROFILE_ARGS=(--profile zigbee)
+  COMPOSE_PROFILE_ARGS+=(--profile zigbee)
+  ZIGBEE_ON=1
   log_info "Zigbee2MQTT on: radio at ${ZIGBEE_COORDINATOR}, channel ${ZIGBEE_CHANNEL}"
 else
-  log_info "Zigbee2MQTT off: config/zigbee.env doesn't name the radio yet"
+  ZIGBEE_ON=0
+  log_info "Zigbee2MQTT off: instances/${HA_INSTANCE}/zigbee.env doesn't name the radio yet"
 fi
-zigbee_on() { (( ${#COMPOSE_PROFILE_ARGS[@]} > 0 )); }
+zigbee_on() { (( ZIGBEE_ON )); }
+
+# -------- Voice --------
+HA_VOICE=$(sed -n 's/^HA_VOICE=//p' "${REPO_INSTANCE_ENV}" | tail -n 1)
+case "${HA_VOICE:-off}" in
+  on)  COMPOSE_PROFILE_ARGS+=(--profile voice); VOICE_ON=1
+       log_info "Voice on: Parakeet speech-to-text and Kokoro text-to-speech" ;;
+  off) VOICE_ON=0; log_info "Voice off (HA_VOICE in instances/${HA_INSTANCE}/instance.env)" ;;
+  *)   die "HA_VOICE in ${REPO_INSTANCE_ENV} must be on or off" ;;
+esac
+voice_on() { (( VOICE_ON )); }
+
+# -------- Web tools --------
+HA_WEB=$(sed -n 's/^HA_WEB=//p' "${REPO_INSTANCE_ENV}" | tail -n 1)
+case "${HA_WEB:-off}" in
+  on)  COMPOSE_PROFILE_ARGS+=(--profile web); WEB_ON=1
+       log_info "Web tools on: SearXNG + mcp-searxng on 127.0.0.1:8932" ;;
+  off) WEB_ON=0; log_info "Web tools off (HA_WEB in instances/${HA_INSTANCE}/instance.env)" ;;
+  *)   die "HA_WEB in ${REPO_INSTANCE_ENV} must be on or off" ;;
+esac
+web_on() { (( WEB_ON )); }
 
 compose() { (cd "${LIVE_COMPOSE_DIR}" && sudo /usr/bin/docker compose "${COMPOSE_PROFILE_ARGS[@]}" "$@"); }
 
@@ -124,14 +177,25 @@ ensure_dirs() {
   sudo /usr/bin/install -d -m 0750 -o "${MOSQUITTO_UID}" -g "${MOSQUITTO_UID}" \
     "${MOSQUITTO_CONFIG_DIR}" "${LIVE_DATA_DIR}/mosquitto"
   sudo /usr/bin/install -d -m 0700 -o "${Z2M_UID}" -g "${Z2M_UID}" "${Z2M_DATA_DIR}"
+  # Parakeet downloads its model here on first start (Kokoro's is baked into its image).
+  if voice_on; then
+    sudo /usr/bin/install -d -m 0750 -o "${PARAKEET_UID}" -g "${PARAKEET_UID}" "${PARAKEET_DATA_DIR}"
+    sudo /usr/bin/install -d -m 0755 -o root -g root "${ORT_HOOK_DIR}"
+  fi
+  if web_on; then
+    sudo /usr/bin/install -d -m 0755 -o root -g root "${SEARXNG_CONFIG_DIR}"
+  fi
   # install -d resets the mode, which is also the ACL mask, so these come after it.
   sudo /usr/bin/setfacl -m "u:gitlab-runner:rx" "${LIVE_DATA_DIR}" "${HA_CONFIG_DIR}" "${Z2M_DATA_DIR}"
 }
 
 # -------- Compose file + images --------
 sync_compose() {
-  log_info "Syncing the compose file and pulling images"
+  log_info "Syncing the compose file and the house's .env, pulling images"
   sudo /usr/bin/install -m 0644 -o root -g root "${REPO_COMPOSE}" "${LIVE_COMPOSE_DIR}/docker-compose.yml"
+  # Compose reads .env for ${HA_IP}, so a plain `docker compose` in the live dir works too.
+  # Not secret: the secrets are in secrets.env (render_secrets).
+  sudo /usr/bin/install -m 0644 -o root -g root "${REPO_INSTANCE_ENV}" "${LIVE_COMPOSE_DIR}/.env"
   compose pull --quiet
 }
 
@@ -186,12 +250,45 @@ sync_mosquitto_config() {
     "${REPO_MOSQUITTO_DIR}/acl" "${MOSQUITTO_CONFIG_DIR}/acl" >/dev/null
 }
 
+# Python reads the hook only at startup, so a change restarts the voice engines (reload_changed).
+sync_ort_hook() {
+  ORT_HOOK_CHANGED=""
+  voice_on || return 0
+  log_info "Syncing the ONNX Runtime thread hook"
+  ORT_HOOK_CHANGED=$(install_changed -m 0644 -o root -g root "${REPO_ORT_HOOK}" "${ORT_HOOK_DIR}/sitecustomize.py")
+}
+
+# SearXNG reads settings.yml only at startup, so a change restarts it (reload_changed).
+sync_searxng_config() {
+  SEARXNG_CONFIG_CHANGED=""
+  web_on || return 0
+  log_info "Syncing SearXNG's settings.yml"
+  SEARXNG_CONFIG_CHANGED=$(install_changed -m 0644 -o root -g root "${REPO_SEARXNG_SETTINGS}" "${SEARXNG_CONFIG_DIR}/settings.yml")
+}
+
+# SearXNG's secret key only signs its own URLs, and nothing outside home-assistant-net can
+# reach it, so it isn't kept in SOPS: it's made once on the guest and kept across deploys.
+ensure_searxng_secret() {
+  web_on || return 0
+  # The runner may look into the compose dir (ensure_runner_acls), so it can see the file
+  # without reading it.
+  if [[ -s "${LIVE_SEARXNG_ENV}" ]]; then
+    return 0
+  fi
+  log_info "Generating SearXNG's secret key -> searxng.env"
+  local tmp
+  tmp=$(mktemp)
+  printf 'SEARXNG_SECRET=%s\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" > "${tmp}"
+  sudo /usr/bin/install -m 0600 -o root -g root "${tmp}" "${LIVE_SEARXNG_ENV}"
+  rm -f "${tmp}"
+}
+
 # -------- Secrets --------
-# Decrypted into a private temp dir that is removed on exit. From it come the compose .env
-# (root 0600, used by the checks below), Mosquitto's hashed password file and
-# Zigbee2MQTT's secret.yaml. Nothing is printed.
+# Decrypted into a private temp dir that is removed on exit. From it come secrets.env next
+# to the compose file (root 0600, used by the checks below), Mosquitto's hashed password
+# file and Zigbee2MQTT's secret.yaml. Nothing is printed.
 render_secrets() {
-  log_info "Decrypting secrets -> .env, Mosquitto passwd, Zigbee2MQTT secret.yaml"
+  log_info "Decrypting secrets -> secrets.env, Mosquitto passwd, Zigbee2MQTT secret.yaml"
   Z2M_SECRET_CHANGED=$(
     umask 077
     set +x
@@ -202,7 +299,7 @@ render_secrets() {
       grep -qE "^${key}=." "${tmp}/secrets.env" || die "decrypted env is missing ${key}" >&2
     done
     secret() { sed -n "s/^$1=//p" "${tmp}/secrets.env"; }
-    sudo /usr/bin/install -m 0600 -o root -g root "${tmp}/secrets.env" "${LIVE_COMPOSE_DIR}/.env"
+    sudo /usr/bin/install -m 0600 -o root -g root "${tmp}/secrets.env" "${LIVE_SECRETS_ENV}"
 
     # mosquitto_passwd -U hashes the file in place. It runs from the pinned image, as the
     # runner, so it can write the runner's temp dir; new salts each time, so the broker is
@@ -277,6 +374,19 @@ reload_changed() {
     log_info "Zigbee2MQTT's secrets changed: restarting it"
     sudo /usr/bin/docker restart home-assistant-zigbee2mqtt >/dev/null
   fi
+  if voice_on && [[ -n "${ORT_HOOK_CHANGED}" ]]; then
+    local c
+    for c in "${VOICE_CONTAINERS[@]}"; do
+      if started_before_deploy "$c"; then
+        log_info "The ONNX Runtime thread hook changed: restarting ${c}"
+        sudo /usr/bin/docker restart "$c" >/dev/null
+      fi
+    done
+  fi
+  if web_on && [[ -n "${SEARXNG_CONFIG_CHANGED}" ]] && started_before_deploy home-assistant-searxng; then
+    log_info "SearXNG's settings.yml changed: restarting it"
+    sudo /usr/bin/docker restart home-assistant-searxng >/dev/null
+  fi
 }
 
 # -------- Checks --------
@@ -284,7 +394,7 @@ check_mqtt() {
   log_info "Checking Mosquitto: the homeassistant user gets in, anonymous clients don't"
   local i
   for i in $(seq 1 15); do
-    if sudo /usr/bin/docker exec --env-file "${LIVE_COMPOSE_DIR}/.env" home-assistant-mosquitto \
+    if sudo /usr/bin/docker exec --env-file "${LIVE_SECRETS_ENV}" home-assistant-mosquitto \
          sh -c 'mosquitto_pub -h 127.0.0.1 -u homeassistant -P "$MQTT_HA_PASSWORD" -t deploy/check -n' 2>/dev/null; then
       break
     fi
@@ -304,7 +414,7 @@ wait_ha_ready() {
       log_success "Home Assistant is up"
       # The first visitor to an un-onboarded Home Assistant creates its owner account.
       if curl -fsS -m 5 "${HA_URL}/api/onboarding" 2>/dev/null | grep -Eq '"step": ?"user", ?"done": ?false'; then
-        log_warn "Home Assistant has no owner yet: onboard it now at http://10.0.1.12:8123"
+        log_warn "Home Assistant has no owner yet: onboard it now at http://${HA_IP}:8123"
       fi
       return 0
     fi
@@ -312,6 +422,54 @@ wait_ha_ready() {
   done
   sudo /usr/bin/docker logs --tail 40 home-assistant 2>&1 || true
   die "Home Assistant did not answer within 5 minutes"
+}
+
+# A Wyoming server answers a "describe" event with an "info" event, whose first line is a
+# JSON header. It only listens once its model is loaded.
+wyoming_ready() {
+  local line re='"type": ?"info"'
+  line=$(timeout 5 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1" && printf "{\"type\": \"describe\"}\n" >&3 && head -n 1 <&3' _ "$1" 2>/dev/null) \
+    || return 1
+  [[ "${line}" =~ $re ]]
+}
+
+wait_voice_ready() {
+  voice_on || return 0
+  # The first start downloads the models (about 0.7 GB), hence the long wait.
+  log_info "Waiting for Parakeet (:10300) and Kokoro (:10210), up to 15 min each"
+  local entry name port i
+  for entry in parakeet:10300 kokoro:10210; do
+    name=${entry%%:*}; port=${entry##*:}
+    for i in $(seq 1 180); do
+      if wyoming_ready "${port}"; then
+        log_success "${name} answers on 127.0.0.1:${port}"
+        continue 2
+      fi
+      sleep 5
+    done
+    sudo /usr/bin/docker logs --tail 30 "home-assistant-${name}" 2>&1 || true
+    die "${name} did not answer on 127.0.0.1:${port} within 15 minutes"
+  done
+}
+
+# mcp-searxng answers /health on its own; SearXNG is checked from inside it, over the
+# network the two share (SearXNG has no published port).
+wait_web_ready() {
+  web_on || return 0
+  log_info "Waiting for mcp-searxng (${MCP_SEARXNG_URL}) and SearXNG behind it (up to 2 min)"
+  local i
+  for i in $(seq 1 24); do
+    if [[ "$(curl -fsS -m 5 "${MCP_SEARXNG_URL}/health" 2>/dev/null || true)" == *'"healthy"'* ]] \
+       && sudo /usr/bin/docker exec home-assistant-mcp-searxng node -e \
+            "fetch('http://searxng:8080/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"; then
+      log_success "mcp-searxng and SearXNG answer"
+      return 0
+    fi
+    sleep 5
+  done
+  sudo /usr/bin/docker logs --tail 20 home-assistant-searxng 2>&1 || true
+  sudo /usr/bin/docker logs --tail 20 home-assistant-mcp-searxng 2>&1 || true
+  die "the web tools did not answer within 2 minutes"
 }
 
 log_info "========================================"
@@ -323,13 +481,18 @@ sync_compose
 check_ha_config
 sync_ha_config
 sync_mosquitto_config
+sync_ort_hook
+sync_searxng_config
 render_secrets
+ensure_searxng_secret
 seed_z2m_config
 DEPLOY_START=$(date +%s)
 compose_up
 reload_changed
 check_mqtt
 wait_ha_ready
+wait_voice_ready
+wait_web_ready
 if zigbee_on; then
   sudo /usr/bin/docker logs --tail 15 home-assistant-zigbee2mqtt 2>&1 || true
 fi

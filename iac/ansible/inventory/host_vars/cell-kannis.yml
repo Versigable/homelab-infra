@@ -1,0 +1,6 @@
+# Kannis's cell (VM 161). He signs in to Claude, ChatGPT and Unity in person, as the users
+# agent and unity, and his agents run only on his approvals. He is outside the LAN (no WARP,
+# no tailnet), so no SSH keys: his way in is the studio's browser terminal, behind Authentik.
+# Until the studio's membership register exists, the owner is set here.
+studio_cell_owner: kannis
+studio_cell_owner_keys: []

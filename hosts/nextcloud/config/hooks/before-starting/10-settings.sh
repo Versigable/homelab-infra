@@ -57,7 +57,8 @@ fi
 # a failed fetch Nextcloud won't try again for 5 minutes, so clear that and retry.
 # end_to_end_encryption only lets the desktop and mobile clients encrypt folders; people
 # opt in per folder, and the server never sees their keys.
-missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp end_to_end_encryption"
+# groupfolders ("Team Folders" in the UI) holds the game studio's shared Studio folder.
+missing="calendar contacts tasks richdocuments user_oidc photos twofactor_totp end_to_end_encryption groupfolders"
 for attempt in 1 2 3; do
     still=""
     for app in $missing; do
@@ -108,6 +109,26 @@ if [ -n "${NEXTCLOUD_OIDC_CLIENT_ID:-}" ]; then
     run "OIDC only"   occ config:app:set user_oidc allow_multiple_user_backends --value=0
 fi
 
+# --- Outgoing mail ----------------------------------------------------------------
+# Proton SMTP submission as alerts@ninjaprivacy.org, MetaVersig's Proton account. The token
+# is named "nextcloud" there; deleting it in Proton stops only Nextcloud's mail. Tokens are
+# send-only and tied to one custom-domain address. Port 587 with no mail_smtpsecure: the
+# mailer upgrades with STARTTLS. Output is dropped for the password, which occ echoes back.
+if [ -n "${NEXTCLOUD_SMTP_PASSWORD:-}" ]; then
+    run "mail mode"   occ config:system:set mail_smtpmode --value=smtp
+    run "mail host"   occ config:system:set mail_smtphost --value=smtp.protonmail.ch
+    run "mail port"   occ config:system:set mail_smtpport --type=integer --value=587
+    run "mail tls"    occ config:system:delete mail_smtpsecure
+    run "mail auth"   occ config:system:set mail_smtpauth --type=boolean --value=true
+    run "mail user"   occ config:system:set mail_smtpname --value=alerts@ninjaprivacy.org
+    if ! occ config:system:set mail_smtppassword --value="$NEXTCLOUD_SMTP_PASSWORD" >/dev/null 2>&1; then
+        echo "==> WARN: mail password failed (rerun the occ command by hand to see why)"
+        failures=$((failures + 1))
+    fi
+    run "mail from"   occ config:system:set mail_from_address --value=alerts
+    run "mail domain" occ config:system:set mail_domain --value=ninjaprivacy.org
+fi
+
 # --- Break-glass admin ------------------------------------------------------------
 # Its /login?direct=1 form is public, so it gets a second factor: Nextcloud makes it set
 # up TOTP at its next login. People sign in through Authentik and aren't in this group.
@@ -116,6 +137,37 @@ if [ -n "${NEXTCLOUD_ADMIN_USER:-}" ]; then
     occ group:info breakglass >/dev/null 2>&1 || run "breakglass group" occ group:add breakglass
     run "breakglass member" occ group:adduser breakglass "$NEXTCLOUD_ADMIN_USER"
     run "breakglass 2FA"    occ twofactorauth:enforce --on --group=breakglass
+fi
+
+# --- Game studio shared folder ---------------------------------------------------
+# One Team Folder, "Studio", for the Nextcloud group "studio": references, mood boards and
+# voice memos people hand to the studio (vault: 1-Projects/game-studio-platform/design/).
+# Members are listed here until the studio's membership register manages them; removing a
+# name here doesn't take anyone out of the group.
+studio_members="metaversig"
+occ group:info studio >/dev/null 2>&1 || run "studio group" occ group:add studio
+for member in $studio_members; do
+    run "studio member ${member}" occ group:adduser studio "$member"
+done
+if occ app:list --enabled --output=json | grep -q '"groupfolders"'; then
+    studio_id=$(occ groupfolders:list --output=json 2>/dev/null | php -r '
+        foreach ((array) json_decode(stream_get_contents(STDIN), true) as $f) {
+            if (($f["mountPoint"] ?? "") === "Studio") { echo $f["id"]; break; }
+        }')
+    if [ -z "$studio_id" ]; then
+        studio_id=$(occ groupfolders:create Studio 2>&1) || {
+            echo "==> WARN: studio folder failed: ${studio_id}"
+            failures=$((failures + 1))
+            studio_id=""
+        }
+    fi
+    if [ -n "$studio_id" ]; then
+        run "studio folder access" occ groupfolders:group "$studio_id" studio write share delete
+        run "studio folder quota"  occ groupfolders:quota "$studio_id" "200 GB"
+    fi
+else
+    echo "==> WARN: groupfolders isn't enabled, so there's no Studio folder"
+    failures=$((failures + 1))
 fi
 
 # --- Collabora ------------------------------------------------------------------

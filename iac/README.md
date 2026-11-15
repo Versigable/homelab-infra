@@ -2,7 +2,7 @@
 
 Since 2026-10-17 every new VM and LXC is built with Terraform + Ansible, never by hand
 (vault decision `5-Decisions/2026-10-17_terraform-ansible-for-new-guests`). Nextcloud
-(LXC 110) is the pilot; the written standard comes out of it.
+(LXC 110, on VM 116 since 2026-10-28) is the pilot; the written standard comes out of it.
 
 ## Who owns what
 
@@ -24,7 +24,8 @@ iac/
   terraform/modules/lxc/   reusable unprivileged LXC
   terraform/modules/vm/    reusable VM, cloned from the node's cloud-init template
   terraform/xmansion/      root module for X-Mansion (phoenix + rogue); guests.tf is the guest list
-  ansible/                 inventory (nodes.yml static, guests.yml generated), roles, playbooks
+  terraform/wolverine/     root module for wolverine (MetaVersig's house, LAB 10.1.0.0/16 on vmbr1)
+  ansible/                 inventory (nodes.yml static; guests.yml and guests-<site>.yml generated), roles, playbooks
   scripts/iac.sh           runs everything with the right credentials and settings
 ```
 
@@ -35,15 +36,36 @@ client, and TrueNAS runs on that node: on 2026-10-23 a node-side writer deadlock
 about 30 minutes. A VM's NFS client keeps its dirty pages in guest RAM. Everything else can be
 an LXC (cheaper), including guests that only read from TrueNAS (their node mount is `ro: true`).
 
-VMs are cloned from template 9000 (Debian 13 cloud image, built by `pve-templates.yml`).
+VMs are cloned from their node's template (Debian 13 cloud image, built by `pve-templates.yml`):
+9000 on phoenix, 9001 on rogue. A template on local-lvm clones only on its own node.
 cloud-init creates the `ansible` user with the operators' keys, so a VM skips `iac.sh bootstrap`.
 It mounts its own shares (role `nfs_client`), and Docker waits for them (`RequiresMountsFor`).
+
+## The studio network
+
+The game studio's guests (`terraform/xmansion/studio.tf`, VMIDs 150-169) live on their own
+network: VNet `studio0` (10.77.0.0/24) in the SDN zone `studio`, a VXLAN between phoenix and
+rogue. Nothing on it has a route to `vmbr0`. `studio-gw` (VM 150, 10.0.1.150 on the LAN)
+forwards nothing outbound. Guests get out only through its Squid (10.77.0.1:3128): HTTP(S)
+by exact hostname per class (`group_vars/studio_gw.yml`), with HTTPS spliced only when the
+TLS SNI is on the list, and every request logged in `/var/log/squid/access.log`. Its dnsmasq
+answers only `*.studio` names. Guests point apt, Docker pulls and downloads at the proxy
+(`group_vars/studio_private.yml`). Ansible reaches guests on it through `studio-gw`. The Forge (VM 155)
+holds the RTX 5070 Ti by PCI mapping `gpu-5070ti`. It has no GitLab runner: its lanes are
+platform, so Ansible owns them. Vault: `1-Projects/game-studio-platform/design/`.
+
+The zone, the vnet and the GPU mapping are cluster objects the IaC token can't create;
+`pve-cluster.yml` makes them as root and grants the token use of them. Applying SDN reloads
+networking on every node, so that playbook stops until you re-run it with
+`-e pve_sdn_apply=true`.
 
 ## Access and state
 
 - **Proxmox:** user `iac@pve`, token `infra` (privilege-separated). Role `InfraIaC` on pool
-  `iac` and `local-lvm`; `PVEAuditor` on `local` and `/nodes/phoenix`; `PVESDNUser` on
-  `vmbr0`. It can't touch guests outside the `iac` pool.
+  `iac` and `local-lvm`; `PVEAuditor` on `local`, `/nodes/phoenix` and
+  `/nodes/wolverine`; `PVESDNUser` on `vmbr0`, `vmbr1` (wolverine's LAB; no other node has
+  one) and the studio vnet `studio0`; `PVEMappingUser` on the PCI mapping `gpu-5070ti`.
+  It can't touch guests outside the `iac` pool.
 - **Terraform state:** GitLab-managed, one state per site, in a state-only GitLab project.
   Writing state needs the Maintainer role, and homelab-infra's agent token is
   deliberately only a Developer, so only humans can merge to `main`.
@@ -66,12 +88,17 @@ It mounts its own shares (role `nfs_client`), and Docker waits for them (`Requir
 2. After merge:
    ```
    iac.sh play pve-templates.yml      # templates on the nodes
+   iac.sh play pve-cluster.yml        # SDN zones/vnets, PCI mappings, their ACLs (no-op if unchanged)
    iac.sh tf init && iac.sh tf apply  # the guest
    iac.sh inventory                   # Ansible guest inventory from Terraform
    iac.sh bootstrap <name>            # first contact as root; creates the ansible user
    iac.sh play site.yml               # node plumbing + guest platform
    ```
 3. Run it again: `iac.sh tf plan` shows no changes and `site.yml` reports `changed=0`.
+
+For a site other than xmansion, prefix the `tf` and `inventory` steps with its name, e.g.
+`IAC_SITE=wolverine iac.sh tf apply`. Each site has its own state and its own inventory file;
+the playbooks run against all of them.
 
 After a rebuild the guest has a new SOPS age key, so its `.sops.yaml` rule and secrets
 files must be re-encrypted to the new public key. `site.yml` prints the key.

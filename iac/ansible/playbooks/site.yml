@@ -9,11 +9,41 @@
     - pve_lxc_rootonly
     - pve_vm_rootonly
 
+# First, because it is the studio network's only way out: guests on studio0 (studio_private)
+# reach apt only through its Squid.
+- name: Studio network router
+  hosts: studio_gw
+  become: true
+  roles:
+    - base
+    - studio_gw
+
+# Before base, whose first task installs packages: points apt at Squid and refreshes the lists.
+- name: Guests on the studio network (apt through Squid, time from studio-gw)
+  hosts: studio_private
+  become: true
+  roles:
+    - studio_guest
+
 - name: Base setup on every Terraform-built guest
   hosts: lxc_guests:vm_guests
   become: true
   roles:
     - base
+
+# Before the cells: it holds the CA that signs their client certificates.
+- name: Studio hub (depot, portal, the CA for studio clients)
+  hosts: studio_hub
+  become: true
+  roles:
+    - studio_hub
+
+- name: Studio cells (owner login, Claude Code, Codex, Unity CLI and Editor)
+  hosts: studio_cell
+  become: true
+  roles:
+    - studio_hub_client
+    - studio_cell
 
 # Before Docker, so Docker's unit already waits for the mounts when it first starts.
 - name: NFS mounts inside VM guests
@@ -22,14 +52,18 @@
   roles:
     - nfs_client
 
+# Guests on the studio network fetch Docker's key and packages through Squid; elsewhere this
+# is empty (studio_proxy_env is defined only for studio_private).
 - name: Docker hosts
   hosts: docker_hosts
   become: true
+  environment: "{{ studio_proxy_env | default({}) }}"
   roles:
     - docker
 
-# The group is nextcloud_hosts, not nextcloud: a group named like a host (LXC 110 is the host
-# `nextcloud`) makes `hosts: nextcloud` match only that host, so the VM was skipped.
+# The group is nextcloud_hosts, not nextcloud: a group named like a host (LXC 110, retired
+# 2026-10-28, was the host `nextcloud`) makes `hosts: nextcloud` match only that host, so
+# the VM was skipped.
 - name: Nextcloud host platform (the app itself is deployed by GitOps CI from hosts/nextcloud)
   hosts: nextcloud_hosts
   become: true
@@ -63,3 +97,33 @@
     - sops_age
     - service_layout
     - pg_backup
+
+- name: Wolverine game host platform (the games are deployed by GitOps CI from hosts/wolverine-games)
+  hosts: game_hosts
+  become: true
+  roles:
+    - gitlab_runner
+    - sops_age
+    - service_layout
+
+- name: cloudflared tunnel host platform (the app itself is deployed by GitOps CI from hosts/cf-tunnel)
+  hosts: cf_tunnel
+  become: true
+  roles:
+    - gitlab_runner
+    - sops_age
+    - service_layout
+
+# The studio's GPU VM. No GitLab runner here, by design: the Forge holds no one's credentials
+# (only its own certificate for the hub) and can't reach GitLab, so its lanes are platform
+# (Ansible), and work reaches it through the studio hub's broker (vault:
+# 1-Projects/game-studio-platform/design/architecture §4).
+# forge_webstation is a RomM webstation on the same card, to compare emulation with jf's.
+- name: Studio Forge (GPU stack, play lane and its sessions, RomM webstation)
+  hosts: studio_forge
+  become: true
+  roles:
+    - forge_gpu
+    - studio_hub_client
+    - forge_play
+    - forge_webstation

@@ -4,12 +4,16 @@ set -euo pipefail
 # ============================================================
 # deploy.sh (Nextcloud) — Model B GitOps
 #
-# Deploys Nextcloud + Collabora to /home/nextcloud/nextcloud-hub on LXC 110.
-# There is no manual bootstrap: the LXC, its runner, the runner's sudoers, the
-# SOPS age key and the directory layout all come from iac/ (Terraform + Ansible).
+# Deploys Nextcloud + Collabora to /home/nextcloud/nextcloud-hub on VM 116 (phoenix),
+# which replaced LXC 110 (1-Projects/nextcloud/notes/vm-migration-plan).
+# There is no manual bootstrap: the guest, its runner, the runner's sudoers, the
+# SOPS age key, the NFS mount and the directory layout all come from iac/
+# (Terraform + Ansible).
 #
 # Refuses to run unless the TrueNAS share is mounted at /srv/nextcloud-data.
-# Without it the installer would put user files on the LXC's root disk.
+# Without it the installer would put user files on the guest's root disk.
+#
+# NC_BIND_IP is the address the web and Collabora ports listen on (default: VM 116).
 #
 # Usage: deploy.sh [nextcloud]
 # ============================================================
@@ -39,7 +43,9 @@ LIVE_HUB="/home/nextcloud/nextcloud-hub"
 LIVE_COMPOSE_DIR="${LIVE_HUB}/compose"
 LIVE_CONFIG_DIR="${LIVE_HUB}/config"
 DATA_MOUNT="/srv/nextcloud-data"
-STATUS_URL="http://10.0.1.10:8080/status.php"
+NC_BIND_IP="${NC_BIND_IP:-10.0.1.16}"
+NC_DATA_DIR="${DATA_MOUNT}"
+STATUS_URL="http://${NC_BIND_IP}:8080/status.php"
 
 REPO_HOST_DIR="${REPO_DIR}/hosts/nextcloud"
 REPO_COMPOSE="${REPO_HOST_DIR}/compose/nextcloud.yml"
@@ -50,7 +56,7 @@ REPO_SOPS_ENV="${REPO_HOST_DIR}/secrets/nextcloud.env.sops"
 # Keys the compose file interpolates; deploy stops if any is missing after decrypt.
 REQUIRED_KEYS=(POSTGRES_PASSWORD REDIS_PASSWORD NEXTCLOUD_ADMIN_USER NEXTCLOUD_ADMIN_PASSWORD
                COLLABORA_ADMIN_USER COLLABORA_ADMIN_PASSWORD
-               NEXTCLOUD_OIDC_CLIENT_ID NEXTCLOUD_OIDC_CLIENT_SECRET)
+               NEXTCLOUD_OIDC_CLIENT_ID NEXTCLOUD_OIDC_CLIENT_SECRET NEXTCLOUD_SMTP_PASSWORD)
 
 log_info "REPO_DIR=${REPO_DIR}"
 
@@ -121,11 +127,13 @@ decrypt_env() {
     for key in "${REQUIRED_KEYS[@]}"; do
       grep -qE "^${key}=." "${tmp_env}" || die "decrypted env is missing ${key}"
     done
+    # Host-specific values for the compose file.
+    printf 'NC_BIND_IP=%s\nNC_DATA_DIR=%s\n' "${NC_BIND_IP}" "${NC_DATA_DIR}" >> "${tmp_env}"
     sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}" "${LIVE_COMPOSE_DIR}/.env"
   )
 }
 
-# -------- Data dirs on the LXC disk --------
+# -------- Data dirs on the guest disk --------
 ensure_data_dirs() {
   log_info "Ensuring data dirs"
   # html: app code + config.php, owned by www-data (33); nginx (101) reads it.

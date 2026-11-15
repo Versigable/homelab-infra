@@ -1,0 +1,9 @@
+# Root-only container options, applied on the node by pve_lxc_rootonly.
+# keyctl is for Docker inside the unprivileged container.
+lxc_features: nesting=1,keyctl=1
+
+# Same as home-assistant (LXC 112): state on the LXC disk, no NFS or bind mounts.
+
+# The same layout as LXC 112 (/home/home-assistant/home-assistant-hub), so the app's
+# deploy.sh works unchanged on both instances.
+service_layout_name: home-assistant

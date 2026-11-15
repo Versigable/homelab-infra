@@ -1,0 +1,45 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d), before
+# svc-broker starts. Patches the romm-broker, in the container layer, so that on the
+# platforms below the exit dump ships the game's WHOLE save tree, not just the files
+# this session wrote.
+#
+# Why: the broker baselines the dump at launch ("the exit dump only ships files this
+# session wrote"), while RomM restores only a game's NEWEST save archive. With a
+# multi-file save, any session that leaves a file alone makes a newest archive without
+# it, so the next launch doesn't get it back. Seen 2026-11-07: Shenmue II's newest
+# archive lacked save slot 1. GameCube and PS2 avoid it through RomM's whole-card sync
+# (memory_card_sync in RomM's config.yml), which these platforms can't use.
+#
+# Safe because each of these emulators wipes the game's save tree before the restore
+# (clears_stale_saves = True: xemu, dolphin for Wii, azahar, ppsspp), so the tree at exit
+# holds only this player's restored files plus what the session wrote.
+#
+# Remove this once upstream ships the whole tree or RomM restores a union of archives.
+# If the broker's line changes in a new image, this logs and leaves the broker as it is.
+
+/lsiopy/bin/python3 -I - <<'PY'
+from pathlib import Path
+
+PLATFORMS = ("xbox", "wii", "3ds", "psp")
+MARK = "homelab-infra 45-broker-full-save-export"
+api = Path("/lsiopy/lib/python3.14/site-packages/webstation_broker/api.py")
+anchor = '    sess["save_baseline"] = time.time()\n'
+patch = (
+    f"    # {MARK}: whole save tree at exit on {', '.join(PLATFORMS)}\n"
+    f'    sess["save_baseline"] = 0.0 if (((body.rom.platform if body.rom else None) or "").lower() '
+    f"in {PLATFORMS!r}) else time.time()\n"
+)
+try:
+    src = api.read_text()
+except OSError as exc:
+    print(f"[broker-full-save-export] cannot read {api}: {exc}; broker left as it is")
+    raise SystemExit(0)
+if MARK in src:
+    print("[broker-full-save-export] already patched")
+elif src.count(anchor) != 1:
+    print(f"[broker-full-save-export] expected line not found exactly once in {api}; broker left as it is")
+else:
+    api.write_text(src.replace(anchor, patch))
+    print(f"[broker-full-save-export] patched: whole save tree at exit on {', '.join(PLATFORMS)}")
+PY

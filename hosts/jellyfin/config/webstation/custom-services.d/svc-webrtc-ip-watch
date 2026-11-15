@@ -1,0 +1,35 @@
+#!/usr/bin/with-contenv bash
+# s6 service (LinuxServer custom-services.d). For an instance meant to stream over
+# WebRTC (WEBRTC_PUBLIC_HOST set), re-resolves its public address every 5 minutes
+# with /opt/webstation-bin/webrtc-public-ip and restarts Selkies when it must:
+# - the WAN IP changed (DDNS): sessions on the old address are already broken, so
+#   restart at once, advertising the new one;
+# - the instance fell back to websockets at start (custom-cont-init.d/40-webrtc-public-ip
+#   found no public IP) and the name resolves again: restart into WebRTC, but only
+#   while nobody is connected, since the websockets stream still works.
+# Any other instance (websockets, like the Forge's) just sleeps.
+
+[[ -n "${WEBRTC_PUBLIC_HOST:-}" ]] || exec sleep infinity
+
+ENVDIR=/run/s6/container_environment
+WS_PORT="${CUSTOM_WS_PORT:-8082}"   # Selkies' own port; nginx proxies players to it
+
+while true; do
+  sleep 300
+  ip="$(/opt/webstation-bin/webrtc-public-ip "$WEBRTC_PUBLIC_HOST" 2>/dev/null)" || continue
+  mode="$(cat "${ENVDIR}/SELKIES_MODE" 2>/dev/null)"
+  current="$(cat "${ENVDIR}/SELKIES_WEBRTC_PUBLIC_IP" 2>/dev/null)"
+  [[ "$mode" == webrtc && "$ip" == "$current" ]] && continue
+  if [[ "$mode" == webrtc ]]; then
+    reason="the public address changed"
+  else
+    if ss -Htn state established "( sport = :${WS_PORT} )" 2>/dev/null | grep -q .; then
+      continue
+    fi
+    reason="${WEBRTC_PUBLIC_HOST} resolves again and nobody is connected"
+  fi
+  printf '%s' "$ip" > "${ENVDIR}/SELKIES_WEBRTC_PUBLIC_IP"
+  printf 'webrtc' > "${ENVDIR}/SELKIES_MODE"
+  echo "[webrtc-ip-watch] ${reason}; restarting Selkies in WebRTC mode"
+  s6-svc -r /run/service/svc-selkies
+done

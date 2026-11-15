@@ -1,0 +1,76 @@
+# Managed by Ansible (role studio_gw). Edit inventory/group_vars/studio_gw.yml, not this.
+#
+# The studio network's way out (the cells also have the internet directly: studio_gw_internet
+# in nftables.conf): HTTP and HTTPS by hostname, per class of guest
+# (studio_gw_egress). A class is matched by source address and by the proxy port it was
+# reached on (proxy_port, default {{ studio_gw_proxy_port }}), so one guest can have a class
+# per local user, each user pinned to its port by the guest's own firewall (role
+# studio_cell). A class with any_name reaches any public host, never a private one.
+#
+# Nothing is cached, and no connection to a real site is decrypted. For a listed class's
+# HTTPS, Squid checks the CONNECT hostname, then peeks at the TLS ClientHello and splices the
+# connection through only if its SNI is on the same list; anything else is cut. So a tunnel
+# opened to an allowed name can't be pointed at another site that shares its CDN address.
+# A refused HTTPS request gets Squid's error page over TLS with its own self-signed
+# certificate, which clients reject; no server connection is made. Every request is a line
+# in /var/log/squid/access.log.
+# Tested 2026-10-25 against Debian 13's squid-openssl 6.13: allowed name 200 (HTTPS and
+# HTTP), unlisted name refused, SNI matching the list spliced, SNI swapped inside a tunnel
+# to an allowed name cut.
+
+{% for p in studio_gw_proxy_ports %}
+http_port {{ studio_gw_studio_ip }}:{{ p }} ssl-bump tls-cert=/etc/squid/bump.crt tls-key=/etc/squid/bump.key generate-host-certificates=off name=p{{ p }}
+{% endfor %}
+
+acl CONNECT method CONNECT
+acl step1 at_step SslBump1
+{% for p in studio_gw_proxy_ports %}
+acl via_{{ p }} myportname p{{ p }}
+{% endfor %}
+
+{% for class, c in studio_gw_egress.items() %}
+# class {{ class }}: {{ c.sources | join(', ') }}, on :{{ c.proxy_port | default(studio_gw_proxy_port) }}
+acl src_{{ class }} src {{ c.sources | join(' ') }}
+acl port_{{ class }} port {{ c.ports | join(' ') }}
+{% if not c.any_name | default(false) %}
+# -n: match the name as given; never reverse-resolve an IP to make it match.
+acl dst_{{ class }} dstdomain -n {{ c.names | join(' ') }}
+acl sni_{{ class }} ssl::server_name {{ c.names | join(' ') }}
+{% endif %}
+
+{% endfor %}
+# CONNECT only to 443; plain HTTP only to 80.
+acl https_port port 443
+acl http_port_80 port 80
+http_access deny CONNECT !https_port
+http_access deny !CONNECT !http_port_80
+# A class open to any name (any_name) still never reaches this side of the gateway: private,
+# loopback, link-local, CGNAT and reserved addresses (studio_gw_private_nets), by the address
+# the name resolves to.
+acl to_private dst {{ studio_gw_private_nets | join(' ') }} ::1 fc00::/7 fe80::/10
+{% for class, c in studio_gw_egress.items() %}
+{% if c.any_name | default(false) %}
+http_access deny via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} to_private
+http_access allow via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} port_{{ class }}
+{% else %}
+http_access allow via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }} dst_{{ class }} port_{{ class }}
+{% endif %}
+{% endfor %}
+http_access deny all
+
+ssl_bump peek step1
+{% for class, c in studio_gw_egress.items() %}
+ssl_bump splice via_{{ c.proxy_port | default(studio_gw_proxy_port) }} src_{{ class }}{{ '' if c.any_name | default(false) else ' sni_' ~ class }}
+{% endfor %}
+ssl_bump terminate all
+
+# A filter, not a cache.
+cache deny all
+cache_mem 8 MB
+forwarded_for delete
+httpd_suppress_version_string on
+dns_nameservers {{ studio_gw_upstream_dns }}
+access_log daemon:/var/log/squid/access.log squid
+cache_log /var/log/squid/cache.log
+coredump_dir /var/spool/squid
+shutdown_lifetime 3 seconds

@@ -1,0 +1,297 @@
+# The studio network's router. Holds no credentials and runs no app. The nftables ruleset
+# forwards outbound only to the LAN services in studio_gw_lan_access and, for the sources in
+# studio_gw_internet (the cells), to the internet itself, never this side of the gateway.
+# Squid lets every other guest reach listed hostnames over HTTP(S), dnsmasq answers local
+# names only, chrony serves time.
+
+- name: The LAN and studio interfaces, found by address
+  ansible.builtin.set_fact:
+    studio_gw_lan_if: >-
+      {{ ansible_facts.interfaces | map('regex_replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('ipv4', 'defined') | selectattr('ipv4.address', 'equalto', studio_gw_lan_ip)
+         | map(attribute='device') | first }}
+    studio_gw_studio_if: >-
+      {{ ansible_facts.interfaces | map('regex_replace', '-', '_') | map('extract', ansible_facts)
+         | selectattr('ipv4', 'defined') | selectattr('ipv4.address', 'equalto', studio_gw_studio_ip)
+         | map(attribute='device') | first }}
+
+# dnsmasq-base is the binary without the service, so its config can be written and checked
+# before the dnsmasq package first starts it (its default would listen on every interface).
+- name: Router packages
+  ansible.builtin.apt:
+    name:
+      - nftables
+      - dnsmasq-base
+      - chrony
+      - dnsutils
+      - curl
+      - openssl
+
+- name: Config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/dnsmasq.d
+    - /etc/squid
+
+# Forwarding is on for the inbound DNAT, the listed LAN services (studio_gw_lan_access) and
+# the sources with the internet (studio_gw_internet).
+- name: Forward IPv4
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/60-studio-gw.conf
+    reload: true
+
+# This host has no Docker or other rule owner, so the whole ruleset is ours (flush ruleset).
+- name: The nftables ruleset
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: The nftables service enabled
+  ansible.builtin.service:
+    name: nftables
+    state: started
+    enabled: true
+
+- name: Ruleset active before the services
+  ansible.builtin.meta: flush_handlers
+
+# --- dnsmasq: local names only ---------------------------------------------------------------
+
+- name: Keep dnsmasq off the gateway's own resolver
+  ansible.builtin.copy:
+    dest: /etc/default/dnsmasq
+    content: |
+      # Managed by Ansible (role studio_gw). dnsmasq serves only the studio network.
+      ENABLED=1
+      CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+      IGNORE_RESOLVCONF=yes
+      DNSMASQ_EXCEPT="lo"
+    mode: "0644"
+  notify: Restart dnsmasq
+
+# Outside addresses a guest needs as data (studio_gw_published_names): the gateway looks them
+# up on the LAN side and publishes them as local .studio names, so the studio network still
+# has no upstream resolver. In place before the dnsmasq config that reads them.
+- name: The directory of published names dnsmasq reads
+  ansible.builtin.file:
+    path: "{{ studio_gw_hostsdir }}"
+    state: directory
+    mode: "0755"
+
+- name: The name publisher
+  ansible.builtin.template:
+    src: studio-gw-publish-names.j2
+    dest: /usr/local/sbin/studio-gw-publish-names
+    mode: "0755"
+    validate: python3 -I -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" %s
+  register: studio_gw_publisher
+
+- name: The name publisher's service and 5-minute timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: studio-gw-publish-names.service
+      content: |
+        # Managed by Ansible (role studio_gw).
+        [Unit]
+        Description=Publish LAN-resolved addresses as local .studio names
+        Wants=network-online.target
+        After=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/studio-gw-publish-names
+    - name: studio-gw-publish-names.timer
+      content: |
+        # Managed by Ansible (role studio_gw).
+        [Unit]
+        Description=Re-check the published .studio names every 5 minutes
+
+        [Timer]
+        OnBootSec=30s
+        OnUnitActiveSec=5min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  register: studio_gw_publisher_units
+
+- name: The name publisher's timer
+  ansible.builtin.systemd_service:
+    name: studio-gw-publish-names.timer
+    daemon_reload: "{{ studio_gw_publisher_units.changed }}"
+    enabled: "{{ studio_gw_published_names | length > 0 }}"
+    state: "{{ 'started' if studio_gw_published_names else 'stopped' }}"
+  # A check run doesn't write a new unit, so systemd can't find it yet.
+  when: not (ansible_check_mode and studio_gw_publisher_units.changed)
+
+- name: The names published now, not at the timer's first tick
+  ansible.builtin.command: /usr/local/sbin/studio-gw-publish-names
+  when: (studio_gw_published_names | length > 0) and (studio_gw_publisher.changed or studio_gw_publisher_units.changed)
+  changed_when: true
+
+- name: The dnsmasq config
+  ansible.builtin.template:
+    src: dnsmasq-studio.conf.j2
+    dest: /etc/dnsmasq.d/studio.conf
+    mode: "0644"
+    validate: dnsmasq --test --conf-file=%s
+  notify: Restart dnsmasq
+
+# dnsmasq used to fill nft sets; with Squid it no longer depends on the ruleset.
+- name: No nftables drop-in for dnsmasq
+  ansible.builtin.file:
+    path: /etc/systemd/system/dnsmasq.service.d/after-nftables.conf
+    state: absent
+  notify:
+    - Reload systemd
+    - Restart dnsmasq
+
+- name: The dnsmasq service
+  ansible.builtin.apt:
+    name: dnsmasq
+
+# --- Squid: the way out, by hostname ---------------------------------------------------------
+
+# Squid's ssl-bump port needs a certificate even though it only peeks and splices. A client
+# sees it only on a refused HTTPS request (Squid's error page), and rejects it.
+- name: Squid's splice-only certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - rsa:2048
+      - -nodes
+      - -days
+      - "3650"
+      - -subj
+      - /CN=studio-gw squid (error pages only)
+      - -keyout
+      - /etc/squid/bump.key
+      - -out
+      - /etc/squid/bump.crt
+    creates: /etc/squid/bump.crt
+
+- name: Squid can read its key (group proxy is in Debian's base system)
+  ansible.builtin.file:
+    path: /etc/squid/bump.key
+    owner: root
+    group: proxy
+    mode: "0640"
+
+# Written before the package first starts Squid: its default config listens on every
+# interface and allows the whole 10/8 as "localnet".
+- name: The Squid config
+  ansible.builtin.template:
+    src: squid.conf.j2
+    dest: /etc/squid/squid.conf
+    mode: "0644"
+  notify: Restart squid
+
+- name: Squid (OpenSSL build, for peeking at TLS SNI)
+  ansible.builtin.apt:
+    name: squid-openssl
+
+- name: The Squid config parses
+  ansible.builtin.command: squid -k parse -f /etc/squid/squid.conf
+  changed_when: false
+
+# --- chrony -----------------------------------------------------------------------------------
+
+- name: Chrony serves time to the studio network
+  ansible.builtin.copy:
+    dest: /etc/chrony/conf.d/studio.conf
+    content: |
+      # Managed by Ansible (role studio_gw).
+      allow {{ studio_gw_studio_net }}
+    mode: "0644"
+  notify: Restart chrony
+
+# --- The jump account: people into their own cells --------------------------------------------
+
+# A cell's owner reaches it with `ssh -J jump@studio-gw <owner>@<cell>`. The account has no
+# shell (nologin also refuses sftp and commands), and every key in its root-owned
+# authorized_keys may only forward to its owner's cells (templates/jump-authorized_keys.j2).
+- name: Jump account
+  ansible.builtin.user:
+    name: jump
+    shell: /usr/sbin/nologin
+    create_home: true
+    password: "!"
+
+- name: Jump account's SSH directory (root-owned, so the account can't change its keys)
+  ansible.builtin.file:
+    path: /home/jump/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Cell owners' keys, each opening only its owner's cells
+  ansible.builtin.template:
+    src: jump-authorized_keys.j2
+    dest: /home/jump/.ssh/authorized_keys
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Services running
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [dnsmasq, squid, chrony]
+
+- name: Apply changes before the checks
+  ansible.builtin.meta: flush_handlers
+
+# --- Checks -----------------------------------------------------------------------------------
+
+# Local addresses (column 4) of the sockets listening on each proxy port: exactly one, ours.
+- name: Squid listens on the studio side only
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && ss -ltnH 'sport = :{{ item }}' | awk '{print $4}' | sort -u"
+    executable: /bin/bash
+  register: studio_gw_squid_listen
+  changed_when: false
+  failed_when: studio_gw_squid_listen.stdout_lines != [studio_gw_studio_ip ~ ':' ~ item]
+  loop: "{{ studio_gw_proxy_ports }}"
+
+- name: No outside name resolves on the studio network
+  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} deb.debian.org A"
+  register: studio_gw_dig_outside
+  changed_when: false
+  failed_when: (studio_gw_dig_outside.stdout | trim | regex_search('^[0-9.]+$', multiline=True)) is not none
+
+- name: Local names resolve
+  ansible.builtin.command: "dig +short +time=3 @{{ studio_gw_studio_ip }} {{ item.name }}.studio A"
+  register: studio_gw_dig_local
+  changed_when: false
+  failed_when: studio_gw_dig_local.stdout | trim != item.ip
+  loop: "{{ studio_gw_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# The gateway is in no class, so its own request through Squid must be refused: the proxy
+# isn't open. Guests check their own allowed and refused names (role studio_guest).
+# curl, not uri: the check is exactly what a client does through an explicit proxy.
+- name: Squid refuses a source in no class  # noqa: command-instead-of-module
+  ansible.builtin.command: >-
+    curl -sS -m 10 -o /dev/null -x http://{{ studio_gw_studio_ip }}:{{ studio_gw_proxy_port }}
+    https://deb.debian.org/
+  register: studio_gw_squid_refused
+  changed_when: false
+  failed_when: studio_gw_squid_refused.rc == 0

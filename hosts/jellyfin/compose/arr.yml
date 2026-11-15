@@ -173,6 +173,16 @@ services:
       # ROM sets, TV, active downloads) still lives under /media on the mirror.
       - /home/jf/media2:/media2
       - /mnt/gameroom:/gameroom
+      # Incomplete downloads (2026-10-24, vault 1-Projects/qbit-local-incomplete).
+      # A 500 GB ext4 disk on rogue local-lvm (VM 108 scsi1, backup=0), mounted
+      # by the host at /home/jf/incomplete; Docker waits for it through
+      # RequiresMountsFor in 20-wait-nfs.conf. Only the sonarr and radarr
+      # categories get a download path here. When a torrent finishes, qBit moves
+      # it to the category save path on Liberry in one sequential write, rather
+      # than scattering torrent pieces across ZFS. ROM/Minerva torrents never get
+      # a download path: a finished selective torrent moves back to it on the
+      # next recheck once more files are switched on.
+      - /home/jf/incomplete:/incomplete
     restart: unless-stopped
 
   qbittorrent-exporter:

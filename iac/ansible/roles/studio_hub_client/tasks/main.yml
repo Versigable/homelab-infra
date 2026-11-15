@@ -1,0 +1,89 @@
+# A studio client's identity at the hub (cells now, the Forge in step 2b-1b; vault
+# 1-Projects/game-studio-platform/notes/step-2b-1-plan). The key is made here and never leaves
+# this host. Only the CSR and the signed certificate travel, through the control node, and
+# the hub's CA signs (studio-hub-pki on the hub). The hub then knows this host by its
+# certificate's name, from this host's address only (role studio_hub).
+
+- name: The client directory
+  ansible.builtin.file:
+    path: "{{ studio_hub_client_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: The client key (root only)
+  ansible.builtin.shell: |
+    umask 077
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out {{ studio_hub_client_dir }}/client.key
+  args:
+    creates: "{{ studio_hub_client_dir }}/client.key"
+
+- name: The client key stays root's
+  ansible.builtin.file:
+    path: "{{ studio_hub_client_dir }}/client.key"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: The hub's CA certificate, from the hub
+  ansible.builtin.slurp:
+    src: "{{ studio_hub_client_ca_on_hub }}"
+  delegate_to: "{{ studio_hub_host }}"
+  register: studio_hub_client_ca
+
+- name: The hub's CA certificate, here
+  ansible.builtin.copy:
+    content: "{{ studio_hub_client_ca.content | b64decode }}"
+    dest: "{{ studio_hub_client_dir }}/ca.crt"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Is the certificate good (this CA's, this key's, not near expiry)?
+  ansible.builtin.shell: |
+    set -e
+    d={{ studio_hub_client_dir }}
+    openssl verify -CAfile $d/ca.crt $d/client.crt >/dev/null
+    openssl x509 -in $d/client.crt -noout -checkend {{ studio_hub_client_renew_seconds }} >/dev/null
+    [ "$(openssl x509 -in $d/client.crt -noout -pubkey)" = "$(openssl pkey -in $d/client.key -pubout)" ]
+  register: studio_hub_client_cert_ok
+  changed_when: false
+  failed_when: false
+
+- name: A certificate request for this host
+  ansible.builtin.command:
+    argv: [openssl, req, -new, -key, "{{ studio_hub_client_dir }}/client.key", -subj, "/CN={{ inventory_hostname }}"]
+  register: studio_hub_client_csr
+  changed_when: false
+  when: studio_hub_client_cert_ok.rc != 0
+
+- name: Signed by the hub's CA
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/studio-hub-pki, sign, "{{ inventory_hostname }}", client]
+    stdin: "{{ studio_hub_client_csr.stdout }}"
+  delegate_to: "{{ studio_hub_host }}"
+  register: studio_hub_client_signed
+  changed_when: true
+  when: studio_hub_client_cert_ok.rc != 0 and not ansible_check_mode
+
+- name: The certificate
+  ansible.builtin.copy:
+    content: "{{ studio_hub_client_signed.stdout }}\n"
+    dest: "{{ studio_hub_client_dir }}/client.crt"
+    owner: root
+    group: root
+    mode: "0644"
+  when: studio_hub_client_cert_ok.rc != 0 and not ansible_check_mode
+
+- name: The hub knows this host by name
+  ansible.builtin.command:
+    argv: [curl, -sS, -m, "15", --noproxy, "*", --cacert, "{{ studio_hub_client_dir }}/ca.crt",
+           --cert, "{{ studio_hub_client_dir }}/client.crt", --key, "{{ studio_hub_client_dir }}/client.key",
+           "{{ studio_hub_api_url }}/v1/whoami"]
+  register: studio_hub_client_whoami
+  changed_when: false
+  failed_when: >-
+    studio_hub_client_whoami.rc != 0
+    or (studio_hub_client_whoami.stdout | from_json).name != inventory_hostname
+  when: not ansible_check_mode

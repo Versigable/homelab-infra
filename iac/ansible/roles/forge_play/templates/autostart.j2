@@ -1,0 +1,4 @@
+#!/bin/sh
+# Managed by Ansible (role forge_play). {{ game.title }}, run fullscreen in the session;
+# RESTART_APP brings it back if it exits. The player log is the session's debug trail.
+exec /game/{{ game.exe }} {{ game.args }} -logFile /config/player-{{ game.id }}.log

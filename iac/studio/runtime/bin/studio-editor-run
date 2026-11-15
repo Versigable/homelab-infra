@@ -1,0 +1,15 @@
+#!/bin/sh
+# A warm editor's unit (started by studio-unityd, as unity, with a private /tmp): an X server
+# only this unit can reach (an auth cookie, no TCP, no abstract socket; its socket is in the
+# unit's own /tmp), then the Editor on it, in batch mode, kept running for Pipeline commands.
+# When the Editor exits, the unit ends and systemd stops the X server with it.
+set -eu
+wt=$1
+editor=$2
+export XAUTHORITY=/tmp/studio-xauth
+xauth -q -f "$XAUTHORITY" add :99 . "$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -nolisten local -auth "$XAUTHORITY" >/dev/null 2>&1 &
+i=0
+while [ ! -S /tmp/.X11-unix/X99 ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+export DISPLAY=:99
+exec "$editor" -batchmode -automated -projectPath "$wt" -logFile "$wt/Logs/Editor.log"

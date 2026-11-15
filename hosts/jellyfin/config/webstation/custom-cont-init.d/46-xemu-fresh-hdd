@@ -1,0 +1,89 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d), before
+# svc-broker starts. Makes every xemu (Xbox) session start from a pristine blank HDD
+# image instead of the one the last session left behind.
+#
+# Why: the broker restores a player's Xbox saves by clearing the title's files on the
+# shared HDD image and writing the restored ones with libfatx (pyfatx). On files and
+# folders the game itself wrote, that clear-and-rewrite fails mid-way: "could not inject
+# … into the HDD image" with an empty message, "N of M restored save file(s) did not
+# reach", and 0-byte leftovers that the next exit then archives. Seen 2026-11-07 on jf 1
+# and the Forge with Shenmue II. libfatx writing into a freshly formatted image works
+# every time (tested: all 15 of a Shenmue-shaped set, 0-byte and 7 MB files included).
+#
+# 1. Builds /config/xemu/xbox_hdd.pristine.raw once, from the same blank image the broker
+#    seeds (seed/xemu-xbox_hdd.qcow2.zip; 8 GiB sparse, ~320 KB allocated).
+# 2. Patches one spot in the broker's Xemu.launch(): right after the image is made raw,
+#    it is replaced by a sparse copy of the pristine one (instant). The broker's clear and
+#    injection then run against a clean image, and the exit extraction reads back only
+#    this session's writes. Also isolation: nothing from earlier sessions or other titles
+#    remains on the image.
+# Idempotent. If the seed, the copy or the broker's line is not as expected, it logs and
+# the broker keeps its own behaviour. Remove once upstream's injection handles a used image.
+
+/lsiopy/bin/python3 -I - <<'PY'
+import subprocess, zipfile, tempfile, os, pwd
+from pathlib import Path
+
+TAG = "[xemu-fresh-hdd]"
+XEMU_DIR = Path("/config/xemu")
+PRISTINE = XEMU_DIR / "xbox_hdd.pristine.raw"
+SEED = Path("/seed/xemu-xbox_hdd.qcow2.zip")
+MARK = "homelab-infra 46-xemu-fresh-hdd"
+api = Path("/lsiopy/lib/python3.14/site-packages/webstation_broker/emulators/xemu.py")
+anchor = "        raw_ok = _ensure_raw_image(self.hdd_image)\n"
+patch = anchor + '''        # %s: every session starts from a pristine blank HDD image,
+        # so libfatx never edits data the game wrote (that is where the injections failed).
+        _hl_pristine = self.hdd_image.with_name("xbox_hdd.pristine.raw")
+        if _hl_pristine.is_file():
+            try:
+                _hl_tmp = self.hdd_image.with_name("." + self.hdd_image.name + ".fresh-tmp")
+                subprocess.run(["cp", "--sparse=always", str(_hl_pristine), str(_hl_tmp)],
+                               check=True, capture_output=True, text=True, env=scrubbed_env())
+                os.replace(_hl_tmp, self.hdd_image)
+                raw_ok = True
+                log.info("homelab: fresh HDD image for this session from %%s", _hl_pristine)
+            except (OSError, subprocess.CalledProcessError) as _hl_exc:
+                log.error("homelab: could not lay down a fresh HDD image (%%s); using the existing one", _hl_exc)
+        else:
+            log.warning("homelab: no pristine HDD image at %%s; using the existing one", _hl_pristine)
+''' % MARK
+
+# 1. The pristine image, once.
+if not PRISTINE.is_file() or PRISTINE.stat().st_size == 0:
+    if not SEED.is_file():
+        print(f"{TAG} no seed at {SEED}; no pristine image, sessions keep the existing HDD")
+    else:
+        try:
+            abc = pwd.getpwnam("abc")
+            XEMU_DIR.mkdir(parents=True, exist_ok=True)
+            os.chown(XEMU_DIR, abc.pw_uid, abc.pw_gid)
+            with tempfile.TemporaryDirectory(dir=str(XEMU_DIR)) as tmp:
+                z = zipfile.ZipFile(SEED)
+                member = next(n for n in z.namelist() if n.endswith(".qcow2"))
+                qcow = Path(tmp) / "seed.qcow2"
+                qcow.write_bytes(z.read(member))
+                raw = Path(tmp) / "pristine.raw"
+                subprocess.run(["qemu-img", "convert", "-f", "qcow2", "-O", "raw", str(qcow), str(raw)],
+                               check=True, capture_output=True, text=True)
+                os.chown(raw, abc.pw_uid, abc.pw_gid)
+                os.chmod(raw, 0o644)
+                os.replace(raw, PRISTINE)
+            print(f"{TAG} built {PRISTINE} from {SEED.name}")
+        except Exception as exc:
+            print(f"{TAG} could not build the pristine image ({exc}); sessions keep the existing HDD")
+
+# 2. The broker patch.
+try:
+    src = api.read_text()
+except OSError as exc:
+    print(f"{TAG} cannot read {api}: {exc}; broker left as it is")
+    raise SystemExit(0)
+if MARK in src:
+    print(f"{TAG} broker already patched")
+elif src.count(anchor) != 1:
+    print(f"{TAG} expected line not found exactly once in {api}; broker left as it is")
+else:
+    api.write_text(src.replace(anchor, patch))
+    print(f"{TAG} patched: every xemu session starts from a fresh copy of {PRISTINE.name}")
+PY

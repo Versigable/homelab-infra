@@ -1,0 +1,167 @@
+# A RomM webstation on the Forge (see defaults: what it is and what's copied from jf).
+
+- name: Taken down
+  when: not forge_webstation_enabled
+  block:
+    - name: Start unit stopped and disabled
+      ansible.builtin.systemd_service:
+        name: forge-webstation
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Container removed
+      ansible.builtin.command: "docker compose -f {{ forge_webstation_root }}/compose.yml down"
+      args:
+        removes: "{{ forge_webstation_root }}/compose.yml"
+
+    - name: Compose file and start unit removed
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ forge_webstation_root }}/compose.yml"
+        - /etc/systemd/system/forge-webstation.service
+
+- name: Running
+  when: forge_webstation_enabled
+  block:
+    # LinuxServer runs custom-cont-init.d and custom-services.d only if root owns them and
+    # nobody else can write them. /config belongs to the container's user (PUID 1000).
+    - name: Directories
+      ansible.builtin.file:
+        path: "{{ forge_webstation_root }}/{{ item.dir }}"
+        state: directory
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.owner | default('root') }}"
+        mode: "0755"
+      loop:
+        - {dir: ""}
+        - {dir: config, owner: "1000"}
+        - {dir: custom-cont-init.d}
+        - {dir: custom-services.d}
+        - {dir: seed}
+        - {dir: bin}
+      loop_control:
+        label: "{{ item.dir or '.' }}"
+
+    # Read at container start, so a change recreates the container (as deploy-webstation.sh
+    # restarts jf's).
+    - name: Seed files, the same as jf's
+      ansible.builtin.copy:
+        src: "{{ forge_webstation_files }}/{{ item.dir }}/"
+        dest: "{{ forge_webstation_root }}/{{ item.dir }}/"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+        directory_mode: "0755"
+      loop:
+        - {dir: custom-cont-init.d, mode: "0755"}
+        - {dir: custom-services.d, mode: "0755"}
+        - {dir: seed, mode: "0644"}
+        - {dir: bin, mode: "0755"}
+      loop_control:
+        label: "{{ item.dir }}"
+      register: forge_webstation_seed
+
+    - name: What was copied from jf
+      ansible.builtin.stat:
+        path: "{{ forge_webstation_root }}/{{ item }}"
+      loop: [.env, pcsx2-patches.zip, config/.config/retroarch/cores]
+      register: forge_webstation_from_jf
+
+    - name: The copies from jf are in place
+      ansible.builtin.assert:
+        that: forge_webstation_from_jf.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          Missing under {{ forge_webstation_root }}:
+          {{ forge_webstation_from_jf.results | rejectattr('stat.exists') | map(attribute='item') | join(', ') }}.
+          Copy them from jf's webstation stack first (role defaults).
+        quiet: true
+
+    - name: Compose file
+      ansible.builtin.template:
+        src: compose.yml.j2
+        dest: "{{ forge_webstation_root }}/compose.yml"
+        mode: "0644"
+
+    # Docker also restarts the container at boot, but that start fails if TrueNAS isn't
+    # answering yet (the library's automount). This unit retries every 30 s until it is.
+    - name: Start unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/forge-webstation.service
+        content: |
+          # Managed by Ansible (role forge_webstation).
+          [Unit]
+          Description=RomM webstation on the Forge (started once the ROM library is mounted)
+          After=docker.service remote-fs.target
+          Requires=docker.service
+          StartLimitIntervalSec=0
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStartPre=/usr/bin/test -d {{ forge_webstation_library }}/bios
+          ExecStart=/usr/bin/docker compose -f {{ forge_webstation_root }}/compose.yml up -d
+          Restart=on-failure
+          RestartSec=30
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      register: forge_webstation_unit
+
+    - name: The library is mounted
+      ansible.builtin.command: "test -d {{ forge_webstation_library }}/bios"
+      changed_when: false
+
+    - name: Webstation running
+      ansible.builtin.command:
+        argv: >-
+          {{ ['docker', 'compose', '-f', forge_webstation_root ~ '/compose.yml', 'up', '-d', '--remove-orphans']
+             + (['--force-recreate'] if forge_webstation_seed is changed else []) }}
+      register: forge_webstation_up
+      changed_when: forge_webstation_up.stderr is search('(Created|Recreated|Started|Removed)')
+
+    - name: Start unit enabled
+      ansible.builtin.systemd_service:
+        name: forge-webstation
+        state: started
+        enabled: true
+        daemon_reload: "{{ forge_webstation_unit is changed }}"
+
+    # --- Checks ------------------------------------------------------------------------------
+
+    - name: The webstation sees the GPU
+      ansible.builtin.command: docker exec romm-webstation-forge nvidia-smi --query-gpu=name --format=csv,noheader
+      register: forge_webstation_smi
+      until: forge_webstation_smi.rc == 0
+      retries: 10
+      delay: 3
+      changed_when: false
+      failed_when: forge_webstation_smi.rc != 0 or 'RTX 5070 Ti' not in forge_webstation_smi.stdout
+
+    - name: The webstation sees the ROM library
+      ansible.builtin.command: docker exec romm-webstation-forge test -d /romm/library/bios
+      changed_when: false
+
+    - name: The webstation serves its page
+      ansible.builtin.uri:
+        url: "http://10.77.0.10:{{ forge_webstation_port }}{{ forge_webstation_path }}"
+        status_code: 200
+      register: forge_webstation_page
+      until: forge_webstation_page.status == 200
+      retries: 40
+      delay: 3
+
+    - name: The broker refuses a call without the secret
+      ansible.builtin.uri:
+        url: "http://10.77.0.10:{{ forge_webstation_port }}{{ forge_webstation_path }}api/session/status"
+        status_code: 403
+
+    - name: The webstation can't open connections out
+      ansible.builtin.command: docker exec romm-webstation-forge curl -sS -m 5 -o /dev/null https://deb.debian.org/
+      register: forge_webstation_egress
+      changed_when: false
+      # 0 = it got out; 127 = no curl in the image, so nothing was checked.
+      failed_when: forge_webstation_egress.rc in [0, 127]

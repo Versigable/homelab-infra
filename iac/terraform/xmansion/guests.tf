@@ -8,18 +8,7 @@ locals {
   # groups: Ansible groups the guest joins, which pick its playbook roles.
   # tags: Proxmox tags ("iac" is always added); applied by Ansible, see modules/lxc.
   lxc_guests = {
-    nextcloud = {
-      vmid        = 110
-      node        = "phoenix"
-      ip          = "10.0.1.10"
-      cores       = 4
-      memory      = 6144
-      swap        = 1024
-      disk        = 40
-      tags        = ["nextcloud"]
-      groups      = ["docker_hosts", "nextcloud_hosts"]
-      description = "Nextcloud + Collabora. App: homelab-infra hosts/nextcloud (GitOps). Vault: 1-Projects/nextcloud."
-    }
+    # 110 was Nextcloud's LXC, retired 2026-10-28 after the move to VM 116 (nextcloud-vm).
     # No USB or Bluetooth passthrough: the Zigbee radio is on the network, so this
     # guest can move between nodes. Not on rogue, which hosts the studio cells.
     "home-assistant" = {
@@ -48,10 +37,36 @@ locals {
       groups      = ["docker_hosts", "navidrome"]
       description = "Navidrome (private music, 3 accounts). App: homelab-infra hosts/navidrome (GitOps). Vault: 1-Projects/navidrome-music."
     }
+    # One per node, each running a replica of both cloudflared tunnels (main + tunnel B), so
+    # WARP and breakglass survive either node going down. Vault: 1-Projects/tunnel-redundancy.
+    "cf-tunnel-1" = {
+      vmid        = 117
+      node        = "phoenix"
+      ip          = "10.0.1.17"
+      cores       = 1
+      memory      = 512
+      swap        = 256
+      disk        = 8
+      tags        = ["cloudflared"]
+      groups      = ["docker_hosts", "cf_tunnel"]
+      description = "cloudflared replicas of ninjaprivacy_org and ninjaprivacy_us (phoenix). App: homelab-infra hosts/cf-tunnel (GitOps). Vault: 1-Projects/tunnel-redundancy."
+    }
+    "cf-tunnel-2" = {
+      vmid        = 118
+      node        = "rogue"
+      ip          = "10.0.1.18"
+      cores       = 1
+      memory      = 512
+      swap        = 256
+      disk        = 8
+      tags        = ["cloudflared"]
+      groups      = ["docker_hosts", "cf_tunnel"]
+      description = "cloudflared replicas of ninjaprivacy_org and ninjaprivacy_us (rogue). App: homelab-infra hosts/cf-tunnel (GitOps). Vault: 1-Projects/tunnel-redundancy."
+    }
   }
 
   # Every Terraform-managed VM on X-Mansion, cloned from the cloud-init template
-  # (var.vm_template_vmid, built by pve-templates.yml). Same fields as lxc_guests, minus swap.
+  # (var.vm_template_vmids, one per node, built by pve-templates.yml). Same fields as lxc_guests, minus swap.
   # Guests that write to TrueNAS over NFS are VMs (vault: 5-Decisions/2026-10-23_nextcloud-vm-instead-of-lxc).
   vm_guests = {
     # Replaces LXC 110 (vault: 1-Projects/nextcloud/notes/vm-migration-plan). Mounts the
@@ -109,7 +124,7 @@ module "vm" {
   hostname        = each.key
   node            = each.value.node
   vmid            = each.value.vmid
-  template_vmid   = var.vm_template_vmid
+  template_vmid   = var.vm_template_vmids[each.value.node]
   description     = each.value.description
   cores           = each.value.cores
   memory          = each.value.memory

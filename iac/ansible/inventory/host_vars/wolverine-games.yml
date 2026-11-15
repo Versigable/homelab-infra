@@ -1,0 +1,10 @@
+# Root-only container options, applied on the node by pve_lxc_rootonly.
+# keyctl is for Docker inside the unprivileged container.
+lxc_features: nesting=1,keyctl=1
+
+# Game files, saves and backups live on the LXC disk; no NFS or bind mounts. The nightly
+# cluster PBS job covers the whole container.
+
+# /home/wolverine-games/wolverine-games-hub/{compose,config,data,logs,backups}. Each game
+# gets its own subdirectory under data/ and backups/ (hosts/wolverine-games/scripts/deploy.sh).
+service_layout_name: wolverine-games

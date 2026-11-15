@@ -1,0 +1,7 @@
+# Managed by Ansible (role studio_gw), from each cell's studio_cell_owner_keys
+# (inventory/host_vars/<cell>.yml). Each key may only open SSH to its owner's cells: no
+# shell, no TTY, no other forwarding.
+{% set cells = groups['studio_cell'] | default([]) | sort %}
+{% for k in cells | map('extract', hostvars, 'studio_cell_owner_keys') | map('default', []) | flatten | unique %}
+restrict,port-forwarding,{% for h in cells if k in hostvars[h].studio_cell_owner_keys | default([]) %}permitopen="{{ hostvars[h].ansible_host }}:22"{{ ',' if not loop.last }}{% endfor %} {{ k }}
+{% endfor %}

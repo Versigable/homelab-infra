@@ -1,0 +1,128 @@
+# Play sessions on demand (step 2b-1b; vault 1-Projects/game-studio-platform/notes/
+# step-2b-1-plan): forge-playd asks the hub's broker which sessions should run and runs them,
+# each from the depot's build by hash. Needs the Forge's hub certificate (role
+# studio_hub_client, before this role) and the play image (above).
+
+- name: The sessions' Docker network (its own locked bridge)
+  ansible.builtin.command: "docker network inspect {{ forge_play_sessions_network }}"
+  register: forge_play_sessions_net
+  changed_when: false
+  failed_when: false
+
+- name: Create the sessions' Docker network
+  ansible.builtin.command:
+    argv: [docker, network, create, --driver, bridge,
+           -o, "com.docker.network.bridge.name={{ forge_play_sessions_bridge }}",
+           "{{ forge_play_sessions_network }}"]
+  when: forge_play_sessions_net.rc != 0
+  changed_when: true
+
+- name: Session directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ forge_play_sessions_cache }}"
+    - "{{ forge_play_sessions_state }}"
+    - /etc/forge-playd
+    - /opt/studio/runtime
+
+- name: The runtime, as merged (code, then programs)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../studio/runtime/{{ item.src }}"
+    dest: "/opt/studio/runtime/{{ item.src }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: studio_runtime/, mode: "u=rwX,go=rX"}
+    - {src: bin/, mode: "0755"}
+    - {src: README.md, mode: "0644"}
+  notify: Restart forge-playd
+
+- name: The forge-playd settings
+  ansible.builtin.copy:
+    dest: /etc/forge-playd/playd.json
+    content: "{{ forge_play_sessions_config | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    forge_play_sessions_config:
+      hub:
+        url: "{{ studio_hub_api_url }}"
+        portal: "{{ studio_portal_url }}"
+        ca: "{{ studio_hub_client_dir }}/ca.crt"
+        cert: "{{ studio_hub_client_dir }}/client.crt"
+        key: "{{ studio_hub_client_dir }}/client.key"
+      image: "studio/play:{{ forge_play_image_tag }}"
+      network: "{{ forge_play_sessions_network }}"
+      host_ip: "{{ forge_play_host_ip }}"
+      base_port: "{{ studio_play_base_port | int }}"
+      slots: "{{ studio_play_slots | int }}"
+      cache: "{{ forge_play_sessions_cache }}"
+      cache_max_bytes: "{{ forge_play_sessions_cache_max_bytes | int }}"
+      state: "{{ forge_play_sessions_state }}"
+      mem_limit: "{{ forge_play_mem_limit }}"
+      width: "{{ forge_play_width | int }}"
+      height: "{{ forge_play_height | int }}"
+      player_args: "{{ forge_play_sessions_player_args }}"
+      devices: [/dev/nvidia-modeset, /dev/nvidiactl, /dev/nvidia0, /dev/nvidia-uvm, /dev/dri]
+      poll_seconds: 2
+  notify: Restart forge-playd
+
+- name: The forge-playd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/forge-playd.service
+    content: |
+      # Managed by Ansible (role forge_play).
+      [Unit]
+      Description=forge-playd, the Forge's play sessions (from the hub's broker)
+      After=network-online.target docker.service forge-host-fw.service
+      Requires=docker.service
+      Wants=network-online.target
+
+      [Service]
+      ExecStart=/opt/studio/runtime/bin/forge-playd
+      # Unpacked builds' directories take the umask (tarfile's data filter leaves their mode
+      # alone): 0755, readable by a session's user.
+      UMask=0022
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: forge_play_sessions_unit
+  notify: Restart forge-playd
+
+- name: The forge-playd service running
+  ansible.builtin.systemd_service:
+    name: forge-playd
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: not (ansible_check_mode and forge_play_sessions_unit.changed)
+
+- name: The forge-playd changes applied before the checks
+  ansible.builtin.meta: flush_handlers
+
+# This run of the service started as the Forge (the hub answered whoami), and no sync has
+# failed in the last 30 seconds.
+- name: The forge-playd daemon syncs with the hub
+  ansible.builtin.shell: |
+    set -o pipefail
+    inv=$(systemctl show -p InvocationID --value forge-playd)
+    journalctl _SYSTEMD_INVOCATION_ID="$inv" --no-pager -o cat | grep -q 'forge-playd:.* as studio-forge'
+    ! journalctl _SYSTEMD_INVOCATION_ID="$inv" --since "-30s" --no-pager -o cat | grep -q 'tick failed'
+  args:
+    executable: /bin/bash
+  register: forge_play_sessions_syncing
+  until: forge_play_sessions_syncing.rc == 0
+  retries: 10
+  delay: 3
+  changed_when: false
+  when: not ansible_check_mode

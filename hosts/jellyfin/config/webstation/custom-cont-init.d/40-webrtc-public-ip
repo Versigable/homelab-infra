@@ -1,0 +1,41 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d).
+# WebRTC (UDP) transport: hands Selkies the public address for its ICE candidate.
+#
+# SELKIES_WEBRTC_PUBLIC_IP takes an IP address only, but X-Mansion's WAN IP is
+# dynamic: the DDNS record games-udp.ninjaprivacy.org tracks it, and
+# webstation-udp.ninjaprivacy.org is a DNS-only CNAME to it. An instance in WebRTC
+# mode names that host in WEBRTC_PUBLIC_HOST, and /opt/webstation-bin/webrtc-public-ip
+# resolves it here, before svc-selkies starts. custom-services.d/svc-webrtc-ip-watch
+# re-checks it every 5 minutes and restarts Selkies when the address changes.
+#
+# If the host gives no usable public IPv4 (missing record, a proxied record answering
+# with Cloudflare's IPs, DNS down at boot), the instance falls back to websockets mode:
+# it still streams over TCP instead of advertising an address players can't reach.
+# The watcher moves it back to WebRTC once the name resolves and nobody is streaming.
+# Instances in websockets mode skip this script.
+
+[[ "${SELKIES_MODE:-websockets}" == webrtc ]] || exit 0
+
+ENVDIR=/run/s6/container_environment
+fallback() {
+  echo "[webrtc-public-ip] $*; falling back to websockets mode"
+  printf 'websockets' > "${ENVDIR}/SELKIES_MODE"
+  exit 0
+}
+
+host="${WEBRTC_PUBLIC_HOST:-}"
+[[ -n "$host" ]] || fallback "WEBRTC_PUBLIC_HOST is not set"
+
+ip=""
+for attempt in 1 2 3 4 5; do
+  if ip="$(/opt/webstation-bin/webrtc-public-ip "$host")"; then
+    break
+  fi
+  ip=""
+  sleep 2
+done
+[[ -n "$ip" ]] || fallback "no public IPv4 for ${host} after 5 tries"
+
+printf '%s' "$ip" > "${ENVDIR}/SELKIES_WEBRTC_PUBLIC_IP"
+echo "[webrtc-public-ip] WebRTC host candidate address set from ${host}"

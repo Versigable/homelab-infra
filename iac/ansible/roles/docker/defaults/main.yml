@@ -4,3 +4,5 @@ docker_compose_version: "5.6.0-1~debian.13~trixie"
 # Same log limits as the compose files in hosts/*/compose.
 docker_log_max_size: 10m
 docker_log_max_file: "3"
+# Extra daemon.json keys for one host or group, e.g. the NVIDIA runtime on the studio Forge.
+docker_daemon_extra: {}

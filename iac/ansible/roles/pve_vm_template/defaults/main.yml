@@ -1,5 +1,8 @@
-# Keep pve_vm_template_vmid in step with var.vm_template_vmid in iac/terraform/<site>/variables.tf.
-pve_vm_template_vmid: 9000
+# One template per node (a local-lvm template clones only on its own node). Keep this map in
+# step with var.vm_template_vmids in iac/terraform/<site>/variables.tf.
+pve_vm_template_vmids:
+  phoenix: 9000
+  rogue: 9001
 pve_vm_template_name: debian-13-cloud
 # A dated Debian build, not "latest", so a rebuild gets the same image. Bump both together.
 pve_vm_template_image: debian-13-genericcloud-amd64-20261021-2638.qcow2

@@ -63,6 +63,16 @@ variable "bridge" {
   default = "vmbr0"
 }
 
+# Without a fixed MAC, Proxmox picks a new one on every create. A router that still caches the
+# old one (pfSense keeps ARP entries for about 20 minutes) then drops routed traffic to the
+# rebuilt guest until the guest sends something itself, so the first contact after a rebuild
+# (iac.sh bootstrap from off-LAN) hangs. Seen in wolverine's first rebuild drill, 2026-10-25.
+variable "mac_address" {
+  description = "Fixed MAC for eth0 (uppercase, as Proxmox stores it). null lets Proxmox choose."
+  type        = string
+  default     = null
+}
+
 variable "ip" {
   type = string
 }

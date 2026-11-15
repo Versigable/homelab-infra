@@ -1,0 +1,38 @@
+#!/bin/sh
+# studio-job-run <claude|codex> <kind>: a job's process, as agent, inside its transient unit
+# (studio-job-<id>, started by studio-agentd). The prompt arrives on stdin (opened by
+# systemd); the event stream goes to stdout, which systemd writes to the job's directory.
+#
+# Claude runs with --permission-mode dontAsk: whatever the allow rules in
+# /etc/studio/claude-job-settings.json (root-owned; Claude reloads settings files live, so it
+# isn't in the worktree) don't permit is denied rather than asked, so an unattended job never
+# stalls on a prompt. Codex runs in its own workspace-write sandbox (bubblewrap), with network
+# on so it can reach `studio` and the web. Both inside the unit's sandbox: the worktree is the
+# only writable part of /srv, home is a tmpfs with only the sign-ins bound in.
+set -eu
+vendor=$1
+prompt=$(cat)
+case "$vendor" in
+  claude)
+    set -- -p "$prompt" --output-format stream-json --verbose --permission-mode dontAsk \
+      --settings /etc/studio/claude-job-settings.json
+    if [ -n "${STUDIO_RESUME:-}" ]; then
+      set -- "$@" --resume "$STUDIO_RESUME"
+    fi
+    exec claude "$@" </dev/null
+    ;;
+  codex)
+    # --ignore-user-config: a job doesn't depend on the person's own Codex setup (MCP servers
+    # and the like); the sign-in still comes from ~/.codex.
+    set -- --json -s workspace-write -c sandbox_workspace_write.network_access=true \
+      --skip-git-repo-check --ignore-user-config
+    if [ -n "${STUDIO_RESUME:-}" ]; then
+      exec codex exec resume "$STUDIO_RESUME" "$@" "$prompt" </dev/null
+    fi
+    exec codex exec "$@" -C . "$prompt" </dev/null
+    ;;
+  *)
+    echo "studio-job-run: unknown vendor $vendor" >&2
+    exit 2
+    ;;
+esac

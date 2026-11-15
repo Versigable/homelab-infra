@@ -1,4 +1,4 @@
-# Nextcloud + Collabora on LXC 110 (phoenix). Vault: 1-Projects/nextcloud.
+# Nextcloud + Collabora on VM 116 (phoenix). Vault: 1-Projects/nextcloud.
 #
 # DELIBERATELY NOT behind authentik-forward. The desktop/phone sync apps, WebDAV,
 # CalDAV/CardDAV and Collabora's WOPI calls can't complete a forward-auth login.
@@ -33,11 +33,11 @@ http:
     nextcloud-svc:
       loadbalancer:
         servers:
-          - url: http://10.0.1.10:8080
+          - url: http://10.0.1.16:8080
         passHostHeader: true
 
     collabora-svc:
       loadbalancer:
         servers:
-          - url: http://10.0.1.10:9980
+          - url: http://10.0.1.16:9980
         passHostHeader: true

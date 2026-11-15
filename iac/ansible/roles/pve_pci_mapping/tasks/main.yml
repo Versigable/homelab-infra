@@ -1,0 +1,58 @@
+# PCI resource mappings from pve_pci_mappings, and Mapping.Use for the IaC principals, so
+# Terraform can pass a device through by mapping name (raw PCI ids are root-only).
+# Made once, on pve_cluster_admin_node. Created, never changed here: Proxmox checks the
+# mapping's id, IOMMU group and subsystem against the hardware at every VM start, so a
+# card swap shows up there, and the mapping is then edited with the swap.
+
+- name: Cluster PCI mappings
+  when: inventory_hostname == pve_cluster_admin_node
+  block:
+    - name: Read the PCI mappings
+      ansible.builtin.command: pvesh get /cluster/mapping/pci --output-format json
+      register: pve_pci_mapping_now
+      changed_when: false
+      check_mode: false
+
+    - name: Mappings
+      ansible.builtin.command:
+        cmd: >-
+          pvesh create /cluster/mapping/pci --id {{ item.id | quote }}
+          --description {{ item.description | quote }}
+          {% for m in item.map %} --map {{ m | quote }}{% endfor %}
+      loop: "{{ pve_pci_mappings }}"
+      loop_control:
+        label: "{{ item.id }}"
+      when: item.id not in (pve_pci_mapping_now.stdout | from_json | map(attribute='id'))
+      changed_when: true
+
+    - name: Read the ACLs
+      ansible.builtin.command: pveum acl list --output-format json
+      register: pve_pci_mapping_acls
+      changed_when: false
+      check_mode: false
+
+    # PVEMappingUser = Mapping.Use + Mapping.Audit on this one mapping.
+    - name: IaC principals may use the mappings
+      ansible.builtin.command:
+        argv:
+          - pveum
+          - acl
+          - modify
+          - "/mapping/pci/{{ item.id }}"
+          - --users
+          - "{{ pve_iac_users | join(',') }}"
+          - --tokens
+          - "{{ pve_iac_tokens | join(',') }}"
+          - --roles
+          - PVEMappingUser
+      vars:
+        granted: >-
+          {{ pve_pci_mapping_acls.stdout | from_json
+             | selectattr('path', 'equalto', '/mapping/pci/' ~ item.id)
+             | selectattr('roleid', 'equalto', 'PVEMappingUser')
+             | map(attribute='ugid') | list }}
+      loop: "{{ pve_pci_mappings }}"
+      loop_control:
+        label: "{{ item.id }}"
+      when: (pve_iac_users + pve_iac_tokens) | difference(granted) | length > 0
+      changed_when: true
