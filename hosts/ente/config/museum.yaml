@@ -23,5 +23,8 @@ apps:
   public-albums: https://albums.ninjaprivacy.org
 
 internal:
-  # Open only while accounts are being created; see the vault runbook.
-  disable-registration: false
+  # Closed after the first account (Firekube, 2026-11-15). To add a person, set this to
+  # false, merge, let them sign up, then set it back; see the vault runbook.
+  disable-registration: true
+  # Ente's admin (Firekube's account): can change storage and accounts with the Ente CLI.
+  admins: [1580559962386438]
