@@ -99,8 +99,15 @@ studio_cell_brain_password: >-
 # The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
 studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
 
+# The person's desk account (decision 2026-11-02, the studio desk): the GitLab account their own
+# Claude Code acts as through studio-desk (iac/studio/desk), set in host_vars. Its
+# agent-request counts as the person's, because studio-desk submits only after the person
+# confirms in Claude Code's permission prompt; the claim note says it came through the desk.
+studio_cell_desk_account: ""
+
 # studio-agentd (the runtime): whose agent-request labels this cell takes as approvals (until
-# the member register, step 6: the person's GitLab account), and its jobs' limits.
+# the member register, step 6: the person's GitLab account and their desk account), and its
+# jobs' limits.
 #   ceilings: a job doesn't start when the vendor's last known usage is at or above these
 #   (decision 2026-10-17: queued work never spends credits or extra usage).
 # A job's unit sees agent's whole home (its AI tools and sign-ins, nothing else); the rest of
@@ -108,7 +115,8 @@ studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}
 # vendor`; decision 2026-11-15): Claude and Codex once agent is signed in, and any agent CLI
 # they add. Claude implements and the next vendor reviews until they change the order.
 studio_cell_agentd:
-  approvers: ["{{ studio_cell_owner }}"]
+  approvers: "{{ [studio_cell_owner] + ([studio_cell_desk_account] if studio_cell_desk_account else []) }}"
+  desk: "{{ studio_cell_desk_account }}"
   poll_seconds: 60
   max_jobs: 1
   job_hours: 3
