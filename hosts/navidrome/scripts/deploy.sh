@@ -36,7 +36,7 @@ SERVICE_USER="navidrome"
 LIVE_HUB="/home/navidrome/navidrome-hub"
 LIVE_COMPOSE_DIR="${LIVE_HUB}/compose"
 LIVE_DATA_DIR="${LIVE_HUB}/data"
-MUSIC_DIR="/srv/kannis-music"
+MUSIC_DIRS=("/srv/kannis-music" "/srv/firekube-music")
 ND_URL="http://127.0.0.1:4533"
 
 REPO_COMPOSE="${REPO_DIR}/hosts/navidrome/compose/navidrome.yml"
@@ -58,7 +58,9 @@ done
 # A container started without the music mount sees an empty folder, and a scan then
 # drops the whole library from the database. The hookscript should prevent that; this
 # catches a mount that went away after boot.
-findmnt -n "${MUSIC_DIR}" >/dev/null || die "${MUSIC_DIR} is not mounted (bind mount from phoenix's /mnt/kannis-music)"
+for d in "${MUSIC_DIRS[@]}"; do
+  findmnt -n "$d" >/dev/null || die "$d is not mounted (bind mount from phoenix's /mnt/${d#/srv/})"
+done
 
 git -C "$REPO_DIR" show --name-only --pretty="format:%h %s" -1 || true
 echo

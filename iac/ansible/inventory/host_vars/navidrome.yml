@@ -10,14 +10,24 @@ lxc_node_nfs_mounts:
   - src: 10.0.1.7:/mnt/Liberry/kannis-music
     path: /mnt/kannis-music
     ro: true
+  # Firekube's iTunes library (2026-11-15): Liberry/firekube-music, 100 GB quota, filled
+  # over SMB from Firekube's PC straight to TrueNAS. Read-only here for the same reason.
+  - src: 10.0.1.7:/mnt/Liberry/firekube-music
+    path: /mnt/firekube-music
+    ro: true
 # shared=1: the same NFS path exists on every node, so the LXC can migrate (as Nextcloud).
 lxc_bind_mounts:
   - id: mp0
     host_path: /mnt/kannis-music
     guest_path: /srv/kannis-music
     options: shared=1,ro=1
+  - id: mp1
+    host_path: /mnt/firekube-music
+    guest_path: /srv/firekube-music
+    options: shared=1,ro=1
 # The pre-start hookscript waits for these before the container may start.
 lxc_wait_mounts:
   - /mnt/kannis-music
+  - /mnt/firekube-music
 
 service_layout_name: navidrome

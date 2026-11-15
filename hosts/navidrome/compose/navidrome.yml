@@ -41,4 +41,7 @@ services:
       - /home/navidrome/navidrome-hub/data:/data
       # Liberry/kannis-music: NFS on phoenix, bind-mounted read-only into the LXC.
       - /srv/kannis-music:/kannis-music:ro
+      # Liberry/firekube-music, the same way. A second Navidrome library, added once by
+      # the admin in the web UI (Settings -> Libraries, path /firekube-music).
+      - /srv/firekube-music:/firekube-music:ro
     restart: unless-stopped
