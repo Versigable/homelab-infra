@@ -1,0 +1,83 @@
+# The studio brain, read-only, for this cell's agents (vault decision 2026-11-15, "the cells read
+# the studio brain"). studio-brain-sync copies the people's shared notes to
+# studio_cell_brain.dir as plain files (root:agent, 0640) a few seconds after they change,
+# without the desk agents' memory or the archive. It signs in as the cell's own CouchDB account,
+# studio-cell-<owner>, which the brain's database lets read and refuses to write (its role and
+# validate function come from lock-studio-brain.py on ServiceHub, MetaVersig's run). Nothing on
+# a cell writes the brain: job results reach it through GitLab and the people's desk agents.
+
+- name: The cell's brain account password
+  ansible.builtin.copy:
+    dest: /etc/studio/brain-password
+    content: "{{ studio_cell_brain_password | trim }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: studio_cell_brain_password | trim | length > 0
+  notify: Restart studio-brain-sync
+
+- name: Is there a brain password on the cell
+  ansible.builtin.stat:
+    path: /etc/studio/brain-password
+  register: studio_cell_brain_password_file
+
+- name: No brain password yet
+  ansible.builtin.debug:
+    msg: >-
+      /etc/studio/brain-password is missing: set STUDIO_BRAIN_CELL_{{ studio_cell_owner | upper | replace('-', '_') }}_PASSWORD
+      in the control node's secrets env file (lock-studio-brain.py makes it; iac.sh exports it) and run again.
+  when: not studio_cell_brain_password_file.stat.exists
+
+- name: Brain sync state directory
+  ansible.builtin.file:
+    path: /var/lib/studio/brain
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: The studio-brain-sync service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/studio-brain-sync.service
+    content: |
+      # Managed by Ansible (role studio_cell).
+      [Unit]
+      Description=studio-brain-sync, the studio brain read-only as files for this cell's agents
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=/etc/studio/brain-password
+
+      [Service]
+      ExecStart=/opt/studio/runtime/bin/studio-brain-sync
+      Restart=always
+      RestartSec=60
+      NoNewPrivileges=yes
+      PrivateTmp=yes
+      ProtectHome=yes
+      ProtectSystem=strict
+      # The copy and its swap link live in /srv/studio; its index and chunks in its state dir.
+      ReadWritePaths=/srv/studio /var/lib/studio/brain
+      ProtectKernelTunables=yes
+      ProtectKernelModules=yes
+      ProtectControlGroups=yes
+      RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+      CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: studio_cell_brain_unit
+  notify:
+    - Reload systemd
+    - Restart studio-brain-sync
+
+- name: The studio-brain-sync service running (with a password)
+  ansible.builtin.systemd_service:
+    name: studio-brain-sync
+    state: started
+    enabled: true
+    daemon_reload: true
+  when:
+    - studio_cell_brain_password_file.stat.exists
+    - not (ansible_check_mode and studio_cell_brain_unit.changed)

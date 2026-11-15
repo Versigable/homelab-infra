@@ -9,6 +9,7 @@ Python 3.13, standard library only.
 | `studio-unityd` | root (service, cell) | The Unity broker: warm editors per worktree (as `unity`), Pipeline commands through a deny list, cold gates and builds on committed revisions, one at a time |
 | `studio-agentd` | root (service, cell) | Approved GitLab work → sandboxed jobs as `agent` → MRs with a ledger; puts each gated build in the hub's depot. Runs the AI vendors the person has (`studio vendor`, `vendors.py`) |
 | `studio` | `agent` | The agent's CLI: one request per call to the daemons' sockets in `/run/studio` |
+| `studio-brain-sync` | root (service, cell) | The studio brain, read-only, as files in `/srv/studio/_brain` for the cell's agents: the cell's reader account on the brain's CouchDB, the people's notes without the desk agents' memory or the archive (`--check`: it reads, can't write, the infra brains refuse it) |
 | `bin/studio-job-run`, `bin/studio-job-exec` | `agent`, in a job's unit | A job's process: Claude or Codex with the studio's flags, or a vendor the person added (`studio vendor add`) with its own command |
 | `studio-admin` | root (cell) | Game mirrors and worktrees (`workspace <game> <name>`), and `upload <game> <rev>` of a gated build to the depot; studio-agentd reuses it |
 | `bin/studio-editor-run` | `unity`, in a warm editor's unit | A private X server (auth cookie, no TCP, no abstract socket), then the Editor on it |

@@ -34,6 +34,7 @@
   notify:
     - Restart studio-unityd
     - Restart studio-agentd
+    - Restart studio-brain-sync
 
 # force: on a first check-mode run the programs aren't copied yet.
 - name: The studio CLI and studio-admin on the PATH
@@ -71,6 +72,8 @@
       editor_idle_minutes: "{{ studio_cell_editor_idle_minutes }}"
       agent_env: "{{ studio_cell_agent_job_env }}"
       agentd: "{{ studio_cell_agentd }}"
+      # The studio brain's read-only copy (brain.yml, studio-brain-sync).
+      brain: "{{ studio_cell_brain }}"
       # The hub's depot, as this cell (role studio_hub_client; only root reads the key).
       hub:
         url: "{{ studio_hub_api_url }}"
@@ -81,6 +84,7 @@
   notify:
     - Restart studio-unityd
     - Restart studio-agentd
+    - Restart studio-brain-sync
 
 - name: The studio-unityd service
   ansible.builtin.copy:
@@ -163,6 +167,9 @@
   when:
     - studio_cell_token_file.stat.exists
     - not (ansible_check_mode and studio_cell_agentd_unit.changed)
+
+- name: The studio brain, read-only, for the cell's agents
+  ansible.builtin.import_tasks: brain.yml
 
 - name: Runtime changes applied before the checks
   ansible.builtin.meta: flush_handlers
