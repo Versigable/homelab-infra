@@ -590,8 +590,10 @@ def setup():
         return 1
 
     script = os.path.realpath(__file__)
-    cmd = ["claude", "mcp", "add", "--scope", "local", "--env", f"STUDIO_DESK_BRAIN={BRAIN}",
-           SERVER_NAME, "--", sys.executable, script]
+    # add-json, not add: add's --env takes a list and can swallow the server's name.
+    spec = json.dumps({"type": "stdio", "command": sys.executable, "args": [script],
+                       "env": {"STUDIO_DESK_BRAIN": BRAIN}})
+    cmd = ["claude", "mcp", "add-json", "--scope", "local", SERVER_NAME, spec]
     claude = shutil.which("claude")
     print("2. Claude Code: registering the desk tool for this folder")
     if claude:
