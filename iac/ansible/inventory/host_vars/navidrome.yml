@@ -10,9 +10,10 @@ lxc_node_nfs_mounts:
   - src: 10.0.1.7:/mnt/Liberry/kannis-music
     path: /mnt/kannis-music
     ro: true
-  # Firekube's iTunes library (2026-11-15): Liberry/firekube-music, 100 GB quota, filled
-  # over SMB from Firekube's PC straight to TrueNAS. Read-only here for the same reason.
-  - src: 10.0.1.7:/mnt/Liberry/firekube-music
+  # Firekube's music (2026-11-15): the "Daves Music" folder of Liberry/media, which Jellyfin
+  # also serves; one copy, filled by Firekube over SMB (the `media` share). Read-only here for
+  # the same reason. The mount path keeps the name firekube-music.
+  - src: "10.0.1.7:/mnt/Liberry/media/Daves Music"
     path: /mnt/firekube-music
     ro: true
 # shared=1: the same NFS path exists on every node, so the LXC can migrate (as Nextcloud).
