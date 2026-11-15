@@ -9,9 +9,11 @@ worktree. The job holds one credential, the person's AI sign-in; every GitLab wr
 daemon's own, as the agent account, after the job:
 
   implement   issue -> branch agent/<iid>, MR, gate status, ledger, then a review job
-  review      MR -> review notes from the other vendor, or, on a cell with one vendor
-              (cell.json `vendors`: the AI sign-ins the person has), from a fresh session
-              of the same one
+  review      MR -> review notes from the next vendor in the person's order, or, on a cell
+              with one vendor, from a fresh session of the same one
+
+The vendors are the person's (vendors.py, `studio vendor`): Claude and Codex once agent is
+signed in to them, and any agent CLI they add as a command. A `vendor:<name>` label picks one.
 
 `studio done` (a job's last verb) asks the broker for the cold gates on the job's committed
 HEAD; the job counts as done only with a passing gate for that exact revision (the ledger).
@@ -24,6 +26,7 @@ import json
 import os
 import pwd
 import re
+import shlex
 import shutil
 import socket
 import socketserver
@@ -34,7 +37,7 @@ import threading
 import time
 import traceback
 
-from . import admin, common
+from . import admin, common, vendors
 from . import hub as hubmod
 from .gitlab import GitLab, GitLabError
 
@@ -44,8 +47,8 @@ AGENTD_SOCKET = common.AGENTD_SOCKET
 JOBS_DIR = os.path.join(common.STATE_DIR, "jobs")
 REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
-OTHER = {"claude": "codex", "codex": "claude"}
-VENDORS = ("claude", "codex")
+# An added vendor's command, for its job's process to read (root:agent 0640, one per job).
+VENDOR_RUN_DIR = os.path.join(os.path.dirname(common.RUN_DIR), "studio-jobs")
 
 
 def now():
@@ -110,10 +113,7 @@ class Agentd:
     def __init__(self, cfg):
         self.cfg = cfg
         self.a = cfg["agentd"]
-        # The vendors this person is signed in to, in the order the cell prefers them.
-        self.vendors = [v for v in cfg.get("vendors", VENDORS) if v in VENDORS]
-        if not self.vendors:
-            raise ValueError(f"cell.json vendors: none of {', '.join(VENDORS)}")
+        self.vendors = vendors.Vendors(cfg)
         self.gl = GitLab(cfg)
         self.agent_uid = pwd.getpwnam(cfg["agent_user"]).pw_uid
         self.owner_uid = pwd.getpwnam(cfg["owner"]).pw_uid
@@ -126,6 +126,7 @@ class Agentd:
             except (OSError, ssl.SSLError) as e:
                 log(f"no hub: {e}")
         self.mr_synced = 0.0
+        self.labels_synced = 0.0
 
     # --- the poll ------------------------------------------------------------------------------
 
@@ -147,6 +148,8 @@ class Agentd:
     def tick(self):
         with self.lock:
             self.sync_hub()
+            if time.time() - self.labels_synced > 3600:
+                self.sync_labels()
             for job in Job.all():
                 if job["state"] == "running" and not self.unit_active(job):
                     self.finish(job)
@@ -206,14 +209,11 @@ class Agentd:
         ref = item["references"]["full"]
         game = ref.split("/")[1].split("#")[0].split("!")[0]
         jkind = "implement" if kind == "issue" else "review"
-        vendor, asked = self.pick_vendor(jkind, item.get("labels", []))
+        vendor, why = self.pick_vendor(jkind, item.get("labels", []))
         if not vendor:
             self.gl.relabel(kind, item["project_id"], item["iid"], add=[BLOCKED], remove=[REQUEST])
-            self.gl.note(kind, item["project_id"], item["iid"],
-                         f"Not started: it asks for {asked} (`vendor:{asked}`), which isn't signed in on "
-                         f"`cell-{self.cfg['owner']}`; this cell runs {' and '.join(self.vendors)}. Remove "
-                         f"`vendor:{asked}` and approve it again (`agent-request`) to run it with {self.vendors[0]}.")
-            log(f"{ref}: refused ({asked} isn't one of this cell's vendors)")
+            self.gl.note(kind, item["project_id"], item["iid"], f"Not started: {why}")
+            log(f"{ref}: refused ({why})")
             return
         text, void = self.snapshot(kind, item, approval)
         if void:
@@ -244,15 +244,31 @@ class Agentd:
         self.start(job)
 
     def pick_vendor(self, jkind, labels):
-        """(vendor, None), or (None, the vendor asked for) when its label names one this cell
-        hasn't. A label decides (vendor:codex over vendor:claude); without one, an implement
-        job goes to Claude and a review to Codex, the other vendor from the usual implementer,
-        or to the cell's first vendor when it hasn't that one."""
-        asked = "codex" if "vendor:codex" in labels else "claude" if "vendor:claude" in labels else None
+        """(vendor, None), or (None, why not). A `vendor:<name>` label decides (with several,
+        the first in the person's order that the cell has); without one, an implement job goes
+        to the first vendor the cell has, a review to the next, or to the same one on a cell
+        with one."""
+        have = self.vendors.available()
+        cell = f"`cell-{self.cfg['owner']}`"
+        asked = [lb.split(":", 1)[1] for lb in labels if lb.startswith("vendor:")]
         if asked:
-            return (asked, None) if asked in self.vendors else (None, asked)
-        prefer = "claude" if jkind == "implement" else "codex"
-        return (prefer if prefer in self.vendors else self.vendors[0]), None
+            for v in have:
+                if v in asked:
+                    return v, None
+            names = ", ".join(f"`{vendors.label(a)}`" for a in asked)
+            return None, (f"it asks for {' or '.join(asked)} ({names}), which {cell} doesn't have "
+                          f"({self.have_text(have)}). Remove the label and approve it again (`agent-request`), "
+                          f"or add the vendor on the cell (`studio vendor add`) and approve it again.")
+        if not have:
+            return None, (f"{cell} has no AI vendor yet: sign agent in to Claude or Codex, or add one "
+                          "(`studio vendor list`), then approve it again (`agent-request`).")
+        if jkind == "implement":
+            return have[0], None
+        return (have[1] if len(have) > 1 else have[0]), None
+
+    @staticmethod
+    def have_text(have):
+        return f"it has {', '.join(have)}" if have else "it has none yet"
 
     # --- preflight ------------------------------------------------------------------------------
 
@@ -276,13 +292,16 @@ class Agentd:
 
     def limits(self, vendor):
         """Usage from the vendor's own records: Claude's rate_limit_event in the last job's
-        stream, Codex's rate_limits in its newest rollout file."""
+        stream, Codex's rate_limits in its newest rollout file. A vendor the person added has
+        none that the cell can read, so no ceiling applies to it (decision 2026-11-15)."""
         if vendor == "claude":
             for job in sorted(Job.all(), key=lambda j: j.get("claimed_at", ""), reverse=True):
                 info = job.get("rate_limit_info")
                 if job.get("vendor") == "claude" and info:
                     wins = {k: v.get("utilization") for k, v in (info.get("unifiedWindows") or {}).items()}
                     return {"windows": wins, "overage": bool(info.get("isUsingOverage"))}
+            return {}
+        if vendor != "codex":
             return {}
         sess = os.path.join(pwd.getpwnam(self.cfg["agent_user"]).pw_dir, ".codex", "sessions")
         files = sorted((os.path.join(dp, f) for dp, _, fs in os.walk(sess) for f in fs if f.endswith(".jsonl")),
@@ -324,10 +343,22 @@ class Agentd:
             job.set(lease=self.remote_head(wt, branch))
             with open(os.path.join(job.dir, "prompt.md"), "w", encoding="utf-8") as f:
                 f.write(self.prompt(job, branch))
-        env = {"HOME": pwd.getpwnam(self.cfg["agent_user"]).pw_dir, "LANG": "C.UTF-8",
-               "PATH": "/usr/local/bin:/usr/bin:/bin", **self.cfg["agent_env"]}
+        home = pwd.getpwnam(self.cfg["agent_user"]).pw_dir
+        # agent's own installs (npm's prefix, uv, pipx, installers) are in ~/.local/bin, after the
+        # system's: a tool there never stands in for claude, codex, git or studio.
+        env = {"HOME": home, "LANG": "C.UTF-8", "PATH": f"/usr/local/bin:/usr/bin:/bin:{home}/.local/bin",
+               **self.cfg["agent_env"]}
+        added = None
+        if job["vendor"] not in vendors.BUILTIN:
+            added = self.vendors.command(job["vendor"])
+            if not added:
+                self.fail(job, f"{job['vendor']} isn't on this cell any more (`studio vendor list`)")
+                return
+            env["STUDIO_VENDOR_FILE"] = self.vendor_file(job, added)
         prompt_file = os.path.join(job.dir, "prompt.md")
-        if job.get("resume") and job.get("session_id"):
+        # An added vendor resumes only with a resume command (`studio vendor resume`); without
+        # one, a job handed back starts over from its prompt, in the same worktree.
+        if job.get("resume") and job.get("session_id") and (not added or added.get("resume")):
             env["STUDIO_RESUME"] = job["session_id"]
             prompt_file = os.path.join(job.dir, "prompt-resume.md")
             with open(prompt_file, "w", encoding="utf-8") as f:
@@ -339,11 +370,9 @@ class Agentd:
                 "--property=NoNewPrivileges=yes", "--property=PrivateTmp=yes",
                 "--property=ProtectSystem=strict", f"--property=ReadWritePaths={wt}",
                 "--property=ProtectHome=tmpfs"]
-        home = env["HOME"]
-        for p in self.a["home_paths"]:                      # the sign-ins, and nothing else of home
-            path = os.path.join(home, p)
-            if os.path.exists(path):
-                argv.append(f"--property=BindPaths={path}")
+        # agent's home, which holds its AI tools and sign-ins and nothing else; the rest of /home
+        # stays a tmpfs.
+        argv.append(f"--property=BindPaths={home}")
         # The prompt arrives on stdin, opened by systemd: the job can't read the job directory.
         argv += [f"--property=StandardInput=file:{prompt_file}",
                  f"--property=MemoryMax={self.a['job_memory_max']}", "--property=CPUWeight=50",
@@ -380,6 +409,21 @@ class Agentd:
                 "player would notice. Don't change files or commit. Write the review as markdown to a file "
                 "and run `studio done --review <file>`.")
 
+    def vendor_file(self, job, added):
+        """The command a job of an added vendor runs, as it stands at the job's start, where the
+        job's process (agent) can read it and not change it."""
+        os.makedirs(VENDOR_RUN_DIR, mode=0o755, exist_ok=True)
+        path = os.path.join(VENDOR_RUN_DIR, f"{job.id}.json")
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"run": added["run"], "resume": added.get("resume")}, f)
+        gid = pwd.getpwnam(self.cfg["agent_user"]).pw_gid
+        os.chown(tmp, 0, gid)
+        os.chmod(tmp, 0o640)
+        os.replace(tmp, path)
+        job.set(command=added["run"])
+        return path
+
     def unit_active(self, job):
         r = subprocess.run(["systemctl", "is-active", "--quiet", job.unit], check=False)
         return r.returncode == 0
@@ -399,13 +443,16 @@ class Agentd:
     def scan_stream(self, job):
         """Session id and the vendor's usage from the job's event stream."""
         path = os.path.join(job.dir, "stream.jsonl")
-        sid, rli, final = None, None, None
+        sid, rli, final, plain = None, None, None, []
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     try:
                         e = json.loads(line)
                     except ValueError:
+                        plain = (plain + [line])[-80:]      # an added vendor's plain output
+                        continue
+                    if not isinstance(e, dict):
                         continue
                     sid = e.get("session_id") or e.get("thread_id") or sid
                     if e.get("type") == "rate_limit_event":
@@ -417,7 +464,9 @@ class Agentd:
                         final = it.get("text") or final
         except OSError:
             pass
-        job.set(session_id=sid, rate_limit_info=rli, final_message=(final or "")[:20000])
+        if final is None and plain:
+            final = "".join(plain)
+        job.set(session_id=sid, rate_limit_info=rli, final_message=(final or "")[-20000:])
 
     # --- studio done -----------------------------------------------------------------------------
 
@@ -668,10 +717,15 @@ class Agentd:
             log(f"play {p['id']}: {p['person']}, {mins} min on {p['game']}@{p['revision'][:10]} reported")
 
     def queue_review(self, job, mr):
-        """The other vendor reviews the MR, without another approval: it's part of this one. On
-        a cell with one vendor, a fresh session of the same one (a review job never resumes the
-        session that wrote the change)."""
-        vendor = OTHER[job["vendor"]] if OTHER[job["vendor"]] in self.vendors else job["vendor"]
+        """The next vendor in the person's order reviews the MR, without another approval: it's
+        part of this one. On a cell with one vendor, a fresh session of the same one (a review
+        job never resumes the session that wrote the change)."""
+        have = self.vendors.available()
+        others = [v for v in have if v != job["vendor"]]
+        vendor = others[0] if others else job["vendor"] if job["vendor"] in have else None
+        if not vendor:
+            log(f"{job.id}: review skipped (no vendor available)")
+            return
         ok, why = self.preflight(vendor)
         if not ok:
             log(f"{job.id}: review skipped ({why})")
@@ -716,6 +770,11 @@ class Agentd:
         """The worktree goes once the job's work is in GitLab; its editor stops with it. A failed
         job's commits that GitLab doesn't have stay (`studio-admin republish`)."""
         wt = job.get("worktree")
+        if job.get("state") in ("done", "blocked", "failed"):
+            try:
+                os.unlink(os.path.join(VENDOR_RUN_DIR, f"{job.id}.json"))
+            except OSError:
+                pass
         if job.get("state") in ("done", "blocked", "failed") and wt and os.path.isdir(wt):
             subprocess.run(["systemctl", "stop", f"studio-editor-{job['game']}-{job.id}.service"],
                            capture_output=True, check=False)
@@ -754,10 +813,90 @@ class Agentd:
             time.sleep(5)
             subprocess.run(["systemctl", "stop", job.unit], capture_output=True, check=False)
         job.set(state="attached", stop_reason=None)
-        resume = ("claude --resume " if job["vendor"] == "claude" else "codex resume ") + (job.get("session_id") or "<session>")
+        sid = job.get("session_id") or "<session>"
+        if job["vendor"] == "claude":
+            resume = f"claude --resume {sid}"
+        elif job["vendor"] == "codex":
+            resume = f"codex resume {sid}"
+        else:
+            added = self.vendors.command(job["vendor"]) or {}
+            resume = (shlex.join(a.replace("{session}", sid) for a in added["resume"] if "{prompt}" not in a)
+                      if added.get("resume") else f"{job['vendor']} (no resume command: `studio vendor resume`)")
         return {"job": job.id, "worktree": job["worktree"],
                 "take_over": f"sudo -iu agent; cd {job['worktree']}; {resume}",
                 "hand_back": f"studio detach {job.id} (or `studio done` from your session)"}
+
+    def v_vendor(self, caller, args, out):
+        """studio vendor [list] | add <name> [-- <command...>] | resume <name> -- <command...> |
+        remove <name> | order <name>...: the AI vendors this cell's jobs may run. Changes are the
+        person's: in their own shell, or as agent outside a job; never a job's."""
+        sub, rest = (args[0], args[1:]) if args else ("list", [])
+        if sub == "list":
+            return self.vendors.describe(fresh=True)
+        if caller.uid != 0 and caller.uid != self.owner_uid and not (caller.uid == self.agent_uid and not caller.job):
+            raise PermissionError("changing the cell's vendors is for its person (your own shell, or agent's outside "
+                                  "a job), never a job")
+        name = rest[0] if rest else ""
+        cmd = rest[1:]
+        if cmd and cmd[0] == "--":
+            cmd = cmd[1:]
+        note = []
+        if sub == "add":
+            self.vendors.add(name, cmd, caller.user)
+            if cmd:
+                note += self.vendor_warnings(cmd)
+            self.sync_labels([name])
+        elif sub == "resume":
+            if not cmd or not any("{session}" in a for a in cmd):
+                raise ValueError("usage: studio vendor resume <name> -- <command with {session}...>")
+            self.vendors.set_resume(name, cmd)
+        elif sub == "remove":
+            self.vendors.remove(name)
+        elif sub == "order":
+            self.vendors.reorder(rest)
+        else:
+            raise ValueError("usage: studio vendor [list] | add <name> [-- <command...>] | "
+                             "resume <name> -- <command...> | remove <name> | order <name>...")
+        log(f"vendors: {caller.user} {sub} {' '.join(rest)[:200]}")
+        return {"vendors": self.vendors.describe(fresh=False), **({"note": note} if note else {})}
+
+    def vendor_warnings(self, cmd):
+        """What would stop the command running in a job: the program not on agent's PATH."""
+        home = pwd.getpwnam(self.cfg["agent_user"]).pw_dir
+        prog = cmd[0]
+        if os.sep in prog:
+            found = os.access(prog, os.X_OK)
+        else:
+            r = common.run_as(self.cfg["agent_user"], ["sh", "-c", 'command -v "$1"', "sh", prog],
+                              env={"PATH": f"/usr/local/bin:/usr/bin:/bin:{home}/.local/bin"}, timeout=10)
+            found = r.returncode == 0
+        warn = [] if found else [f"{prog} isn't on agent's PATH yet: install it as agent (sudo -iu agent), "
+                                 "for example into ~/.local/bin; jobs look there too"]
+        if not any("{prompt}" in a for a in cmd):
+            warn.append("the command has no {prompt}, so the prompt arrives on its stdin")
+        return warn
+
+    def sync_labels(self, names=None):
+        """A `vendor:<name>` label in each studio game the agent account is in, so it's in the
+        menu: every vendor this cell knows (both built-ins always). Never fatal."""
+        self.labels_synced = time.time()
+        names = names or self.vendors.names()
+        try:
+            for p in self.gl.member_projects():
+                have = {lb["name"] for lb in self.gl.labels(p["id"], "vendor:")}
+                for n in names:
+                    if vendors.label(n) in have:
+                        continue
+                    try:
+                        self.gl.new_label(p["id"], vendors.label(n), vendors.LABEL_COLOR,
+                                          f"Run this item's agent job with {n}. Only the approver's cell reads it; "
+                                          "a cell without that vendor blocks the item and says what it has.")
+                        log(f"labels: {vendors.label(n)} added to {p['path_with_namespace']}")
+                    except GitLabError as e:
+                        if e.status != 409:
+                            log(f"labels: couldn't add {vendors.label(n)} to {p['path_with_namespace']}: {e}")
+        except (GitLabError, OSError) as e:
+            log(f"labels: {e}; the next hour retries")
 
     def v_detach(self, caller, args, out):
         if caller.uid not in (0, self.owner_uid):
@@ -790,7 +929,7 @@ class Handler(socketserver.BaseRequestHandler):
             fn = getattr(d, f"v_{verb}", None)
             if not fn:
                 raise ValueError(f"unknown verb {verb!r}")
-            if verb in ("attach", "detach"):
+            if verb in ("attach", "detach", "vendor"):
                 with d.lock:
                     result = fn(caller, args, out)
             else:  # `done` runs the gates for minutes; it touches only its own job
@@ -815,6 +954,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 def main():
     cfg = common.load_config()
     os.makedirs(JOBS_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(VENDOR_RUN_DIR, mode=0o755, exist_ok=True)
     d = Agentd(cfg)
     me = d.gl.me()["username"]
     if me != cfg["gitlab_agent"]:

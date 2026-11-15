@@ -113,3 +113,14 @@
   loop_control:
     label: "{{ item.user }} -> {{ item.rc }}"
   when: not ansible_check_mode
+
+# studio-agentd lists the cell's AI vendors to agent (empty until someone signs in or adds
+# one); changing them is the person's (`studio vendor`).
+- name: Agentd lists the cell's vendors
+  ansible.builtin.command: studio vendor list
+  become: true
+  become_user: agent
+  register: studio_cell_vendor_list
+  changed_when: false
+  failed_when: studio_cell_vendor_list.rc != 0 or (studio_cell_vendor_list.stdout | from_json) is not sequence
+  when: not ansible_check_mode

@@ -70,7 +70,6 @@
       gate_memory_max: "{{ studio_cell_gate_memory_max }}"
       editor_idle_minutes: "{{ studio_cell_editor_idle_minutes }}"
       agent_env: "{{ studio_cell_agent_job_env }}"
-      vendors: "{{ studio_cell_vendors }}"
       agentd: "{{ studio_cell_agentd }}"
       # The hub's depot, as this cell (role studio_hub_client; only root reads the key).
       hub:

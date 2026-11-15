@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""studio-job-exec <vendor file>: a job's process for a vendor the person added (`studio vendor
+add`), started by studio-job-run as agent inside the job's unit.
+
+The file (written by studio-agentd for this job, root's, readable by agent) holds the command
+as argv lists: {"run": [...], "resume": [...] or null}. `{session}` becomes the session the job
+resumes (STUDIO_RESUME, when the person handed the job back), `{prompt}` the prompt; without
+`{prompt}` the prompt stays on stdin, where systemd put it. Then the command replaces this
+process: its output is the job's stream.
+"""
+import json
+import os
+import sys
+
+MAX_PROMPT_ARG = 120_000  # one argv string may be at most 128 KiB (MAX_ARG_STRLEN)
+
+
+def main():
+    with open(sys.argv[1], encoding="utf-8") as f:
+        v = json.load(f)
+    session = os.environ.get("STUDIO_RESUME", "")
+    argv = v["resume"] if session and v.get("resume") else v["run"]
+    argv = [a.replace("{session}", session) for a in argv]
+    if any("{prompt}" in a for a in argv):
+        prompt = sys.stdin.read()
+        if len(prompt.encode()) > MAX_PROMPT_ARG:
+            print(f"studio-job-exec: the prompt is {len(prompt.encode())} bytes, too long for an argument; "
+                  "register the command without {prompt} to get it on stdin", file=sys.stderr)
+            return 2
+        argv = [a.replace("{prompt}", prompt) for a in argv]
+        fd = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(fd, 0)
+        os.close(fd)
+    try:
+        os.execvp(argv[0], argv)
+    except OSError as e:
+        print(f"studio-job-exec: {argv[0]}: {e}", file=sys.stderr)
+        return 127
+
+
+if __name__ == "__main__":
+    sys.exit(main())

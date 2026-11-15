@@ -128,7 +128,20 @@ class GitLab:
     def mr_diff(self, project_id, iid):
         return self.get_all(f"/projects/{project_id}/merge_requests/{iid}/diffs", limit=300)
 
+    def member_projects(self):
+        """The group's projects this account is a member of: where it may add labels."""
+        return [p for p in self.get_all("/projects", {"membership": "true", "simple": "true", "archived": "false"})
+                if p.get("path_with_namespace", "").startswith(self.group + "/")]
+
+    def labels(self, project_id, search):
+        """A project's labels matching search, the group's among them."""
+        return self.get_all(f"/projects/{project_id}/labels", {"include_ancestor_groups": "true", "search": search})
+
     # --- writes ----------------------------------------------------------------------------
+
+    def new_label(self, project_id, name, color, description):
+        return self.call("POST", f"/projects/{project_id}/labels",
+                         {"name": name, "color": color, "description": description})
 
     def relabel(self, kind, project_id, iid, add=(), remove=()):
         what = "issues" if kind == "issue" else "merge_requests"

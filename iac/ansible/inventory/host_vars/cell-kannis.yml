@@ -1,9 +1,7 @@
 # Kannis's cell (VM 161). He signs in to Claude and Unity in person, as the users agent and
-# unity, and his agents run only on his approvals. He is outside the LAN (no WARP, no
+# unity (no ChatGPT subscription, 2026-11-08; any other AI vendor he adds himself, `studio
+# vendor`), and his agents run only on his approvals. He is outside the LAN (no WARP, no
 # tailnet), so no SSH keys: his way in is the studio's browser terminal, behind Authentik.
 # Until the studio's membership register exists, the owner is set here.
 studio_cell_owner: kannis
 studio_cell_owner_keys: []
-# No ChatGPT subscription, so no Codex sign-in (2026-11-08): his jobs and their reviews are
-# Claude's.
-studio_cell_vendors: [claude]
