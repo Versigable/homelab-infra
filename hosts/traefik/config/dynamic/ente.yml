@@ -1,0 +1,58 @@
+# Ente Photos on VM 115 (phoenix). Vault: 1-Projects/ente-photos.
+#
+# DELIBERATELY NOT behind authentik-forward. The phone and desktop apps can't complete
+# a forward-auth login, and they upload to and download from S3 directly through signed
+# links. Everything Ente stores is encrypted on the devices; people sign in to Ente
+# itself, and photos-s3 only answers requests signed with museum's key.
+# See 5-Decisions/2026-10-21_ente-photos-e2ee.
+http:
+  routers:
+    ente-photos-router:
+      rule: "Host(`photos.ninjaprivacy.org`)"
+      service: ente-photos-svc
+      entrypoints: [websecure]
+      tls: {}
+
+    ente-albums-router:
+      rule: "Host(`albums.ninjaprivacy.org`)"
+      service: ente-albums-svc
+      entrypoints: [websecure]
+      tls: {}
+
+    ente-api-router:
+      rule: "Host(`photos-api.ninjaprivacy.org`)"
+      service: ente-api-svc
+      entrypoints: [websecure]
+      tls: {}
+
+    ente-s3-router:
+      rule: "Host(`photos-s3.ninjaprivacy.org`)"
+      service: ente-s3-svc
+      entrypoints: [websecure]
+      tls: {}
+
+  services:
+    ente-photos-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.15:3000
+        passHostHeader: true
+
+    ente-albums-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.15:3002
+        passHostHeader: true
+
+    ente-api-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.15:8080
+        passHostHeader: true
+
+    # The Host header must reach Garage unchanged: it's part of each signed link.
+    ente-s3-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.15:3900
+        passHostHeader: true

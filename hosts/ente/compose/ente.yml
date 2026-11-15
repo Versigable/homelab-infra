@@ -1,0 +1,121 @@
+name: ente
+
+# Ente Photos (end-to-end encrypted photo backup) on VM 115 (phoenix). The VM itself
+# is built by iac/ (Terraform + Ansible); this stack is deployed by
+# hosts/ente/scripts/deploy.sh. Vault: 1-Projects/ente-photos.
+# Routes: hosts/traefik/config/dynamic/ente.yml
+#   photos.ninjaprivacy.org     -> web     10.0.1.15:3000  (Photos web app)
+#   albums.ninjaprivacy.org     -> web     10.0.1.15:3002  (shared album links)
+#   photos-api.ninjaprivacy.org -> museum  10.0.1.15:8080  (Ente's API server)
+#   photos-s3.ninjaprivacy.org  -> garage  10.0.1.15:3900  (S3; apps upload and
+#                                                           download through signed links)
+#
+# Photos are encrypted on the devices; this server only ever holds ciphertext. The
+# encrypted files live in Garage, whose data dir is the TrueNAS share at
+# /srv/ente-data. Postgres and Garage's metadata are under ../data on the VM disk,
+# which PBS backs up nightly; Garage also snapshots its metadata into the share, so a
+# ZFS snapshot has matching data and metadata.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:18.6-alpine
+    container_name: ente-db
+    restart: unless-stopped
+    logging: *logging
+    networks: [ente-net]
+    environment:
+      POSTGRES_DB: ente_db
+      POSTGRES_USER: ente
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Postgres 18 images keep data in /var/lib/postgresql/18/docker; mount the parent.
+      - ../data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ente -d ente_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+
+  garage:
+    image: dxflrs/garage:v2.4.1
+    container_name: ente-s3
+    restart: unless-stopped
+    logging: *logging
+    networks: [ente-net]
+    # TrueNAS maps every write on the share to entedata (101000), whatever the uid here.
+    user: "1000:1000"
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN}
+    ports:
+      - "10.0.1.15:3900:3900"
+    volumes:
+      - ../config/garage.toml:/etc/garage.toml:ro
+      - ../data/garage-meta:/var/lib/garage/meta
+      - /srv/ente-data/garage:/var/lib/garage/data
+      - /srv/ente-data/garage-meta-snapshots:/var/lib/garage/meta-snapshots
+    read_only: true
+    cap_drop: [ALL]
+
+  museum:
+    image: ghcr.io/ente/server:163f45c26f130090abed03649530f53d2d976565@sha256:3511ff25db3bf950abeb3983928eeadeed7f53b690ee94704c14be72fa719b1d
+    container_name: ente-museum
+    restart: unless-stopped
+    logging: *logging
+    networks: [ente-net]
+    depends_on:
+      db:
+        condition: service_healthy
+      garage:
+        condition: service_started
+    # Settings that aren't secret are in museum.yaml; the secrets come from .env as
+    # ENTE_* variables, which override the file (dots and dashes become underscores).
+    environment:
+      ENTE_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      ENTE_S3_B2_EU_CEN_KEY: ${S3_KEY_ID}
+      ENTE_S3_B2_EU_CEN_SECRET: ${S3_SECRET}
+      ENTE_KEY_ENCRYPTION: ${ENTE_KEY_ENCRYPTION}
+      ENTE_KEY_HASH: ${ENTE_KEY_HASH}
+      ENTE_JWT_SECRET: ${ENTE_JWT_SECRET}
+    ports:
+      - "10.0.1.15:8080:8080"
+    volumes:
+      - ../config/museum.yaml:/museum.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/ping"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+
+  web:
+    image: ghcr.io/ente/web:fc4b0aecabaf1df130bd3e6773d827eb7e0d8394@sha256:f7a254c2523ce54beed04e5031349c4cf0fc67a7ab8f82c24ab74052b617602f
+    container_name: ente-web
+    restart: unless-stopped
+    logging: *logging
+    networks: [ente-net]
+    # The entrypoint writes this origin into the built JS at startup, so the image's
+    # files can't be read-only.
+    environment:
+      ENTE_API_ORIGIN: https://photos-api.ninjaprivacy.org
+    ports:
+      - "10.0.1.15:3000:3000"
+      - "10.0.1.15:3002:3002"
+    # nginx starts as root and drops to its worker user.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+
+networks:
+  ente-net:
+    name: ente-net

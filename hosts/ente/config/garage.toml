@@ -1,0 +1,27 @@
+# Garage: the S3 storage behind Ente, a single node. The RPC secret and admin token
+# come from the environment (GARAGE_RPC_SECRET, GARAGE_ADMIN_TOKEN).
+# Vault: 1-Projects/ente-photos.
+
+# Metadata on the VM disk (PBS backs it up); data on the TrueNAS share.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+
+# Snapshots of the metadata go into the share, so a ZFS snapshot of the dataset
+# holds data and metadata that belong together.
+metadata_auto_snapshot_interval = "6h"
+metadata_snapshots_dir = "/var/lib/garage/meta-snapshots"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+# Path-style URLs only (photos-s3.ninjaprivacy.org/<bucket>/...).
+root_domain = ".s3.invalid"
+
+[admin]
+api_bind_addr = "[::]:3903"

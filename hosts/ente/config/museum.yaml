@@ -1,0 +1,27 @@
+# Ente's API server (museum). Nothing secret goes here: passwords, S3 keys and
+# Ente's own keys come from .env as ENTE_* variables (see compose/ente.yml).
+# Vault: 1-Projects/ente-photos.
+
+db:
+  host: db
+  port: 5432
+  name: ente_db
+  user: ente
+
+s3:
+  # Apps upload and download straight to this endpoint through signed links, and
+  # museum checks each upload against it, so it must be the public name.
+  are_local_buckets: false
+  use_path_style_urls: true
+  # Only Ente's primary bucket is used; replication across three buckets stays off.
+  b2-eu-cen:
+    endpoint: photos-s3.ninjaprivacy.org
+    region: garage
+    bucket: b2-eu-cen
+
+apps:
+  public-albums: https://albums.ninjaprivacy.org
+
+internal:
+  # Open only while accounts are being created; see the vault runbook.
+  disable-registration: false

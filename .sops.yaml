@@ -40,6 +40,13 @@ creation_rules:
   - path_regex: ^hosts/nextcloud/secrets/.*\.env\.sops$
     age: ["age15awta4pt3vp6r4swn7psu7qjdx8n80rlhanf6ckm72uujzdz8yaq2ql2zn"]
 
+  # Ente host (VM 115 on phoenix, built by iac/). iac/ansible role sops_age makes the key
+  # on the host; a rebuilt VM gets a new one, so after a rebuild update this key and
+  # re-encrypt hosts/ente/secrets/* from the copy in Bitwarden. ENTE_KEY_ENCRYPTION and
+  # ENTE_KEY_HASH must never change (vault: 1-Projects/ente-photos).
+  - path_regex: ^hosts/ente/secrets/.*\.env\.sops$
+    age: ["age1q22q2m7ax2g7js5tj9yjmhe7qawg3s5mdzg9m90yfzzsg4ynjvaqllxrt2"]
+
   # Home Assistant, one secrets file per house (hosts/home-assistant/instances), each
   # encrypted only to its own guest, so neither house can read the other's. Both guests
   # are built by iac/. Same as Nextcloud: after a rebuild, update that house's key and
