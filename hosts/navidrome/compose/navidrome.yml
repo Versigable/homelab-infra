@@ -31,6 +31,10 @@ services:
       # The library is static, and inotify doesn't see changes made on the NFS
       # server, so a periodic scan is the only way new files show up.
       - ND_SCANNER_SCHEDULE=@every 6h
+      # Import playlist files only from a "Playlists" folder at each library's root
+      # (Firekube, 2026-11-15). Without it, every .m3u shipped inside album folders
+      # (INDEX.M3U, 00-artist-album.m3u) became a junk playlist. Applies to every library.
+      - ND_PLAYLISTSPATH=Playlists
       # Defaults to true: public share links would put the library outside the
       # three accounts.
       - ND_ENABLESHARING=false
