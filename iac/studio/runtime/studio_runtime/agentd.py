@@ -9,7 +9,9 @@ worktree. The job holds one credential, the person's AI sign-in; every GitLab wr
 daemon's own, as the agent account, after the job:
 
   implement   issue -> branch agent/<iid>, MR, gate status, ledger, then a review job
-  review      MR -> review notes from the other vendor
+  review      MR -> review notes from the other vendor, or, on a cell with one vendor
+              (cell.json `vendors`: the AI sign-ins the person has), from a fresh session
+              of the same one
 
 `studio done` (a job's last verb) asks the broker for the cold gates on the job's committed
 HEAD; the job counts as done only with a passing gate for that exact revision (the ledger).
@@ -43,6 +45,7 @@ JOBS_DIR = os.path.join(common.STATE_DIR, "jobs")
 REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
 OTHER = {"claude": "codex", "codex": "claude"}
+VENDORS = ("claude", "codex")
 
 
 def now():
@@ -107,6 +110,10 @@ class Agentd:
     def __init__(self, cfg):
         self.cfg = cfg
         self.a = cfg["agentd"]
+        # The vendors this person is signed in to, in the order the cell prefers them.
+        self.vendors = [v for v in cfg.get("vendors", VENDORS) if v in VENDORS]
+        if not self.vendors:
+            raise ValueError(f"cell.json vendors: none of {', '.join(VENDORS)}")
         self.gl = GitLab(cfg)
         self.agent_uid = pwd.getpwnam(cfg["agent_user"]).pw_uid
         self.owner_uid = pwd.getpwnam(cfg["owner"]).pw_uid
@@ -198,11 +205,16 @@ class Agentd:
     def claim(self, kind, item, approval):
         ref = item["references"]["full"]
         game = ref.split("/")[1].split("#")[0].split("!")[0]
-        labels = item.get("labels", [])
-        vendor = "codex" if "vendor:codex" in labels else "claude"
         jkind = "implement" if kind == "issue" else "review"
-        if jkind == "review" and "vendor:claude" not in labels and "vendor:codex" not in labels:
-            vendor = "codex"
+        vendor, asked = self.pick_vendor(jkind, item.get("labels", []))
+        if not vendor:
+            self.gl.relabel(kind, item["project_id"], item["iid"], add=[BLOCKED], remove=[REQUEST])
+            self.gl.note(kind, item["project_id"], item["iid"],
+                         f"Not started: it asks for {asked} (`vendor:{asked}`), which isn't signed in on "
+                         f"`cell-{self.cfg['owner']}`; this cell runs {' and '.join(self.vendors)}. Remove "
+                         f"`vendor:{asked}` and approve it again (`agent-request`) to run it with {self.vendors[0]}.")
+            log(f"{ref}: refused ({asked} isn't one of this cell's vendors)")
+            return
         text, void = self.snapshot(kind, item, approval)
         if void:
             self.gl.relabel(kind, item["project_id"], item["iid"], add=[BLOCKED], remove=[REQUEST])
@@ -230,6 +242,17 @@ class Agentd:
                      f"Approved by @{approval['by']} at {approval['at']}; the job sees this item as it stood then.")
         log(f"{ref}: claimed as {jid} ({jkind}, {vendor})")
         self.start(job)
+
+    def pick_vendor(self, jkind, labels):
+        """(vendor, None), or (None, the vendor asked for) when its label names one this cell
+        hasn't. A label decides (vendor:codex over vendor:claude); without one, an implement
+        job goes to Claude and a review to Codex, the other vendor from the usual implementer,
+        or to the cell's first vendor when it hasn't that one."""
+        asked = "codex" if "vendor:codex" in labels else "claude" if "vendor:claude" in labels else None
+        if asked:
+            return (asked, None) if asked in self.vendors else (None, asked)
+        prefer = "claude" if jkind == "implement" else "codex"
+        return (prefer if prefer in self.vendors else self.vendors[0]), None
 
     # --- preflight ------------------------------------------------------------------------------
 
@@ -465,8 +488,9 @@ class Agentd:
                              f"Blocked (job `{job.id}`):\n\n{res['text']}")
                 job.set(state="blocked", finished_at=now().isoformat())
             elif job["kind"] == "review" and res.get("kind") == "review":
+                fresh = "; a fresh session, not the one that wrote the change" if job.get("same_vendor") else ""
                 self.gl.note("mr", item["project_id"], item["iid"],
-                             f"**Review by {job['vendor']}** (job `{job.id}`)\n\n{res['text']}")
+                             f"**Review by {job['vendor']}** (job `{job.id}`{fresh})\n\n{res['text']}")
                 self.gl.relabel("mr", item["project_id"], item["iid"], add=[REVIEW], remove=[RUNNING])
                 job.set(state="done", finished_at=now().isoformat())
             else:
@@ -644,13 +668,17 @@ class Agentd:
             log(f"play {p['id']}: {p['person']}, {mins} min on {p['game']}@{p['revision'][:10]} reported")
 
     def queue_review(self, job, mr):
-        """The other vendor reviews the MR, without another approval: it's part of this one."""
-        vendor = OTHER[job["vendor"]]
-        if not self.preflight(vendor)[0]:
-            log(f"{job.id}: review skipped, {vendor} is over its ceilings")
+        """The other vendor reviews the MR, without another approval: it's part of this one. On
+        a cell with one vendor, a fresh session of the same one (a review job never resumes the
+        session that wrote the change)."""
+        vendor = OTHER[job["vendor"]] if OTHER[job["vendor"]] in self.vendors else job["vendor"]
+        ok, why = self.preflight(vendor)
+        if not ok:
+            log(f"{job.id}: review skipped ({why})")
             return
         jid = f"{job['game']}-mr{mr['iid']}-{int(time.time()) % 10**7:07d}"
         rj = Job(jid, {"id": jid, "kind": "review", "vendor": vendor, "state": "queued", "game": job["game"],
+                       "same_vendor": vendor == job["vendor"],
                        "item": {"kind": "mr", "project_id": mr["project_id"], "iid": mr["iid"],
                                 "ref": mr["references"]["full"], "title": mr["title"], "web_url": mr["web_url"],
                                 "source_branch": mr["source_branch"], "target_branch": mr["target_branch"]},

@@ -83,6 +83,15 @@ studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/hom
 # The pinned Editor, installed by the Unity CLI as root, read-only to everyone else.
 studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}"
 
+# The AI vendors the person signs in to as agent, in the order the cell prefers them (set per
+# cell in host_vars). studio-agentd only starts jobs with these: without a vendor label, an
+# implement job goes to Claude and a review to Codex, the other vendor from the usual
+# implementer, or to the first one listed when the cell hasn't that one; the review after an
+# implement job is the other vendor's, or on a one-vendor cell a fresh session of the same one.
+# An item labelled for a vendor not listed is refused with a note. Both CLIs are installed
+# either way, so a sign-in added later only needs this list.
+studio_cell_vendors: [claude, codex]
+
 # studio-agentd (the runtime): whose agent-request labels this cell takes as approvals (until
 # the member register, step 6: the person's GitLab account), and its jobs' limits.
 #   ceilings: a job doesn't start when the vendor's last known usage is at or above these

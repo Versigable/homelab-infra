@@ -6,6 +6,14 @@
     fail_msg: "Set studio_cell_owner in host_vars/{{ inventory_hostname }}.yml"
     quiet: true
 
+- name: The cell's vendors are known ones
+  ansible.builtin.assert:
+    that:
+      - studio_cell_vendors | length > 0
+      - studio_cell_vendors | difference(['claude', 'codex']) | length == 0
+    fail_msg: "studio_cell_vendors: claude and/or codex, got {{ studio_cell_vendors }}"
+    quiet: true
+
 - name: Service users (no password, no sudo)
   ansible.builtin.user:
     name: "{{ item }}"
