@@ -1,7 +1,7 @@
 {
   "CORSRules": [
     {
-      "AllowedOrigins": ["https://photos.ninjaprivacy.org", "https://albums.ninjaprivacy.org"],
+      "AllowedOrigins": ["https://photos.ninjaprivacy.org", "https://albums.ninjaprivacy.org", "ente://app"],
       "AllowedMethods": ["GET", "HEAD", "POST", "PUT", "DELETE"],
       "AllowedHeaders": ["*"],
       "ExposeHeaders": ["Etag"],
