@@ -23,6 +23,88 @@ import urllib.parse
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 OUTBOX = os.path.join(os.environ.get("STUDIO_STATE_DIR", "/var/lib/studio"), "outbox")
 
+# --- the Stage: the Studio Kit's contract with the platform ------------------------------------
+# A game's build carries its catalogue of Stage assets (the kit writes the committed
+# Assets/StreamingAssets/studio/catalog.json), the player takes -studio-open <target>, and with
+# STUDIO_OUT set the kit writes the session's tweaks to $STUDIO_OUT/tweaks.json. Everything that
+# crosses a trust boundary (cell -> hub, Forge -> hub, hub -> GitLab) goes through these.
+CATALOG_PATH = "Assets/StreamingAssets/studio/catalog.json"
+ASSET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+TWEAK_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+OPEN_RE = re.compile(r"^(game|stage|stage:[a-z0-9][a-z0-9-]{0,47})$")
+MAX_ASSETS, MAX_TWEAKS, MAX_NAME = 200, 64, 64
+MAX_TWEAK_ASSETS, MAX_CHANGES, MAX_TWEAKS_BYTES = 50, 100, 64 << 10
+
+
+def check_catalog(c):
+    """The catalogue, normalised, or None if it isn't one: version 1, ids and tweak names
+    as the contract says, names at most 64 characters, at most 200 assets. Keeps "new"."""
+    if not isinstance(c, dict) or c.get("version") != 1 or not isinstance(c.get("assets"), list):
+        return None
+    if len(c["assets"]) > MAX_ASSETS:
+        return None
+    out, seen = [], set()
+    for a in c["assets"]:
+        if not isinstance(a, dict) or not isinstance(a.get("id"), str) or not ASSET_ID_RE.match(a["id"]):
+            return None
+        name = a.get("name", a["id"])
+        tweaks = a.get("tweaks", [])
+        if (not isinstance(name, str) or not name.strip() or len(name) > MAX_NAME or a["id"] in seen
+                or not isinstance(tweaks, list) or len(tweaks) > MAX_TWEAKS
+                or not all(isinstance(t, str) and TWEAK_RE.match(t) for t in tweaks)):
+            return None
+        seen.add(a["id"])
+        e = {"id": a["id"], "name": name.strip(), "tweaks": list(tweaks)}
+        if a.get("new") is True:
+            e["new"] = True
+        out.append(e)
+    kit = c.get("kit")
+    return {"version": 1, "kit": kit if isinstance(kit, str) and len(kit) <= 32 else None, "assets": out}
+
+
+def catalog_ids(c):
+    return {a["id"] for a in (c or {}).get("assets", [])}
+
+
+def _scalar(v):
+    return isinstance(v, bool) or (isinstance(v, (int, float)) and v == v and abs(v) < 1e12)
+
+
+def check_tweaks(t):
+    """A session's tweaks.json, normalised, or None if it isn't one (version 1, at most 50
+    assets with at most 100 changes each, names as the contract says, numbers or booleans)."""
+    if not isinstance(t, dict) or t.get("version") != 1 or not isinstance(t.get("assets"), list):
+        return None
+    if len(t["assets"]) > MAX_TWEAK_ASSETS:
+        return None
+    out = []
+    for a in t["assets"]:
+        if not isinstance(a, dict) or not isinstance(a.get("id"), str) or not ASSET_ID_RE.match(a["id"]):
+            return None
+        ch = a.get("changes")
+        if not isinstance(ch, list) or len(ch) > MAX_CHANGES:
+            return None
+        rows = []
+        for c in ch:
+            if (not isinstance(c, dict) or not isinstance(c.get("name"), str) or not TWEAK_RE.match(c["name"])
+                    or not _scalar(c.get("from")) or not _scalar(c.get("to"))):
+                return None
+            rows.append({"name": c["name"], "from": c["from"], "to": c["to"]})
+        if rows:
+            out.append({"id": a["id"], "changes": rows})
+    if len(json.dumps(out)) > MAX_TWEAKS_BYTES:
+        return None
+    return {"version": 1, "assets": out}
+
+
+def check_open(value, catalog=None):
+    """What a session opens: game, stage or stage:<id>; with a catalogue, the id must be in it."""
+    if not isinstance(value, str) or not OPEN_RE.match(value):
+        return None
+    if value.startswith("stage:") and catalog is not None and value[6:] not in catalog_ids(catalog):
+        return None
+    return value
+
 
 class HubError(Exception):
     def __init__(self, status, body):
@@ -164,6 +246,31 @@ def build_step(gate):
     return None
 
 
+def read_catalog(raw):
+    """A catalogue from its file's bytes, or None (unreadable, not JSON, not a catalogue)."""
+    try:
+        return check_catalog(json.loads(raw))
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return None
+
+
+def catalog_of(step):
+    """The Stage catalogue a Linux build carries (<stem>_Data/StreamingAssets/studio/catalog.json),
+    or None. A build without one, or with a bad one, is still a build: it just has no Stage."""
+    exe = os.path.basename(step.get("binary") or "")
+    stem = os.path.splitext(exe)[0]
+    if not stem:
+        return None
+    p = os.path.join(step["path"], f"{stem}_Data", "StreamingAssets", "studio", "catalog.json")
+    try:
+        if os.path.getsize(p) > 1 << 20:
+            return None
+        with open(p, "rb") as f:
+            return read_catalog(f.read())
+    except OSError:
+        return None
+
+
 def deposit(hub, game, gate):
     """Pack and upload the gate's Linux build. Returns what the manifest needs about it."""
     step = build_step(gate)
@@ -177,7 +284,16 @@ def deposit(hub, game, gate):
     finally:
         os.unlink(dest)
     return {"object": sha, "object_bytes": size, "bytes": step.get("bytes"), "target": "linux",
-            "exe": os.path.relpath(step["binary"], step["path"]), "exe_sha256": step.get("sha256")}
+            "exe": os.path.relpath(step["binary"], step["path"]), "exe_sha256": step.get("sha256"),
+            "catalog": catalog_of(step)}
+
+
+def mark_new(catalog, base_ids):
+    """The catalogue with "new": true on the assets the base revision didn't have."""
+    if not catalog:
+        return catalog
+    return {**catalog, "assets": [{**a, "new": True} if a["id"] not in base_ids else
+                                  {k: v for k, v in a.items() if k != "new"} for a in catalog["assets"]]}
 
 
 def gate_summary(gate):
@@ -195,6 +311,8 @@ def manifest(game, gate, dep, job=None, mr=None):
     m = {"game": game, "revision": gate["revision"], "target": dep["target"], "object": dep["object"],
          "exe": dep["exe"], "exe_sha256": dep.get("exe_sha256"), "bytes": dep.get("bytes"), "job": job,
          "gates": gate_summary(gate)}
+    if dep.get("catalog"):
+        m["catalog"] = dep["catalog"]
     if mr:
         m["mr"] = {"project_id": mr["project_id"], "iid": mr["iid"], "title": mr["title"],
                    "url": mr["web_url"], "state": mr["state"]}

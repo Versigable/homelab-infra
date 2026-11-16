@@ -11,11 +11,11 @@ Python 3.13, standard library only.
 | `studio` | `agent` | The agent's CLI: one request per call to the daemons' sockets in `/run/studio` |
 | `studio-brain-sync` | root (service, cell) | The studio brain, read-only, as files in `/srv/studio/_brain` for the cell's agents: the cell's reader account on the brain's CouchDB, the people's notes without the desk agents' memory or the archive (`--check`: it reads, can't write, the infra brains refuse it) |
 | `bin/studio-job-run`, `bin/studio-job-exec` | `agent`, in a job's unit | A job's process: Claude or Codex with the studio's flags, or a vendor the person added (`studio vendor add`) with its own command |
-| `studio-admin` | root (cell) | Game mirrors and worktrees (`workspace <game> <name>`), and `upload <game> <rev>` of a gated build to the depot; studio-agentd reuses it |
+| `studio-admin` | root (cell) | Game mirrors and worktrees (`workspace <game> <name>`), `upload <game> <rev>` of a gated build to the depot, and MRs from `studio/template` as the agent account: `game seed <game>` (a new game's tree) and `game kit <game>` (its Studio Kit); studio-agentd reuses it |
 | `bin/studio-editor-run` | `unity`, in a warm editor's unit | A private X server (auth cookie, no TCP, no abstract socket), then the Editor on it |
 | `bin/studio-git-askpass` | root, for git | The agent account's token from `/etc/studio/gitlab-token`, never on a command line |
-| `studio-hubd` | `studio-hub` (service, hub) | The depot (objects by sha256, build manifests) and the broker's play sessions for cells and the Forge over mutual TLS; the portal, and Traefik's stream check, behind Traefik and Authentik |
-| `forge-playd` | root (service, Forge) | Syncs with the broker every 2 s: runs each session's build (fetched by hash, unpacked once) in a locked play container on its slot, reports ready and viewers, keeps ended sessions' player logs |
+| `studio-hubd` | `studio-hub` (service, hub) | The depot (objects by sha256, build manifests with each build's Stage catalogue) and the broker's play sessions for cells and the Forge over mutual TLS; the portal (Play, the Stage, one asset on the Stage), and Traefik's stream check, behind Traefik and Authentik |
+| `forge-playd` | root (service, Forge) | Syncs with the broker every 2 s: runs each session's build (fetched by hash, unpacked once) in a locked play container on its slot, opened with `-studio-open`, reports ready and viewers, keeps ended sessions' player logs and hands their Stage tweaks to the hub |
 
 The cell's daemons take the caller from the kernel (`SO_PEERCRED`, then its cgroup:
 `studio-job-<id>.service` is the job) and act only on the worktree the caller stands in. The

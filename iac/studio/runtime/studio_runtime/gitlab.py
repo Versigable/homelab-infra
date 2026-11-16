@@ -125,6 +125,10 @@ class GitLab:
                         params={"source_branch": branch, "state": "opened"})
         return mrs[0] if mrs else None
 
+    def closes_issues(self, project_id, iid):
+        """The issues an MR closes when it merges (its "Closes #n")."""
+        return self.call("GET", f"/projects/{project_id}/merge_requests/{iid}/closes_issues") or []
+
     def mr_diff(self, project_id, iid):
         return self.get_all(f"/projects/{project_id}/merge_requests/{iid}/diffs", limit=300)
 

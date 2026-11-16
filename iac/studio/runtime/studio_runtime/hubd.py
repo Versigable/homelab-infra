@@ -16,6 +16,11 @@ it has. A session ends when its person ends it, after idle_minutes with no viewe
 cap_hours, or if it never starts. A session someone watched becomes play evidence, which the
 uploading cell's studio-agentd posts to the MR.
 
+The Stage: a build's manifest carries the catalogue of Stage assets its game registered with
+the Studio Kit. The portal offers Play (the game), the Stage, and each asset; the session
+records which, and the Forge starts the player with -studio-open. The numbers the person tunes
+on the Stage come back from the Forge when the session ends and travel with the play evidence.
+
 State on the depot disk (/srv/depot): objects/<ab>/<sha256>, tmp/, and depot.db (SQLite).
 MR builds expire after build_days; an object goes once no build refers to it.
 """
@@ -39,7 +44,7 @@ import traceback
 import urllib.parse
 
 from . import VERSION
-from .hub import SHA_RE
+from .hub import SHA_RE, catalog_ids, check_catalog, check_open, check_tweaks
 
 CONFIG_FILE = os.environ.get("STUDIO_HUB_CONFIG", "/etc/studio-hub/hub.json")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -70,7 +75,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   reported INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS sessions_state ON sessions (state);
 """
+# Columns added after the first schema, added in place to a depot.db that predates them.
+#   builds.catalog         the build's Stage catalogue (JSON), from its manifest
+#   sessions.open_target   what the session opened: game, stage or stage:<id>
+#   sessions.tweaks        the numbers tuned on the Stage (JSON), collected by the Forge at the end
+#   sessions.collected     1 once the Forge has collected the session's tweaks (or found none)
+COLUMNS = {"builds": [("catalog", "TEXT")],
+           "sessions": [("open_target", "TEXT"), ("tweaks", "TEXT"), ("collected", "INTEGER NOT NULL DEFAULT 0")]}
 ACTIVE = ("requested", "starting", "live")
+COLLECT_WAIT = dt.timedelta(seconds=120)   # a play is reported without its tweaks after this
 
 
 def now():
@@ -105,6 +118,12 @@ class Depot:
         self.db_path = os.path.join(self.root, "depot.db")
         with self.db() as db:
             db.executescript(SCHEMA)
+            for table, cols in COLUMNS.items():
+                have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+                for name, decl in cols:
+                    if name not in have:
+                        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+                        log(f"depot: added {table}.{name}")
 
     def db(self):
         db = sqlite3.connect(self.db_path, timeout=30)
@@ -172,22 +191,28 @@ class Depot:
         if not self.has(m["object"]):
             raise BadRequest("upload the object first")
         mr = m.get("mr") or {}
+        # The Stage catalogue is the game's own data, so the hub checks it again. A bad one costs
+        # the build its Stage buttons, not its place in the depot.
+        catalog = check_catalog(m["catalog"]) if m.get("catalog") is not None else None
+        if m.get("catalog") is not None and not catalog:
+            log(f"depot: {m['game']}@{str(m['revision'])[:10]} from {cell}: its Stage catalogue isn't one; ignored")
         expires = iso(now() + dt.timedelta(days=self.build_days))
         size = os.path.getsize(self.path(m["object"]))
         with self.db() as db:
             db.execute(
                 """INSERT INTO builds (game, revision, target, object, object_bytes, exe, exe_sha256, bytes,
-                     owner, cell, job, project_id, mr_iid, mr_title, mr_url, mr_state, gates, at, expires)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     owner, cell, job, project_id, mr_iid, mr_title, mr_url, mr_state, gates, at, expires, catalog)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT (game, revision, target, cell) DO UPDATE SET
                      object=excluded.object, object_bytes=excluded.object_bytes, exe=excluded.exe,
                      exe_sha256=excluded.exe_sha256, bytes=excluded.bytes, job=excluded.job,
                      project_id=excluded.project_id, mr_iid=excluded.mr_iid, mr_title=excluded.mr_title,
                      mr_url=excluded.mr_url, mr_state=excluded.mr_state, gates=excluded.gates,
-                     at=excluded.at, expires=excluded.expires""",
+                     at=excluded.at, expires=excluded.expires, catalog=excluded.catalog""",
                 (m["game"], m["revision"], m["target"], m["object"], size, exe, m.get("exe_sha256"),
                  m.get("bytes"), owner, cell, m.get("job"), mr.get("project_id"), mr.get("iid"),
-                 mr.get("title"), mr.get("url"), mr.get("state"), json.dumps(gates), iso(now()), expires))
+                 mr.get("title"), mr.get("url"), mr.get("state"), json.dumps(gates), iso(now()), expires,
+                 json.dumps(catalog) if catalog else None))
             row = db.execute("SELECT id FROM builds WHERE game=? AND revision=? AND target=? AND cell=?",
                              (m["game"], m["revision"], m["target"], cell)).fetchone()
         return row["id"]
@@ -249,29 +274,35 @@ class Broker:
         with self.depot.db() as db:
             return db.execute(f"SELECT * FROM sessions WHERE state IN {ACTIVE} ORDER BY slot").fetchall()
 
-    def request(self, build_id, person):
-        """A person presses Play. Their session on this build if they have one; otherwise a
-        new one on a free slot, ending their session on any other build. None: all busy."""
+    def request(self, build_id, person, open_target="game"):
+        """A person presses Play (open_target game) or opens the build's Stage (stage, or
+        stage:<id> for one asset). Their session on this build opened the same way if they have
+        one; otherwise a new one on a free slot, ending their other session (on another build,
+        or this build opened another way). None: all busy."""
         with self.lock, self.depot.db() as db:
             b = db.execute("SELECT * FROM builds WHERE id=?", (build_id,)).fetchone()
             if not b or b["target"] != "linux":
                 raise BadRequest("no such Linux build")
+            catalog = json.loads(b["catalog"]) if b["catalog"] else None
+            target = check_open(open_target, catalog or {"assets": []})
+            if not target or (target != "game" and not catalog_ids(catalog)):
+                raise BadRequest(f"this build can't open {str(open_target)[:60]!r}")
             mine = db.execute(f"SELECT * FROM sessions WHERE person=? AND state IN {ACTIVE}", (person,)).fetchall()
             for s in mine:
-                if s["build"] == build_id:
+                if s["build"] == build_id and (s["open_target"] or "game") == target:
                     return s["id"]
             for s in mine:
-                self._end(db, s["id"], "replaced by another build")
+                self._end(db, s["id"], f"reopened on {target}" if s["build"] == build_id else "replaced by another build")
             used = {r["slot"] for r in db.execute(f"SELECT slot FROM sessions WHERE state IN {ACTIVE}")}
             free = [n for n in range(self.slots) if n not in used]
             if not free:
                 return None
             sid = secrets.token_hex(8)
             db.execute("INSERT INTO sessions (id, build, game, revision, object, exe, cell, project_id, mr_iid, "
-                       "person, slot, state, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       "person, slot, state, at, open_target) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (sid, b["id"], b["game"], b["revision"], b["object"], b["exe"], b["cell"], b["project_id"],
-                        b["mr_iid"], person, free[0], "requested", iso(now())))
-        log(f"broker: {sid} {b['game']}@{b['revision'][:10]} for {person} on slot {free[0]}")
+                        b["mr_iid"], person, free[0], "requested", iso(now()), target))
+        log(f"broker: {sid} {b['game']}@{b['revision'][:10]} ({target}) for {person} on slot {free[0]}")
         return sid
 
     @staticmethod
@@ -315,12 +346,27 @@ class Broker:
         the sessions that should run. Anything not in the answer, the Forge removes."""
         running = report.get("running") or {}
         failed = report.get("failed") or {}
+        collected = report.get("collected") or {}
+        if not all(isinstance(x, dict) for x in (running, failed, collected)):
+            raise BadRequest("running, failed and collected are objects")
         t = now()
         step = min((t - self.last_sync).total_seconds(), 10) if self.last_sync else 0
         self.last_sync = t
         with self.lock, self.depot.db() as db:
             for sid, msg in failed.items():
                 self._end(db, str(sid), "failed on the Forge", str(msg)[:2000])
+            # The Forge collects a session's tweaks.json as it removes the container, which it
+            # does only once the session has ended here. Null: there were none, or the container
+            # was gone. Anything that isn't tweaks is dropped, never stored.
+            for sid, raw in collected.items():
+                s = db.execute("SELECT state, game FROM sessions WHERE id=?", (str(sid),)).fetchone()
+                if not s or s["state"] in ACTIVE:
+                    continue
+                tw = check_tweaks(raw) if raw is not None else None
+                if raw is not None and tw is None:
+                    log(f"broker: {sid}: the Forge's tweaks for it aren't tweaks; dropped")
+                db.execute("UPDATE sessions SET tweaks=?, collected=1 WHERE id=?",
+                           (json.dumps(tw) if tw and tw["assets"] else None, str(sid)))
             for sid, st in running.items():
                 s = db.execute("SELECT * FROM sessions WHERE id=?", (str(sid),)).fetchone()
                 if not s or s["state"] not in ACTIVE:
@@ -336,7 +382,8 @@ class Broker:
             self.sweep(db)
             rows = db.execute(f"SELECT * FROM sessions WHERE state IN {ACTIVE} ORDER BY slot").fetchall()
         return {"sessions": [{"id": s["id"], "slot": s["slot"], "object": s["object"], "exe": s["exe"],
-                              "game": s["game"], "revision": s["revision"]} for s in rows]}
+                              "game": s["game"], "revision": s["revision"], "open": s["open_target"] or "game"}
+                             for s in rows]}
 
     def stream_ok(self, slot, person):
         with self.depot.db() as db:
@@ -344,12 +391,25 @@ class Broker:
         return bool(s) and s["person"] == person
 
     def plays(self, cell):
-        """Ended sessions of this cell's builds that someone watched, not yet reported."""
+        """Ended sessions of this cell's builds that someone watched, not yet reported: once the
+        Forge has collected their tweaks, or COLLECT_WAIT after the end if it hasn't (a Forge
+        that's down mustn't hold play evidence back for good)."""
+        cutoff = iso(now() - COLLECT_WAIT)
         with self.depot.db() as db:
-            rows = db.execute("SELECT * FROM sessions WHERE cell=? AND state='ended' AND reported=0 "
-                              "AND viewer_seconds >= ?", (cell, self.play_min)).fetchall()
-        return [{k: s[k] for k in ("id", "game", "revision", "project_id", "mr_iid", "person", "viewer_seconds",
-                                   "at", "ended_at", "end_reason")} for s in rows]
+            rows = db.execute("SELECT s.*, b.catalog AS build_catalog FROM sessions s LEFT JOIN builds b ON b.id = s.build "
+                              "WHERE s.cell=? AND s.state='ended' AND s.reported=0 AND s.viewer_seconds >= ? "
+                              "AND (s.collected=1 OR s.ended_at <= ?)", (cell, self.play_min, cutoff)).fetchall()
+        out = []
+        for s in rows:
+            p = {k: s[k] for k in ("id", "game", "revision", "project_id", "mr_iid", "person", "viewer_seconds",
+                                   "at", "ended_at", "end_reason")}
+            p["open"] = s["open_target"] or "game"
+            p["tweaks"] = json.loads(s["tweaks"]) if s["tweaks"] else None
+            if p["open"].startswith("stage:") and s["build_catalog"]:
+                names = {a["id"]: a["name"] for a in json.loads(s["build_catalog"]).get("assets", [])}
+                p["open_name"] = names.get(p["open"][6:])
+            out.append(p)
+        return out
 
     def reported(self, sid, cell):
         with self.depot.db() as db:
@@ -518,6 +578,8 @@ th{{color:#9aa4ae;font-weight:500}} .ok{{color:#5fd38d}} .bad{{color:#ff7b72}} .
 code{{font:13px ui-monospace,monospace}} .tag{{padding:1px 8px;border-radius:9px;background:#2a323c;font-size:13px}}
 form{{display:inline;margin:0}} button{{font:inherit;padding:2px 14px;border-radius:6px;border:1px solid #3b82c4;
 background:#1f4f7a;color:#fff;cursor:pointer}} button.end{{background:#5a2a2a;border-color:#8a3a3a}}
+button.stage{{background:#26323d;border-color:#4a5a6a;margin:2px 4px 2px 0}} .new{{color:#ffd166;font-size:12px}}
+td.stage{{padding-top:0;color:#9aa4ae}}
 </style>{head}</head><body><header><a href="/">Studio</a><span>{who}</span></header><main>{body}</main></body></html>"""
 
 
@@ -532,6 +594,12 @@ def size(n):
 def age(at):
     s = (now() - dt.datetime.fromisoformat(at)).total_seconds()
     return f"{int(s // 60)} min ago" if s < 3600 else f"{int(s // 3600)} h ago" if s < 86400 else f"{int(s // 86400)} d ago"
+
+
+def opened_text(s):
+    """" on the Stage" / " on the Stage: <id>" for a session that didn't open the game."""
+    o = s["open_target"] or "game"
+    return "" if o == "game" else " on the Stage" + (f": {o[6:]}" if o.startswith("stage:") else "")
 
 
 def gates_cell(gates):
@@ -625,7 +693,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         try:
             m = re.fullmatch(r"/play/(\d+)", path)
             if m:
-                sid = self.server.broker.request(int(m.group(1)), self.person)
+                target = (self.form().get("open") or ["game"])[0]
+                sid = self.server.broker.request(int(m.group(1)), self.person, target)
                 if not sid:
                     return self.page("All slots busy", f"<h1>All {self.server.broker.slots} play slots are busy</h1>"
                                      "<p>Try again when a session ends.</p>" + self.sessions_table(), 503)
@@ -642,6 +711,17 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             log("portal error:\n" + traceback.format_exc())
             self.page("Error", "<h1>Something broke</h1><p class=dim>It's in the hub's journal.</p>", 500)
+
+    def form(self):
+        """A portal form's fields (urlencoded, small). The forms here have one field at most."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 2048:
+            raise BadRequest("form too large")
+        raw = self.rfile.read(n).decode("utf-8", errors="replace") if n else ""
+        try:
+            return urllib.parse.parse_qs(raw, max_num_fields=4)
+        except ValueError:
+            raise BadRequest("bad form") from None
 
     def forwarded_path(self):
         """The path Traefik asks about, or "" if it could mean another path once cleaned or
@@ -685,7 +765,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             link = f'<a href="/s/{s["id"]}">open</a> ' if mine else ""
             end = (f'<form method="post" action="/s/{s["id"]}/end"><button class="end">End</button></form>'
                    if mine else "")
-            out.append(f'<tr><td>s{s["slot"]}</td><td>{e(s["game"])}</td><td><code>{e(s["revision"][:10])}</code></td>'
+            out.append(f'<tr><td>s{s["slot"]}</td><td>{e(s["game"])}{e(opened_text(s))}</td>'
+                       f'<td><code>{e(s["revision"][:10])}</code></td>'
                        f'<td>{e(s["person"])}</td><td><span class="tag">{e(s["state"])}</span></td>'
                        f'<td>{age(s["at"])}</td><td>{s["viewer_seconds"] // 60} min</td><td>{link}{end}</td></tr>')
         out.append("</table>")
@@ -695,7 +776,7 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         s = self.server.broker.session(sid)
         if not s or s["person"] != self.person:
             return self.page("Not found", "<h1>No such session of yours</h1>", 404)
-        what = f'{e(s["game"])} <code>{e(s["revision"][:10])}</code>'
+        what = f'{e(s["game"])} <code>{e(s["revision"][:10])}</code>{e(opened_text(s))}'
         end = f'<form method="post" action="/s/{sid}/end"><button class="end">End the session</button></form>'
         if s["state"] == "live":
             stream = f'/play/s{s["slot"]}/'
@@ -743,6 +824,27 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             out.append("</table>")
         self.page("Studio", "".join(out))
 
+    @staticmethod
+    def open_form(build_id, target, label, cls=""):
+        """A Play button: a POST to /play/<build> carrying what to open (no script on the page)."""
+        hidden = "" if target == "game" else f'<input type="hidden" name="open" value="{e(target)}">'
+        cls_attr = f' class="{cls}"' if cls else ""
+        return f'<form method="post" action="/play/{build_id}">{hidden}<button{cls_attr}>{label}</button></form>'
+
+    def stage_row(self, b):
+        """Under a Linux build that has a Stage: open the Stage, or straight onto one asset. Assets
+        this build's MR added come first, marked new."""
+        cat = json.loads(b["catalog"]) if b["catalog"] else None
+        assets = (cat or {}).get("assets") or []
+        if b["target"] != "linux" or not assets:
+            return ""
+        assets = sorted(assets, key=lambda a: not a.get("new"))
+        buttons = [self.open_form(b["id"], "stage", "Stage", "stage")]
+        for a in assets:
+            mark = ' <span class="new">new</span>' if a.get("new") else ""
+            buttons.append(self.open_form(b["id"], f"stage:{a['id']}", f"{e(a['name'])}{mark}", "stage"))
+        return f'<tr><td colspan="8" class="stage">On the Stage: {"".join(buttons)}</td></tr>'
+
     def build_table(self, bs):
         out = ["<table><tr><th>Revision</th><th>Target</th><th>Gates</th><th>Size</th><th>Owner</th>"
                "<th>Object</th><th>Built</th><th>Play</th></tr>"]
@@ -750,8 +852,9 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             out.append(f'<tr><td><code>{e(b["revision"][:10])}</code></td><td>{e(b["target"])}</td>'
                        f'<td>{gates_cell(b["gates"])}</td><td>{size(b["bytes"])}</td><td>{e(b["owner"])}</td>'
                        f'<td><code>{e(b["object"][:12])}</code></td><td>{age(b["at"])}</td>'
-                       + (f'<td><form method="post" action="/play/{b["id"]}"><button>Play</button></form></td></tr>'
+                       + (f'<td>{self.open_form(b["id"], "game", "Play")}</td></tr>'
                           if b["target"] == "linux" else '<td class=dim>download (2b-2)</td></tr>'))
+            out.append(self.stage_row(b))
         out.append("</table>")
         return "".join(out)
 

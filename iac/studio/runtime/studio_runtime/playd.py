@@ -8,7 +8,13 @@ run, then makes it so:
     unpack it once into the cache (read-only to the session), and start play-s<slot>: the play
     image, the GPU, a fresh tmpfs home, the build mounted read-only, on the locked bridge,
     published on <host_ip>:<base_port + slot> for studio-gw to forward Traefik's streams to;
-  - a container whose session shouldn't run, or that died: its player log is kept, and it goes.
+  - a container whose session shouldn't run, or that died: its player log is kept, the numbers
+    the person tuned on the Stage are collected (the Studio Kit writes them to
+    $STUDIO_OUT/tweaks.json, inside the session's tmpfs home), and it goes. The tweaks go to
+    the hub with the next sync, which posts them to the MR with the play.
+
+A session opens the game, its Stage, or one asset on its Stage: the player gets
+-studio-open <game|stage|stage:id>, which the hub chose from the build's own catalogue.
 
 Viewers are the established connections to the container's web port (Selkies' nginx, 3000)
 from outside the container, read from the container's own /proc/<pid>/net/tcp.
@@ -30,6 +36,7 @@ from . import hub as hubmod
 CONFIG_FILE = os.environ.get("FORGE_PLAYD_CONFIG", "/etc/forge-playd/playd.json")
 LABEL = "studio.session"
 WEB_PORT = 3000
+STUDIO_OUT = "/config/studio"     # in the session's tmpfs home: where the Studio Kit writes tweaks.json
 
 
 def log(msg):
@@ -53,6 +60,7 @@ class Playd:
             os.makedirs(d, mode=0o755, exist_ok=True)
         self.failed = {}          # session id -> why, reported at the next sync
         self.dead = set()         # sessions reported failed; never started again
+        self.collected = {}       # session id -> its tweaks (or None), until a sync takes them
 
     # --- what runs ------------------------------------------------------------------------------
 
@@ -148,10 +156,16 @@ class Playd:
             raise RuntimeError(f"the build has no {s['exe']}")
         sdir = os.path.join(self.state, "sessions", sid)
         os.makedirs(sdir, exist_ok=True)
+        target = hubmod.check_open(s.get("open") or "game")
+        if not target:
+            log(f"{sid}: the hub asked to open {str(s.get('open'))[:60]!r}; opening the game")
+            target = "game"
         autostart = os.path.join(sdir, "autostart")
         with open(autostart, "w", encoding="utf-8") as f:
             f.write("#!/bin/sh\n# forge-playd: the session's game; RESTART_APP brings it back if it exits.\n"
-                    f"exec /game/{shlex.quote(exe)} {self.cfg['player_args']} -logFile /config/player.log\n")
+                    f"mkdir -p {STUDIO_OUT}\n"
+                    f"exec env STUDIO_OUT={STUDIO_OUT} /game/{shlex.quote(exe)} {self.cfg['player_args']} "
+                    f"-studio-open {shlex.quote(target)} -logFile /config/player.log\n")
         os.chmod(autostart, 0o755)
         name = f"play-s{slot}"
         docker("rm", "-f", name, check=False)
@@ -173,8 +187,30 @@ class Playd:
         docker(*argv, c["image"])
         log(f"{sid}: started {s['game']}@{s['revision'][:10]} on slot {slot}")
 
+    @staticmethod
+    def collect_tweaks(name):
+        """The session's tweaks.json, read inside the container before it goes: its home is a
+        tmpfs, gone with it. None when there are none or they can't be read. Checked here, and
+        again by the hub."""
+        try:
+            r = subprocess.run(["docker", "exec", name, "cat", f"{STUDIO_OUT}/tweaks.json"],
+                               capture_output=True, timeout=20, check=False)
+        except subprocess.TimeoutExpired:
+            return None
+        if r.returncode != 0 or not r.stdout or len(r.stdout) > 4 * hubmod.MAX_TWEAKS_BYTES:
+            return None
+        try:
+            t = hubmod.check_tweaks(json.loads(r.stdout))
+        except (ValueError, RecursionError):
+            return None
+        return t if t and t["assets"] else None
+
     def stop(self, sid, info, why):
-        """Keep the player log, then remove the container and the session's files."""
+        """Collect the Stage tweaks and keep the player log, then remove the container and the
+        session's files."""
+        self.collected[sid] = self.collect_tweaks(info["name"]) if info.get("running") else None
+        if self.collected[sid]:
+            log(f"{sid}: collected tweaks for {len(self.collected[sid]['assets'])} asset(s)")
         dest = os.path.join(self.state, "logs", f"{sid}.log")
         subprocess.run(["docker", "cp", f"{info['name']}:/config/player.log", dest],
                        capture_output=True, check=False, timeout=30)
@@ -207,10 +243,13 @@ class Playd:
             self.stop(sid, info, f"exited with {info['exit']}")
             if sid not in self.dead:
                 self.failed[sid] = f"the play container exited ({info['exit']})\n{self.tail(sid)}"
-        report = {"running": running, "failed": self.failed}
+        collected = dict(self.collected)
+        report = {"running": running, "failed": self.failed, "collected": collected}
         want = self.hub.call("POST", "/v1/forge/sync", report, timeout=15)["sessions"]
         self.dead |= set(self.failed)
         self.failed = {}
+        for sid in collected:                    # taken; anything collected since waits for the next
+            self.collected.pop(sid, None)
         self.want = want
         wanted = {s["id"] for s in want}
         for sid, info in have.items():
