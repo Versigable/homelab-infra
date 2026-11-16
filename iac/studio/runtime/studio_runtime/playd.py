@@ -193,8 +193,9 @@ class Playd:
         tmpfs, gone with it. None when there are none or they can't be read. Checked here, and
         again by the hub."""
         try:
-            r = subprocess.run(["docker", "exec", name, "cat", f"{STUDIO_OUT}/tweaks.json"],
-                               capture_output=True, timeout=20, check=False)
+            # head -c, not cat: the build wrote this file, so read no more than a real one can be.
+            r = subprocess.run(["docker", "exec", name, "head", "-c", str(4 * hubmod.MAX_TWEAKS_BYTES + 1),
+                                f"{STUDIO_OUT}/tweaks.json"], capture_output=True, timeout=20, check=False)
         except subprocess.TimeoutExpired:
             return None
         if r.returncode != 0 or not r.stdout or len(r.stdout) > 4 * hubmod.MAX_TWEAKS_BYTES:
