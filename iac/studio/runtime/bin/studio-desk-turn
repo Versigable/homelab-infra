@@ -1,0 +1,19 @@
+#!/bin/sh
+# studio-desk-turn: one Slack turn of the person's desk, as desk, inside its transient unit
+# (studio-desk-turn-<n>, started by studio-slackd). The prompt arrives on stdin (opened by
+# systemd); Claude's event stream goes to stdout, which systemd writes to the turn's directory.
+#
+# Claude runs with --permission-mode dontAsk: what /etc/studio/claude-desk-settings.json (root's)
+# doesn't allow is denied, never asked; there's no shell. Its only MCP server is the desk's
+# (--strict-mcp-config), whose calls studio-slackd answers. The Slack rules come in as an
+# appended system prompt, also root's. STUDIO_RESUME carries on the thread's session.
+set -eu
+prompt=$(cat)
+set -- -p "$prompt" --output-format stream-json --verbose --permission-mode dontAsk \
+  --settings /etc/studio/claude-desk-settings.json \
+  --mcp-config /etc/studio/desk-mcp.json --strict-mcp-config \
+  --append-system-prompt-file /etc/studio/slack-desk-prompt.md
+if [ -n "${STUDIO_RESUME:-}" ]; then
+  set -- "$@" --resume "$STUDIO_RESUME"
+fi
+exec claude "$@" </dev/null

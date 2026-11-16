@@ -7,3 +7,7 @@ studio_cell_owner: kannis
 # Kannis's desk account (studio-desk on his computer; name MetaVersig's, 2026-11-15).
 studio_cell_desk_account: kannis-desk-agent
 studio_cell_owner_keys: []
+# His desk in the studio's Slack (the Slack desk, 2026-11-15; named by MetaVersig): his bot Tron
+# takes requests only from his Slack user ID.
+studio_cell_slack_owner: U0CAPS7C97V
+studio_cell_slack_bot: Tron

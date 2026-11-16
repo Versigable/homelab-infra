@@ -49,6 +49,12 @@ REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
 # An added vendor's command, for its job's process to read (root:agent 0640, one per job).
 VENDOR_RUN_DIR = os.path.join(os.path.dirname(common.RUN_DIR), "studio-jobs")
+# For studio-slackd, the person's desk in Slack (vault decision 2026-11-15): what happens to
+# approved work, one JSON line per event (root 0600; at EVENTS_MAX it starts over, the old file
+# kept as .1), and the desk's newest Claude usage reading, which the ceilings also count.
+EVENTS_FILE = os.path.join(common.STATE_DIR, "events.jsonl")
+EVENTS_MAX = 5 << 20
+DESK_USAGE_FILE = os.path.join(common.STATE_DIR, "desk-usage.json")
 
 
 def now():
@@ -140,6 +146,7 @@ class Agentd:
                 log(f"no hub: {e}")
         self.mr_synced = 0.0
         self.labels_synced = 0.0
+        self.waiting = set()          # items whose `waiting` event is out, until they're claimed
 
     # --- the poll ------------------------------------------------------------------------------
 
@@ -227,6 +234,7 @@ class Agentd:
             self.gl.relabel(kind, item["project_id"], item["iid"], add=[BLOCKED], remove=[REQUEST])
             self.gl.note(kind, item["project_id"], item["iid"], f"Not started: {why}")
             log(f"{ref}: refused ({why})")
+            self.event("refused", self.ev_item(kind, item), text=why)
             return
         text, void = self.snapshot(kind, item, approval)
         if void:
@@ -234,11 +242,16 @@ class Agentd:
             self.gl.note(kind, item["project_id"], item["iid"],
                          f"Not started: {void}. Approve it again (`agent-request`) to run it as it stands now.")
             log(f"{ref}: void ({void})")
+            self.event("void", self.ev_item(kind, item), text=void)
             return
         ok, why = self.preflight(vendor)
         if not ok:
             log(f"{ref}: waiting ({why})")
+            if ref not in self.waiting_refs():
+                self.waiting_refs().add(ref)
+                self.event("waiting", self.ev_item(kind, item), vendor=vendor, text=why)
             return
+        self.waiting_refs().discard(ref)
         jid = f"{game}-{item['iid']}-{int(time.time()) % 10**7:07d}"
         job = Job(jid, {
             "id": jid, "kind": jkind, "vendor": vendor, "state": "queued", "game": game,
@@ -255,7 +268,62 @@ class Agentd:
                      f"Approved by @{approval['by']}{self.desk_text(approval)} at {approval['at']}; the job sees "
                      "this item as it stood then.")
         log(f"{ref}: claimed as {jid} ({jkind}, {vendor})")
+        self.event("claimed", job["item"], job=job,
+                   text=f"{jkind}, approved by {approval['by']}{self.desk_text(approval)}")
         self.start(job)
+
+    # --- events for studio-slackd -------------------------------------------------------------
+
+    def waiting_refs(self):
+        """Items whose `waiting` event is out, until they're claimed (this run only)."""
+        return self.__dict__.setdefault("waiting", set())
+
+    @staticmethod
+    def ev_item(kind, it):
+        """An event's item, from a GitLab issue or MR or a job's item."""
+        return {"kind": kind, "ref": it.get("ref") or (it.get("references") or {}).get("full", ""),
+                "title": it.get("title", ""), "url": it.get("web_url") or it.get("url", ""),
+                "project_id": it.get("project_id"), "iid": it.get("iid")}
+
+    def event(self, kind, item, job=None, **extra):
+        """One line in EVENTS_FILE for the person's desk in Slack. Never fatal: the poll goes
+        on whatever happens to the line."""
+        try:
+            item = self.ev_item(item.get("kind", "issue"), item)
+            ref = item["ref"]
+            game = ref.split("/")[1].split("#")[0].split("!")[0] if "/" in ref else ""
+            rec = {"at": now().isoformat(), "event": kind, "job": job.id if job else None, "game": game,
+                   "item": item, "vendor": job["vendor"] if job else extra.pop("vendor", None)}
+            extra.pop("vendor", None)
+            rec.update(extra)
+            if isinstance(rec.get("text"), str) and len(rec["text"]) > 1500:
+                rec["text"] = rec["text"][:1497] + "..."
+            try:
+                if os.path.getsize(EVENTS_FILE) > EVENTS_MAX:
+                    os.replace(EVENTS_FILE, EVENTS_FILE + ".1")
+            except OSError:
+                pass
+            fd = os.open(EVENTS_FILE, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + "\n")
+        except Exception as e:  # noqa: BLE001 - an event is never worth a failed tick
+            log(f"event {kind}: not written ({e})")
+
+    def mr_ref(self, mr, game=None):
+        """The event's MR: from GitLab's MR, or (project, iid) when that's all there is."""
+        if isinstance(mr, dict) and mr.get("web_url"):
+            ref = (mr.get("references") or {}).get("full") or f"{self.cfg.get('gitlab_group', 'studio')}/{game}!{mr['iid']}"
+            return {"ref": ref, "url": mr["web_url"], "iid": mr["iid"]}
+        return None
+
+    @staticmethod
+    def when(s):
+        """An ISO time as an aware datetime, or None."""
+        try:
+            t = ts(s) if isinstance(s, str) else None
+        except ValueError:
+            return None
+        return t.replace(tzinfo=dt.timezone.utc) if t and t.tzinfo is None else t
 
     def desk_text(self, approval):
         """How an approval came: the person's desk account submits on their word."""
@@ -311,15 +379,28 @@ class Agentd:
 
     def limits(self, vendor):
         """Usage from the vendor's own records: Claude's rate_limit_event in the last job's
-        stream, Codex's rate_limits in its newest rollout file. A vendor the person added has
-        none that the cell can read, so no ceiling applies to it (decision 2026-11-15)."""
+        stream, or in the desk's last Slack turn if that's newer (the same account), Codex's
+        rate_limits in its newest rollout file. A vendor the person added has none that the cell
+        can read, so no ceiling applies to it (decision 2026-11-15)."""
         if vendor == "claude":
+            info, at = None, None
             for job in sorted(Job.all(), key=lambda j: j.get("claimed_at", ""), reverse=True):
-                info = job.get("rate_limit_info")
-                if job.get("vendor") == "claude" and info:
-                    wins = {k: v.get("utilization") for k, v in (info.get("unifiedWindows") or {}).items()}
-                    return {"windows": wins, "overage": bool(info.get("isUsingOverage"))}
-            return {}
+                if job.get("vendor") == "claude" and job.get("rate_limit_info"):
+                    info = job["rate_limit_info"]
+                    at = self.when(job.get("finished_at") or job.get("claimed_at"))
+                    break
+            try:
+                with open(DESK_USAGE_FILE, encoding="utf-8") as f:
+                    desk = json.load(f)
+                desk_at = self.when(desk.get("at"))
+                if desk.get("rate_limit_info") and desk_at and (at is None or desk_at > at):
+                    info = desk["rate_limit_info"]
+            except (OSError, ValueError, AttributeError):
+                pass
+            if not info:
+                return {}
+            wins = {k: v.get("utilization") for k, v in (info.get("unifiedWindows") or {}).items()}
+            return {"windows": wins, "overage": bool(info.get("isUsingOverage"))}
         if vendor != "codex":
             return {}
         sess = os.path.join(pwd.getpwnam(self.cfg["agent_user"]).pw_dir, ".codex", "sessions")
@@ -573,12 +654,15 @@ class Agentd:
                 self.gl.note(item["kind"], item["project_id"], item["iid"],
                              f"Blocked (job `{job.id}`):\n\n{res['text']}")
                 job.set(state="blocked", finished_at=now().isoformat())
+                self.event("blocked", item, job=job, text=res["text"])
             elif job["kind"] == "review" and res.get("kind") == "review":
                 fresh = "; a fresh session, not the one that wrote the change" if job.get("same_vendor") else ""
                 self.gl.note("mr", item["project_id"], item["iid"],
                              f"**Review by {job['vendor']}** (job `{job.id}`{fresh})\n\n{res['text']}")
                 self.gl.relabel("mr", item["project_id"], item["iid"], add=[REVIEW], remove=[RUNNING])
                 job.set(state="done", finished_at=now().isoformat())
+                self.event("review", item, job=job, text=res["text"],
+                           mr={"ref": item.get("ref"), "url": item.get("web_url"), "iid": item.get("iid")})
             else:
                 self.push(job)
                 self.fail(job, "the job ended without `studio done`")
@@ -688,6 +772,8 @@ class Agentd:
         self.gl.note("issue", pid, item["iid"], f"Done: {mr['web_url']} (gates passed on `{head[:10]}`).")
         job.set(state="done", mr=mr["iid"], mr_url=mr["web_url"], finished_at=now().isoformat())
         log(f"{job.id}: published {mr['web_url']}")
+        self.event("done", item, job=job, mr=self.mr_ref(mr, job["game"]), play_url=dep.get("url"),
+                   gates=f"passed on {head[:10]}", text=res["text"])
         if "object" in dep:
             m = hubmod.manifest(job["game"], ledger["gates"], dep, job=job.id, mr=mr)
             job.set(hub={"manifest": m, "posted": False})
@@ -770,6 +856,24 @@ class Agentd:
                                f"played by {p['person']}, {mins} min", target_url=url)
             self.hub.call("POST", f"/v1/plays/{p['id']}/reported", {}, timeout=15)
             log(f"play {p['id']}: {p['person']}, {mins} min on {p['game']}@{p['revision'][:10]} reported")
+            it = self.played_item(p)
+            self.event("played", it, person=p["person"], minutes=mins, play_url=url,
+                       mr={"ref": it["ref"], "url": it["url"], "iid": it["iid"]} if p.get("mr_iid") else None,
+                       text=f"played by {p['person']} for {mins} min on {p['revision'][:10]}")
+
+    def played_item(self, p):
+        """The MR a play was on, as an event's item (its link from the job that opened it)."""
+        group = self.cfg.get("gitlab_group", "studio")
+        url = ""
+        for job in Job.all():
+            if job.get("mr") == p.get("mr_iid") and (job.get("item") or {}).get("project_id") == p.get("project_id"):
+                url = job.get("mr_url") or ""
+                break
+        if p.get("mr_iid"):
+            return {"kind": "mr", "ref": f"{group}/{p['game']}!{p['mr_iid']}", "title": "", "url": url,
+                    "project_id": p.get("project_id"), "iid": p["mr_iid"]}
+        return {"kind": "mr", "ref": f"{group}/{p['game']}", "title": "", "url": "",
+                "project_id": p.get("project_id"), "iid": None}
 
     def play_note(self, p, mins, url):
         """The Played note: who, how long, what they opened, and the numbers they tuned on the
@@ -847,6 +951,7 @@ class Agentd:
         except GitLabError as e:
             log(f"{job.id}: couldn't report the failure: {e}")
         log(f"{job.id}: failed ({why})")
+        self.event("stopped" if label is None else "failed", item, job=job, text=why)
 
     def cleanup(self, job):
         """The worktree goes once the job's work is in GitLab; its editor stops with it. A failed

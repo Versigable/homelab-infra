@@ -34,6 +34,17 @@
     - studio_cell_brain_password_file.stat.exists | default(false)
     - not (ansible_check_mode and (studio_cell_brain_unit.changed | default(false)))
 
+# The bot reconnects to Slack within seconds; a turn running at that moment is stopped, and the
+# person is told in its thread. Not before the Slack desk has everything it needs, nor in a
+# check-mode run that would install the unit file for the first time.
+- name: Restart studio-slackd
+  ansible.builtin.systemd_service:
+    name: studio-slackd
+    state: restarted
+  when:
+    - (studio_cell_slack_missing | default(['?'])) | length == 0
+    - not (ansible_check_mode and (studio_cell_slackd_unit.changed | default(false)))
+
 # Open terminals drop and reconnect; the tmux session (and anything running in it) survives.
 - name: Restart studio-term
   ansible.builtin.systemd_service:

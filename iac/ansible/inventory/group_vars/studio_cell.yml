@@ -36,3 +36,7 @@ studio_cell_unity_modules: [linux-il2cpp, windows-mono, webgl, documentation]
 # 1.7.7 was released 2024-03-30; the checksum is the release's own SHA256SUMS entry.
 studio_cell_ttyd_version: "1.7.7"
 studio_cell_ttyd_sha256: 8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+
+# The Slack desk (role studio_cell, slack.yml; vault decision 2026-11-15): #studio-builds in the
+# studio's Slack (Kaneric Fundustries), where each cell's bot tells the story of its work.
+studio_cell_slack_builds_channel: C0CJ17AFZEV

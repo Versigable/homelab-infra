@@ -8,9 +8,13 @@
 #            has the internet, but nothing private (the LAN, studio0's hub and other cells)
 #   unity    runs the Unity CLI and Editor; holds the person's Unity sign-in and licence;
 #            reaches only Unity
+#   desk     runs the Slack desk's Claude (slack.yml): its own sign-in to the person's Claude,
+#            the studio brain's working copy, the web; no shell, no secrets; reaches GitLab
+#            only through studio-slackd's tools
 # Separate users so game code running in the editor can't read the AI sign-ins, and an agent
-# can't read the Unity licence (design: engine-and-agent-runtime §2). Egress is per user too
-# (egress.yml), so a job can reach GitLab, Unity and the editor only through the daemons.
+# can't read the Unity licence (design: engine-and-agent-runtime §2), and so jobs can't reach
+# the desk or its working copy. Egress is per user too (egress.yml), so a job can reach
+# GitLab, Unity and the editor only through the daemons.
 
 - name: Machine identity
   ansible.builtin.import_tasks: identity.yml

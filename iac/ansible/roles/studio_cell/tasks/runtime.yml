@@ -35,6 +35,7 @@
     - Restart studio-unityd
     - Restart studio-agentd
     - Restart studio-brain-sync
+    - Restart studio-slackd
 
 # force: on a first check-mode run the programs aren't copied yet.
 - name: The studio CLI and studio-admin on the PATH
@@ -74,6 +75,9 @@
       agentd: "{{ studio_cell_agentd }}"
       # The studio brain's read-only copy (brain.yml, studio-brain-sync).
       brain: "{{ studio_cell_brain }}"
+      # The Slack desk (slack.yml, studio-slackd): its bot, and the brain working copy it keeps.
+      slack: "{{ studio_cell_slack }}"
+      desk_brain: "{{ studio_cell_desk_brain }}"
       # The hub's depot, as this cell (role studio_hub_client; only root reads the key).
       hub:
         url: "{{ studio_hub_api_url }}"
@@ -85,6 +89,7 @@
     - Restart studio-unityd
     - Restart studio-agentd
     - Restart studio-brain-sync
+    - Restart studio-slackd
 
 - name: The studio-unityd service
   ansible.builtin.copy:
@@ -170,6 +175,9 @@
 
 - name: The studio brain, read-only, for the cell's agents
   ansible.builtin.import_tasks: brain.yml
+
+- name: The Slack desk (studio-slackd)
+  ansible.builtin.import_tasks: slack.yml
 
 - name: Runtime changes applied before the checks
   ansible.builtin.meta: flush_handlers
