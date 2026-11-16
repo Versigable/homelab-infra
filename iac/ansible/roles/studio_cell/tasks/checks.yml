@@ -28,6 +28,10 @@
     - {user: agent, port: 0, url: "https://10.0.1.5/", expect: firewall}
     - {user: agent, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     - {user: agent, port: 3130, url: "https://unity.com/", expect: firewall}
+    # desk (the Slack desk's Claude): the same, the internet and nothing private.
+    - {user: desk, port: 0, url: "https://api.anthropic.com/", expect: through}
+    - {user: desk, port: 0, url: "https://10.0.1.5/", expect: firewall}
+    - {user: desk, port: 3128, url: "https://deb.debian.org/debian/", expect: firewall}
     # unity: Unity through its own port, and nothing directly.
     - {user: unity, port: 3130, url: "https://unity.com/", expect: through}
     - {user: unity, port: 3130, url: "https://api.anthropic.com/", expect: squid}

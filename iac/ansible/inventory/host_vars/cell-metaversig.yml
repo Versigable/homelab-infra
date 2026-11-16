@@ -6,3 +6,7 @@ studio_cell_owner: metaversig
 studio_cell_desk_account: mv-agent
 studio_cell_owner_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzHA3h36dpCR5DeRS62qwvK6hocFaUCQPCXsncfOtbN metaversig@ninjaprivacy"
+# Their desk in the studio's Slack (the Slack desk, 2026-11-15): their bot Monoco takes requests
+# only from their Slack user ID.
+studio_cell_slack_owner: U0C12MHEZAB
+studio_cell_slack_bot: Monoco

@@ -5,7 +5,7 @@
 # tailnet or SMTP. Out, per user:
 # - each user in studio_cell_user_proxy_ports reaches only its own port on studio-gw's Squid,
 #   which tells a cell's users apart by that port: unity Unity's class, nothing else;
-# - each user in studio_cell_internet_users (agent) reaches the internet, but nothing private
+# - each user in studio_cell_internet_users (agent, desk) reaches the internet, but nothing private
 #   (studio_cell_private_nets): not studio0's hub, Squid or other cells, nor the LAN;
 # - loopback is open to both, except the ports in studio_cell_loopback_deny.
 # Their other traffic is refused at once (TCP reset), not left to time out. Everyone else,

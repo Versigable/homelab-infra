@@ -12,7 +12,31 @@
     shell: /bin/bash
     create_home: true
     password: "!"
-  loop: [agent, unity]
+  loop: [agent, unity, desk]
+
+# A check-mode run before desk exists can't hand anything to it (the real run makes it first):
+# the tasks that do are skipped in that one case.
+- name: Does the user desk exist yet
+  ansible.builtin.command:
+    argv: [getent, passwd, desk]
+  register: studio_cell_desk_user
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Can tasks hand things to desk
+  ansible.builtin.set_fact:
+    studio_cell_desk_ready: "{{ not ansible_check_mode or studio_cell_desk_user.rc == 0 }}"
+
+# desk's home holds its Claude sign-in and sessions; agent, unity and the owner never read it.
+- name: The desk user's home is its own
+  ansible.builtin.file:
+    path: /home/desk
+    state: directory
+    owner: desk
+    group: desk
+    mode: "0700"
+  when: studio_cell_desk_ready
 
 - name: The owner's account
   ansible.builtin.user:
@@ -36,13 +60,13 @@
     state: absent
   when: studio_cell_owner_keys | default([]) | length == 0
 
-# The owner acts as agent or unity to sign in and to work with their agents. No root.
-- name: The owner may act as agent and unity
+# The owner acts as agent, unity or desk to sign in and to work with their agents. No root.
+- name: The owner may act as agent, unity and desk
   ansible.builtin.copy:
     dest: /etc/sudoers.d/studio-cell-owner
     content: |
       # Managed by Ansible (role studio_cell).
-      {{ studio_cell_owner }} ALL=(agent,unity) NOPASSWD: ALL
+      {{ studio_cell_owner }} ALL=(agent,unity,desk) NOPASSWD: ALL
     owner: root
     group: root
     mode: "0440"

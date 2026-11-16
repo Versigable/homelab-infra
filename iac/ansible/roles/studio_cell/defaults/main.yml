@@ -43,12 +43,13 @@ studio_cell_packages:
 #     port, whose class says what they may reach: unity (and the game code the Editor runs)
 #     only Unity (cells_unity).
 #   studio_cell_internet_users: users with the internet, but nothing private from here either
-#     (studio_cell_private_nets: studio0's hub, Squid and other cells, the LAN, the tailnet).
+#     (studio_cell_private_nets: studio0's hub, Squid and other cells, the LAN, the tailnet):
+#     agent (jobs) and desk (the Slack desk's Claude; tasks/slack.yml).
 # Root and the owner aren't filtered here. The daemons and the IaC still name Squid's default
 # port (studio_proxy_url, class cells) for what they fetch.
 studio_cell_user_proxy_ports:
   unity: 3130
-studio_cell_internet_users: [agent]
+studio_cell_internet_users: [agent, desk]
 studio_cell_private_nets: [10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
 # Loopback ports a filtered user may not reach; the rest of loopback is open to it (the Unity
 # CLI, for one, sends its web requests through a helper of its own on a random loopback port).
@@ -102,8 +103,74 @@ studio_cell_unity_editor_dir: "/opt/unity/{{ studio_cell_unity_editor_version }}
 # The person's desk account (decision 2026-11-02, the studio desk): the GitLab account their own
 # Claude Code acts as through studio-desk (iac/studio/desk), set in host_vars. Its
 # agent-request counts as the person's, because studio-desk submits only after the person
-# confirms in Claude Code's permission prompt; the claim note says it came through the desk.
+# confirms in Claude Code's permission prompt (or, from Slack, after the person presses
+# Submit: below); the claim note says it came through the desk.
 studio_cell_desk_account: ""
+
+# The Slack desk (vault decision 2026-11-15, "studio chat is Slack, with each person's desk
+# always on there"; tasks/slack.yml). The person's desk, always on in the studio's Slack
+# (Kaneric Fundustries) as their own bot, run by studio-slackd on this cell:
+#   - it takes requests only from studio_cell_slack_owner (the person's Slack user ID) and
+#     ignores every bot, so two desks never set each other off;
+#   - each turn runs the person's Claude as the user desk (its own sign-in, no shell, the
+#     brain working copy and the web), reaching the desk's GitLab tools only through
+#     studio-slackd's socket; Submit and Stop are the person's button, pressed in Slack, and
+#     studio-slackd submits as the desk account with no model in between;
+#   - it writes the studio brain as the person, through its own CouchDB account
+#     studio-desk-<owner> (lock-studio-brain.py), never over a note changed meanwhile, never
+#     CLAUDE.md, never deleting; jobs (agent) still only read the brain;
+#   - it tells the story of the cell's work in studio_cell_slack_builds_channel (group_vars),
+#     and DMs the person what needs them.
+# Set in host_vars: studio_cell_slack_owner, studio_cell_slack_bot. Its secrets come from the
+# control node's environment (iac.sh exports the secrets env file):
+#   SLACK_BOT_TOKEN_<OWNER>, SLACK_APP_TOKEN_<OWNER>   the Slack app's bot and app-level tokens
+#   GITLAB_TOKEN_DESK_CELL_<OWNER>                     the desk account's token for this cell
+#   STUDIO_BRAIN_DESK_<OWNER>_PASSWORD                 studio-desk-<owner>'s brain password
+# Without the app token, studio-slackd isn't started.
+studio_cell_slack_owner: ""
+studio_cell_slack_bot: ""
+studio_cell_slack_builds_channel: ""
+studio_cell_slack:
+  owner_id: "{{ studio_cell_slack_owner }}"
+  owner_name: "{{ studio_cell_owner }}"
+  bot_name: "{{ studio_cell_slack_bot }}"
+  builds_channel: "{{ studio_cell_slack_builds_channel }}"
+  desk_user: desk
+  turn_minutes: 15
+  turn_memory_max: 2G
+  max_file_mb: 5
+studio_cell_desk_brain:
+  url: "{{ studio_cell_brain.url }}"
+  db: "{{ studio_cell_brain.db }}"
+  user: "studio-desk-{{ studio_cell_owner }}"
+  dir: /srv/studio/desk/brain
+  memory: "memory/{{ studio_cell_owner }}/"
+studio_cell_slack_env_suffix: "{{ studio_cell_owner | upper | replace('-', '_') }}"
+studio_cell_slack_secrets:
+  bot-token: "{{ lookup('ansible.builtin.env', 'SLACK_BOT_TOKEN_' ~ studio_cell_slack_env_suffix) }}"
+  app-token: "{{ lookup('ansible.builtin.env', 'SLACK_APP_TOKEN_' ~ studio_cell_slack_env_suffix) }}"
+  gitlab-token: "{{ lookup('ansible.builtin.env', 'GITLAB_TOKEN_DESK_CELL_' ~ studio_cell_slack_env_suffix) }}"
+  brain-password: "{{ lookup('ansible.builtin.env', 'STUDIO_BRAIN_DESK_' ~ studio_cell_slack_env_suffix ~ '_PASSWORD') }}"
+# Where Claude Code keeps the desk's memory for its working directory (the brain copy): linked
+# to the person's desk memory in the copy, so the Slack desk and their local desk share one.
+studio_cell_desk_claude_project: "/home/desk/.claude/projects/{{ studio_cell_desk_brain.dir | replace('/', '-') }}"
+# Claude's settings for the Slack desk's turns (--settings, with --permission-mode dontAsk):
+# anything these don't allow is denied, never asked. The brain copy and its memory link, the
+# web, and the desk's tools (studio-slackd's socket); no shell; CLAUDE.md stays the people's.
+studio_cell_claude_desk_settings:
+  permissions:
+    allow:
+      - "Read(/{{ studio_cell_desk_brain.dir }}/**)"
+      - "Edit(/{{ studio_cell_desk_brain.dir }}/**)"
+      - "Read(/{{ studio_cell_desk_claude_project }}/memory/**)"
+      - "Edit(/{{ studio_cell_desk_claude_project }}/memory/**)"
+      - WebFetch
+      - WebSearch
+      - mcp__studio-desk
+    deny:
+      - Bash
+      - "Edit(/{{ studio_cell_desk_brain.dir }}/CLAUDE.md)"
+      - "Edit(/{{ studio_cell_desk_brain.dir }}/.claude/**)"
 
 # studio-agentd (the runtime): whose agent-request labels this cell takes as approvals (until
 # the member register, step 6: the person's GitLab account and their desk account), and its

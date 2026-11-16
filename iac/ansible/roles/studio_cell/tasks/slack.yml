@@ -1,0 +1,227 @@
+# The Slack desk (vault decision 2026-11-15, "studio chat is Slack, with each person's desk
+# always on there"; plan 1-Projects/game-studio-platform/notes/slack-desk-plan). studio-slackd,
+# root, keeps the person's bot connected to the studio's Slack (Socket Mode: the cell connects
+# out, nothing listens), and:
+#   - runs each turn as desk, in a transient unit (studio-desk-turn-<n>), with Claude's settings
+#     below: the brain working copy, the web, and the desk's GitLab tools through its socket
+#     (/run/studio/desk.sock: desk only, and only from inside a turn);
+#   - submits and stops work only when the person presses the button, as the desk account;
+#   - keeps the working copy of the studio brain (/srv/studio/desk/brain, the person's desk
+#     memory included) and writes changes back as studio-desk-<owner> after each turn;
+#   - posts the cell's work from studio-agentd's events to the builds channel and DMs.
+# Its secrets stay root's; desk holds only its own Claude sign-in.
+
+- name: The Slack desk's secrets directory
+  ansible.builtin.file:
+    path: /etc/studio/slack
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: The Slack desk's secrets
+  ansible.builtin.copy:
+    dest: "/etc/studio/slack/{{ item.key }}"
+    content: "{{ item.value | trim }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ studio_cell_slack_secrets | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+  when: item.value | trim | length > 0
+  notify: Restart studio-slackd
+
+- name: Which Slack desk secrets are on the cell
+  ansible.builtin.stat:
+    path: "/etc/studio/slack/{{ item }}"
+  loop: "{{ studio_cell_slack_secrets.keys() | list }}"
+  register: studio_cell_slack_secret_files
+
+- name: Is the Slack desk ready to start
+  ansible.builtin.set_fact:
+    studio_cell_slack_missing: >-
+      {{ studio_cell_slack_secret_files.results | rejectattr('stat.exists') | map(attribute='item') | list
+         + ([] if studio_cell_slack_owner else ['studio_cell_slack_owner (host_vars)'])
+         + ([] if studio_cell_desk_account else ['studio_cell_desk_account (host_vars)']) }}
+
+- name: The Slack desk waits for these
+  ansible.builtin.debug:
+    msg: >-
+      studio-slackd isn't started until it has: {{ studio_cell_slack_missing | join(', ') }}.
+      The secrets come from the control node's secrets env file as SLACK_BOT_TOKEN_{{ studio_cell_slack_env_suffix }},
+      SLACK_APP_TOKEN_{{ studio_cell_slack_env_suffix }}, GITLAB_TOKEN_DESK_CELL_{{ studio_cell_slack_env_suffix }} and
+      STUDIO_BRAIN_DESK_{{ studio_cell_slack_env_suffix }}_PASSWORD (iac.sh exports them).
+  when: studio_cell_slack_missing | length > 0
+
+# Through Squid's default class, as studio-slackd will reach GitLab. Prints only the account's name.
+- name: The desk token is the desk account's
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      curl -sS -m 20 -x {{ studio_proxy_url }}
+      -H "PRIVATE-TOKEN: $(cat /etc/studio/slack/gitlab-token)"
+      {{ studio_cell_gitlab_url }}/api/v4/user
+      | python3 -c 'import json, sys; print(json.load(sys.stdin).get("username", ""))'
+    executable: /bin/bash
+  register: studio_cell_desk_token_user
+  changed_when: false
+  failed_when: studio_cell_desk_token_user.stdout | trim != studio_cell_desk_account
+  when:
+    - studio_cell_desk_account | length > 0
+    - studio_cell_slack_secret_files.results | selectattr('item', 'equalto', 'gitlab-token') | map(attribute='stat.exists') | first
+    - not ansible_check_mode
+
+# The desk tool's code, as merged: studio-slackd runs its GitLab tools as the desk account.
+- name: The desk tool's directory
+  ansible.builtin.file:
+    path: /opt/studio/desk
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: The desk tool (iac/studio/desk)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../studio/desk/studio_desk.py"
+    dest: /opt/studio/desk/studio_desk.py
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart studio-slackd
+
+# /srv/studio/desk: desk's alone (agent, unity and jobs can't enter). studio-slackd, root,
+# reads and writes the copy without following links. /var/lib/studio/slack: studio-slackd's
+# state (sessions, cards, threads, turns, the copy's index), root's.
+- name: The desk's working directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /srv/studio/desk, owner: desk, mode: "0700"}
+    - {path: "{{ studio_cell_desk_brain.dir }}", owner: desk, mode: "0750"}
+    - {path: /var/lib/studio/slack, owner: root, mode: "0700"}
+  when: item.owner != 'desk' or studio_cell_desk_ready
+
+# Claude Code keeps a project's memory in ~/.claude/projects/<dir>/memory: here, the person's desk
+# memory in the copy, so the Slack desk and their local desk share one memory.
+- name: The desk user's Claude project directory
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: desk
+    group: desk
+    mode: "0700"
+  loop:
+    - /home/desk/.claude
+    - /home/desk/.claude/projects
+    - "{{ studio_cell_desk_claude_project }}"
+  when: studio_cell_desk_ready
+
+- name: The desk's memory is the person's desk memory in the brain
+  ansible.builtin.file:
+    src: "{{ studio_cell_desk_brain.dir }}/{{ studio_cell_desk_brain.memory | regex_replace('/$', '') }}"
+    dest: "{{ studio_cell_desk_claude_project }}/memory"
+    state: link
+    owner: desk
+    group: desk
+    force: true
+    follow: false
+  when: studio_cell_desk_ready
+
+- name: Claude's settings for the Slack desk's turns
+  ansible.builtin.copy:
+    dest: /etc/studio/claude-desk-settings.json
+    content: "{{ studio_cell_claude_desk_settings | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: The desk's tools, for Claude (studio-desk-mcp, forwarding to studio-slackd)
+  ansible.builtin.copy:
+    dest: /etc/studio/desk-mcp.json
+    content: >-
+      {{ {'mcpServers': {'studio-desk': {'type': 'stdio',
+          'command': '/opt/studio/runtime/bin/studio-desk-mcp', 'args': []}}} | to_nice_json }}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: The Slack desk's rules (appended to Claude's system prompt every turn)
+  ansible.builtin.template:
+    src: slack-desk-prompt.md.j2
+    dest: /etc/studio/slack-desk-prompt.md
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: The studio-slackd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/studio-slackd.service
+    content: |
+      # Managed by Ansible (role studio_cell).
+      [Unit]
+      Description=studio-slackd, {{ studio_cell_owner }}'s desk in the studio's Slack ({{ studio_cell_slack_bot }})
+      After=network-online.target nftables.service studio-agentd.service
+      Wants=network-online.target
+      ConditionPathExists=/etc/studio/slack/app-token
+
+      [Service]
+      ExecStart=/opt/studio/runtime/bin/studio-slackd
+      RuntimeDirectory=studio
+      RuntimeDirectoryMode=0755
+      RuntimeDirectoryPreserve=yes
+      Restart=always
+      RestartSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  register: studio_cell_slackd_unit
+  notify:
+    - Reload systemd
+    - Restart studio-slackd
+
+- name: The studio-slackd service running (with everything it needs)
+  ansible.builtin.systemd_service:
+    name: studio-slackd
+    state: started
+    enabled: true
+    daemon_reload: true
+  when:
+    - studio_cell_slack_missing | length == 0
+    - not (ansible_check_mode and studio_cell_slackd_unit.changed)
+
+- name: The studio-slackd service stays off until then
+  ansible.builtin.systemd_service:
+    name: studio-slackd
+    enabled: false
+  when:
+    - studio_cell_slack_missing | length > 0
+    - not (ansible_check_mode and studio_cell_slackd_unit.changed)
+
+# Who can reach what, checked every run: jobs (agent) never reach the desk's copy or secrets,
+# and desk never reads the Slack desk's secrets or the agent account's token.
+- name: Slack desk isolation checks (user, path, must be refused)
+  ansible.builtin.command:
+    argv: [test, -r, "{{ item.path }}"]
+  become: true
+  become_user: "{{ item.user }}"
+  register: studio_cell_slack_isolation
+  changed_when: false
+  failed_when: studio_cell_slack_isolation.rc == 0
+  loop:
+    - {user: agent, path: "{{ studio_cell_desk_brain.dir }}"}
+    - {user: agent, path: /home/desk}
+    - {user: unity, path: "{{ studio_cell_desk_brain.dir }}"}
+    - {user: desk, path: /etc/studio/slack/app-token}
+    - {user: desk, path: /etc/studio/slack/gitlab-token}
+    - {user: desk, path: /etc/studio/gitlab-token}
+    - {user: desk, path: /etc/studio/brain-password}
+  loop_control:
+    label: "{{ item.user }} can't read {{ item.path }}"
+  when: not ansible_check_mode
