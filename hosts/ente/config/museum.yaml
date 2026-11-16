@@ -25,6 +25,7 @@ apps:
 internal:
   # Closed after the first account (Firekube, 2026-11-15). To add a person, set this to
   # false, merge, let them sign up, then set it back; see the vault runbook.
-  disable-registration: true
+  # OPEN 2026-11-15 for one sign-up (Amber). Close again right after.
+  disable-registration: false
   # Ente's admin (Firekube's account): can change storage and accounts with the Ente CLI.
   admins: [1580559962386438]
