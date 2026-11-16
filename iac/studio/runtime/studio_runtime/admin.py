@@ -8,6 +8,12 @@
   studio-admin republish <job>           publish a failed job's kept work: its write-back
                                          failed after the gates passed (push, MR, ledger,
                                          depot, review), with no new job
+  studio-admin game seed <game>          open an MR on studio/<game> (as the agent account)
+                                         whose tree is studio/template's main: a new game's
+                                         start. A person makes the empty project first
+  studio-admin game kit <game>           open an MR on studio/<game> that brings its Studio
+                                         Kit (Packages/com.studio.kit) to studio/template's
+                                         main; nothing else changes. Games never edit the kit
 
 The mirror is fetched as root with the agent account's token, through Squid's default class,
 and the token reaches git only through an askpass helper: never on a command line, where any
@@ -19,11 +25,15 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from . import common
 
 RUNTIME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASKPASS = os.path.join(RUNTIME_DIR, "bin", "studio-git-askpass")
+TEMPLATE = "template"                    # studio/template: new games start from it; the kit's home
+KIT_DIR = "Packages/com.studio.kit"
+LFS_HEADER = "version https://git-lfs.github.com/spec/"
 
 
 def git_root(cfg, args, cwd=None):
@@ -136,12 +146,79 @@ def republish(cfg, jid):
     return {"job": jid, "state": job["state"], "mr": job.get("mr_url"), "revision": job.get("pushed")}
 
 
+def from_template(cfg, what, game, gl=None):
+    """studio-admin game seed|kit <game>: the template's tree (seed) or its Studio Kit (kit) on
+    a branch of studio/<game>, committed and pushed as the agent account, and an MR for a
+    person to merge. Idempotent: an open MR from the same template revision is just named."""
+    from .gitlab import GitLab
+    if what not in ("seed", "kit"):
+        raise ValueError("game seed|kit")
+    if not common.NAME_RE.match(game):
+        raise ValueError("bad game name")
+    if game == TEMPLATE:
+        raise ValueError("the template is where kit changes are made; it isn't seeded from itself")
+    gl = gl or GitLab(cfg)
+    group = cfg["gitlab_group"]
+    proj = gl.project(GitLab.pid(f"{group}/{game}"))
+    tproj = gl.project(GitLab.pid(f"{group}/{TEMPLATE}"))
+    default, tdefault = proj.get("default_branch") or "main", tproj.get("default_branch") or "main"
+    game_dirs(cfg, TEMPLATE)
+    game_dirs(cfg, game)
+    tpl, src = mirror(cfg, TEMPLATE), mirror(cfg, game)
+    work = tempfile.mkdtemp(prefix=f"{what}-", dir=os.path.join(common.STUDIO_ROOT, game))
+    try:
+        git_root(cfg, ["clone", "--quiet", "--no-hardlinks", src, work])
+        git_root(cfg, ["fetch", "--quiet", "--no-tags", tpl, f"+refs/heads/{tdefault}:refs/studio/template"], cwd=work)
+        tsha = git_root(cfg, ["rev-parse", "refs/studio/template"], cwd=work)
+        paths = ["."] if what == "seed" else [KIT_DIR]
+        if what == "kit" and not git_root(cfg, ["ls-tree", "-d", "refs/studio/template", KIT_DIR], cwd=work):
+            raise ValueError(f"studio/template@{tsha[:10]} has no {KIT_DIR} yet")
+        lfs = subprocess.run(["git", "-C", work, "grep", "-l", "-F", LFS_HEADER, "refs/studio/template", "--", *paths],
+                             capture_output=True, text=True, check=False).stdout.strip()
+        if lfs:
+            raise ValueError("the template has Git LFS files, which this copy doesn't carry yet: "
+                             + ", ".join(p.split(":", 1)[-1] for p in lfs.splitlines()[:5]))
+        branch = f"studio/{what}-{tsha[:10]}"
+        mr = gl.mr_for_branch(proj["id"], branch)
+        if mr:
+            return {"game": game, "template": tsha, "mr": mr["web_url"], "note": "already open"}
+        git_root(cfg, ["checkout", "--quiet", "-B", branch, f"origin/{default}"], cwd=work)
+        git_root(cfg, ["rm", "-r", "-q", "--ignore-unmatch", "--", *paths], cwd=work)
+        git_root(cfg, ["checkout", "refs/studio/template", "--", *paths], cwd=work)
+        if not git_root(cfg, ["status", "--porcelain"], cwd=work):
+            return {"game": game, "template": tsha, "mr": None, "note": f"{default} already matches the template"}
+        agent = cfg["gitlab_agent"]
+        if what == "seed":
+            title = f"Seed from studio/template@{tsha[:10]}"
+            body = (f"This game starts from the studio template at `{tsha[:10]}` ({group}/{TEMPLATE}'s {tdefault}): "
+                    "every file here is the template's, the Studio Kit with them. The template's changes passed "
+                    "the gates before they merged; this MR isn't gated again here.\n\nMerge it, and the game's "
+                    "issues build on it.")
+        else:
+            title = f"Studio Kit from studio/template@{tsha[:10]}"
+            body = (f"The Studio Kit (`{KIT_DIR}`) as it is in {group}/{TEMPLATE} at `{tsha[:10]}`. Nothing else "
+                    "changes: games never edit the kit, so this replaces the folder as a whole.\n\nThis command "
+                    "doesn't gate it. Before you merge, approve the MR (`agent-request`) for a review on your cell.")
+        body += f"\n\nOpened by `studio-admin game {what} {game}` on cell-{cfg['owner']}."
+        git_root(cfg, ["-c", f"user.name={agent}", "-c", f"user.email={agent}@studio.ninjaprivacy.org",
+                       "commit", "--quiet", "-m", f"{title}\n\n{body}"], cwd=work)
+        url = f"{cfg['gitlab_url']}/{group}/{game}.git"
+        git_root(cfg, ["push", "--quiet", url, f"HEAD:refs/heads/{branch}"], cwd=work)
+        mr = gl.open_mr(proj["id"], branch, default, title, body, [])
+        return {"game": game, "template": tsha, "branch": branch, "mr": mr["web_url"]}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if os.geteuid() != 0:
         print("studio-admin: root only", file=sys.stderr)
         return 13
     cfg = common.load_config()
+    if len(argv) == 3 and argv[0] == "game" and argv[1] in ("seed", "kit"):
+        print(json.dumps(from_template(cfg, argv[1], argv[2]), indent=2))
+        return 0
     if len(argv) in (3, 4) and argv[0] == "workspace":
         print(workspace(cfg, argv[1], argv[2], argv[3] if len(argv) == 4 else None))
         return 0

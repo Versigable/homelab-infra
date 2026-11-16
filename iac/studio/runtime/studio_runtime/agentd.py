@@ -63,6 +63,19 @@ def log(msg):
     print(msg, flush=True)
 
 
+def md_text(s):
+    """Text from a game's build (a Stage asset's name) as plain Markdown: no markup, links,
+    mentions or references, so a name can't notify anyone or change what a note says."""
+    s = re.sub(r"[\x00-\x1f]", " ", str(s))
+    return re.sub(r"([\\`*_{}\[\]()<>#+!|~@&$%:-])", r"\\\1", s)
+
+
+def fmt_value(v):
+    if isinstance(v, bool):
+        return "on" if v else "off"
+    return f"{v:g}" if isinstance(v, float) else str(v)
+
+
 class Job:
     """A job's journal, /var/lib/studio/jobs/<id>/job.json (root only)."""
 
@@ -580,6 +593,17 @@ class Agentd:
         return subprocess.run(["git", "-C", wt, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
                               capture_output=True, text=True).stdout.strip()
 
+    @staticmethod
+    def base_catalog_ids(wt, default_branch):
+        """The Stage asset ids at the branch's merge base with the default branch: whatever the
+        branch's catalogue has beyond these is new in this MR. No catalogue there: none."""
+        base = subprocess.run(["git", "-C", wt, "merge-base", "HEAD", f"origin/{default_branch}"],
+                              capture_output=True, text=True).stdout.strip()
+        if not base:
+            return set()
+        r = subprocess.run(["git", "-C", wt, "show", f"{base}:{hubmod.CATALOG_PATH}"], capture_output=True, check=False)
+        return hubmod.catalog_ids(hubmod.read_catalog(r.stdout)) if r.returncode == 0 else set()
+
     def push(self, job):
         """The job's branch to GitLab, if it has commits; as root, as the agent account.
 
@@ -629,9 +653,18 @@ class Agentd:
         if head != res["revision"]:
             raise RuntimeError(f"HEAD {head} isn't the gated revision {res['revision']}: the job committed after `studio done`")
         ledger = job["ledger"]
+        default = self.gl.project(pid)["default_branch"]
         dep = self.deposit(job, head)
+        stage = ""
         if "object" in dep:
             ledger["play"] = f"not played yet. The build (`{dep['object'][:12]}`) is on the portal: {dep['url']}"
+            if dep.get("catalog"):
+                dep["catalog"] = hubmod.mark_new(dep["catalog"], self.base_catalog_ids(job["worktree"], default))
+                new = [a for a in dep["catalog"]["assets"] if a.get("new")]
+                if new:
+                    ledger["stage_new"] = [a["id"] for a in new]
+                    stage = ("\n\nNew on the Stage: " + ", ".join(f"**{md_text(a['name'])}** (`{a['id']}`)" for a in new)
+                             + ". Open one from the build's page on the portal.")
         else:
             ledger["play"] = f"none, the build didn't reach the depot ({dep['error']})"
         job.set(ledger=ledger)
@@ -641,13 +674,13 @@ class Agentd:
                          for s in steps)
         body = (f"{res['text']}\n\n---\n\n**Ledger for `{head[:10]}`** (job `{job.id}`, {job['vendor']})\n\n"
                 f"| Gate (cold) | Result | Tests |\n|---|---|---|\n{rows}\n\n"
-                f"Play evidence: {ledger['play']}.\n\nCloses {item['ref']}. Approved by @{job['approval']['by']}.")
+                f"Play evidence: {ledger['play']}.{stage}\n\nCloses {item['ref']}. Approved by @{job['approval']['by']}.")
         mr = self.gl.mr_for_branch(pid, job["branch"])
         if mr:
             self.gl.update_mr(pid, mr["iid"], description=body)
             self.gl.note("mr", pid, mr["iid"], f"New revision `{head[:10]}` from job `{job.id}`; gates passed.")
         else:
-            mr = self.gl.open_mr(pid, job["branch"], self.gl.project(pid)["default_branch"],
+            mr = self.gl.open_mr(pid, job["branch"], default,
                                  f"{item['title']} ({item['ref'].split('/')[-1]})", body, [REVIEW])
         self.gl.status(pid, head, "success", "studio/gates", "cold gates passed on cell-" + self.cfg["owner"],
                        target_url=dep.get("url"))
@@ -732,13 +765,38 @@ class Agentd:
             mins = max(1, round(p["viewer_seconds"] / 60))
             url = f"{self.hub.portal}/g/{p['game']}/r/{p['revision']}"
             if p.get("project_id") and p.get("mr_iid"):
-                self.gl.note("mr", p["project_id"], p["mr_iid"],
-                             f"**Played** by {p['person']} for {mins} min on `{p['revision'][:10]}` "
-                             f"(session `{p['id']}` on the Forge, ended: {p['end_reason']}). [The build]({url})")
+                self.gl.note("mr", p["project_id"], p["mr_iid"], self.play_note(p, mins, url))
                 self.gl.status(p["project_id"], p["revision"], "success", "studio/played",
                                f"played by {p['person']}, {mins} min", target_url=url)
             self.hub.call("POST", f"/v1/plays/{p['id']}/reported", {}, timeout=15)
             log(f"play {p['id']}: {p['person']}, {mins} min on {p['game']}@{p['revision'][:10]} reported")
+
+    def play_note(self, p, mins, url):
+        """The Played note: who, how long, what they opened, and the numbers they tuned on the
+        Stage. The hub checked the tweaks' shape; names and ids are plain identifiers."""
+        o = hubmod.check_open(p.get("open")) or "game"
+        where = ""
+        if o == "stage":
+            where = " on the Stage"
+        elif o.startswith("stage:"):
+            name = p.get("open_name")
+            where = f" on the Stage: **{md_text(name)}** (`{o[6:]}`)" if name else f" on the Stage: `{o[6:]}`"
+        text = (f"**Played** by {p['person']} for {mins} min{where} on `{p['revision'][:10]}` "
+                f"(session `{p['id']}` on the Forge, ended: {p['end_reason']}). [The build]({url})")
+        tweaks = (hubmod.check_tweaks(p.get("tweaks")) or {}).get("assets") or []
+        if not tweaks:
+            return text
+        rows = "\n".join(f"| `{a['id']}` | `{c['name']}` | {fmt_value(c['from'])} | {fmt_value(c['to'])} |"
+                         for a in tweaks for c in a["changes"])
+        try:
+            issues = self.gl.closes_issues(p["project_id"], p["mr_iid"])
+        except GitLabError:
+            issues = []
+        where = f"#{issues[0]['iid']}" if issues else "the issue this MR closes"
+        return (f"{text}\n\n**Tweaks** made on the Stage (nothing has changed in the game yet):\n\n"
+                f"| Asset | Number | Was | Now |\n|---|---|---|---|\n{rows}\n\n"
+                f"To keep them, comment on {where} asking for these numbers and approve it again. At the desk: "
+                f"*\"apply the tweaks from this play\"*. The job continues this MR's branch and sees that issue's comments.")
 
     def queue_review(self, job, mr):
         """The next vendor in the person's order reviews the MR, without another approval: it's
