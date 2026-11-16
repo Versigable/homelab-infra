@@ -15,7 +15,10 @@
 #                          state project), any GITLAB_RUNNER_TOKEN_<GUEST>, and any
 #                          GITLAB_TOKEN_STUDIO_AGENT_<OWNER> (a studio cell's agent account),
 #                          and any STUDIO_BRAIN_CELL_<OWNER>_PASSWORD (a studio cell's
-#                          read-only account on the studio brain)
+#                          read-only account on the studio brain); for a cell's Slack desk,
+#                          any SLACK_BOT_TOKEN_<OWNER> and SLACK_APP_TOKEN_<OWNER> (its bot),
+#                          GITLAB_TOKEN_DESK_CELL_<OWNER> (the desk account's cell token) and
+#                          STUDIO_BRAIN_DESK_<OWNER>_PASSWORD (its writer on the studio brain)
 # Non-secret settings come from $IAC_CONF/state.env: GITLAB_URL and IAC_STATE_PROJECT
 # (the numeric id of the GitLab project that holds Terraform state).
 set -euo pipefail
@@ -66,7 +69,7 @@ ansible_env() {
   cd "$IAC_DIR/ansible"
   if [[ -n "$GITLAB_TOKEN_FILE" && -r "$GITLAB_TOKEN_FILE" ]]; then
     local name
-    for name in $(sed -n 's/^\(GITLAB_RUNNER_TOKEN_[A-Z0-9_]*\|GITLAB_TOKEN_STUDIO_AGENT_[A-Z0-9_]*\|STUDIO_BRAIN_CELL_[A-Z0-9_]*_PASSWORD\)=.*/\1/p' "$GITLAB_TOKEN_FILE"); do
+    for name in $(sed -n 's/^\(GITLAB_RUNNER_TOKEN_[A-Z0-9_]*\|GITLAB_TOKEN_STUDIO_AGENT_[A-Z0-9_]*\|GITLAB_TOKEN_DESK_CELL_[A-Z0-9_]*\|STUDIO_BRAIN_\(CELL\|DESK\)_[A-Z0-9_]*_PASSWORD\|SLACK_\(BOT\|APP\)_TOKEN_[A-Z0-9_]*\)=.*/\1/p' "$GITLAB_TOKEN_FILE"); do
       export "$name=$(token_from_file "$name")"
     done
   fi
