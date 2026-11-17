@@ -1,0 +1,158 @@
+# The deploy runner for the studio (defaults/main.yml says what a CI run uses). Runs after
+# role gitlab_runner, which installs gitlab-runner and creates its user.
+
+- name: What the runner's jobs need besides Ansible
+  ansible.builtin.apt:
+    name:
+      - git
+      - openssh-client
+      - python3-venv
+    update_cache: true
+    cache_valid_time: 3600
+
+# --- Ansible, as on the control nodes ----------------------------------------------------
+
+- name: Ansible's virtualenv, ansible-core pinned
+  ansible.builtin.pip:
+    name: "ansible-core=={{ iac_runner_ansible_core }}"
+    virtualenv: "{{ iac_runner_venv }}"
+    virtualenv_command: python3 -m venv
+
+- name: Collections directory
+  ansible.builtin.file:
+    path: "{{ iac_runner_collections_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Collections installed now
+  ansible.builtin.command:
+    argv: ["{{ iac_runner_venv }}/bin/ansible-galaxy", collection, list, --format, json, -p, "{{ iac_runner_collections_dir }}"]
+  register: iac_runner_galaxy
+  changed_when: false
+
+- name: Collections at the pinned versions (requirements.yml)
+  ansible.builtin.command:
+    argv:
+      - "{{ iac_runner_venv }}/bin/ansible-galaxy"
+      - collection
+      - install
+      - --force
+      - -p
+      - "{{ iac_runner_collections_dir }}"
+      - "{{ item.name }}:=={{ item.version }}"
+  loop: "{{ (lookup('ansible.builtin.file', iac_runner_requirements) | from_yaml).collections }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+  when: >-
+    ((iac_runner_galaxy.stdout | from_json).values() | list | combine).get(item.name, {}).get('version') != item.version
+  changed_when: true
+
+# --- The studio-only key --------------------------------------------------------------------
+
+- name: Runner's configuration directory (root's; the runner reads)
+  ansible.builtin.file:
+    path: "{{ iac_runner_dir }}"
+    state: directory
+    owner: root
+    group: "{{ iac_runner_user }}"
+    mode: "0750"
+
+# Generated here and never copied anywhere: iac/keys/studio/iac-runner.pub is its public half.
+- name: The studio key
+  ansible.builtin.command:
+    argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "iac-runner studio", -f, "{{ iac_runner_dir }}/id_studio"]
+    creates: "{{ iac_runner_dir }}/id_studio"
+
+# ssh refuses a group-readable key only when the reader owns it, so root keeps it and the
+# runner's jobs can read it but not change it.
+- name: The studio key's modes
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: "{{ iac_runner_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ iac_runner_dir }}/id_studio", mode: "0440"}
+    - {path: "{{ iac_runner_dir }}/id_studio.pub", mode: "0444"}
+
+# --- What a run reads: host keys, inventory, secrets ------------------------------------------
+
+# Read over this run's own connections, which the control node already trusts, so the runner
+# never accepts a key on first use. A rebuilt studio host gets a new key: rerun this role.
+- name: The studio hosts' SSH host keys
+  ansible.builtin.slurp:
+    src: /etc/ssh/ssh_host_ed25519_key.pub
+  delegate_to: "{{ item }}"
+  loop: "{{ iac_runner_scope_hosts }}"
+  register: iac_runner_hostkeys
+
+- name: The runner's .ssh
+  ansible.builtin.file:
+    path: "{{ iac_runner_home }}/.ssh"
+    state: directory
+    owner: "{{ iac_runner_user }}"
+    group: "{{ iac_runner_user }}"
+    mode: "0700"
+
+- name: The runner's known_hosts_iac (the name ansible.cfg uses)
+  ansible.builtin.copy:
+    dest: "{{ iac_runner_home }}/.ssh/known_hosts_iac"
+    content: |
+      # Managed by Ansible (role iac_runner): the studio hosts' keys, read by the control node.
+      {% for r in iac_runner_hostkeys.results %}
+      {{ hostvars[r.item].ansible_host }} {{ (r.content | b64decode).split()[0:2] | join(' ') }}
+      {% endfor %}
+    owner: "{{ iac_runner_user }}"
+    group: "{{ iac_runner_user }}"
+    mode: "0644"
+
+# guests.yml is generated from Terraform (iac.sh inventory) and isn't in git. The runner has no
+# Terraform state access, so a control node copies its own. After a guest is added: rerun this.
+- name: The guest inventory, from this control node
+  ansible.builtin.copy:
+    src: "{{ iac_runner_guests_file }}"
+    dest: "{{ iac_runner_dir }}/guests.yml"
+    owner: root
+    group: "{{ iac_runner_user }}"
+    mode: "0640"
+
+- name: The studio secrets already here
+  ansible.builtin.slurp:
+    src: "{{ iac_runner_dir }}/studio.env"
+  register: iac_runner_env_old
+  failed_when: false
+  no_log: true
+
+# Values come from the control node's environment (iac.sh exports them from its token file).
+# A name the control node doesn't have keeps the value already here, so a run from a control
+# node without the studio's secrets never empties the file.
+- name: The studio secrets
+  ansible.builtin.template:
+    src: studio.env.j2
+    dest: "{{ iac_runner_dir }}/studio.env"
+    owner: root
+    group: "{{ iac_runner_user }}"
+    mode: "0440"
+  no_log: true
+  diff: false
+
+- name: How many of the studio's secrets the runner has
+  ansible.builtin.command:
+    argv: [grep, -c, "^[A-Z0-9_]*=.", "{{ iac_runner_dir }}/studio.env"]
+  register: iac_runner_env_count
+  changed_when: false
+  failed_when: iac_runner_env_count.rc > 1
+
+- name: The studio key's public half (iac/keys/studio/iac-runner.pub)
+  ansible.builtin.slurp:
+    src: "{{ iac_runner_dir }}/id_studio.pub"
+  register: iac_runner_pub
+
+- name: Say what the runner holds
+  ansible.builtin.debug:
+    msg:
+      - "studio key: {{ iac_runner_pub.content | b64decode | trim }}"
+      - >-
+        studio secrets: {{ iac_runner_env_count.stdout | int }} of
+        {{ (groups['studio_cell'] | default([]) | length) * (iac_runner_studio_secrets | length) }}
+      - "pinned host keys: {{ iac_runner_hostkeys.results | length }} ({{ iac_runner_scope_hosts | join(', ') }})"

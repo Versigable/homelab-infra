@@ -6,6 +6,10 @@ ansible_ssh_common_args: >-
   -o ProxyCommand="ssh -i {{ ansible_ssh_private_key_file }} -o StrictHostKeyChecking=accept-new
   -o UserKnownHostsFile=~/.ssh/known_hosts_iac -W %h:%p {{ studio_gw_jump }}"
 
+# The ansible user also accepts the studio's deploy runner (iac-runner, iac/keys/studio): CI
+# applies the studio when a merge touches it (role base, base_admin_key_scopes).
+base_admin_key_scopes: [studio]
+
 # Time comes from studio-gw (role studio_guest).
 studio_guest_ntp: 10.77.0.1
 

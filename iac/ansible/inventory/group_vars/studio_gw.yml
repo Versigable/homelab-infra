@@ -1,5 +1,9 @@
 # studio-gw (role studio_gw). Vault: 1-Projects/game-studio-platform/design/architecture §3.
 
+# Its ansible user also accepts the studio's deploy runner (iac-runner, iac/keys/studio): CI
+# applies the studio when a merge touches it (role base, base_admin_key_scopes).
+base_admin_key_scopes: [studio]
+
 # Outbound through Squid, by exact hostname, per class of studio guest. HTTPS is spliced
 # only when the TLS SNI is on the same list.
 studio_gw_egress:

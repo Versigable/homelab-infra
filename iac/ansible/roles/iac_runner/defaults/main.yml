@@ -1,0 +1,32 @@
+# A deploy runner: applies one part of the IaC from homelab-infra CI with a key that only that
+# part's hosts accept. Today one scope, the studio (iac/keys/studio). The runner itself comes
+# from role gitlab_runner (protected project runner, tag iac-studio, created in GitLab first).
+#
+# Everything a CI run needs, as the job sees it (.gitlab-ci.yml, the iac-studio jobs):
+#   IAC_VENV=/opt/homelab-iac/venv            ansible-core, pinned to the control nodes'
+#   IAC_SSH_KEY=/etc/homelab-iac/id_studio    the studio-only key, generated here
+#   GITLAB_TOKEN_FILE=/etc/homelab-iac/studio.env   the studio's secrets, from a control node
+#   /etc/homelab-iac/guests.yml               the guest inventory, copied from a control node
+#   ~gitlab-runner/.ssh/known_hosts_iac       the studio hosts' SSH host keys
+iac_runner_dir: /etc/homelab-iac
+iac_runner_user: gitlab-runner
+iac_runner_home: /home/gitlab-runner
+iac_runner_venv: /opt/homelab-iac/venv
+# Same as the control nodes (requirements.yml has the collections).
+iac_runner_ansible_core: "2.19.13"
+iac_runner_collections_dir: /usr/share/ansible/collections
+iac_runner_requirements: "{{ playbook_dir }}/../requirements.yml"
+iac_runner_guests_file: "{{ playbook_dir }}/../inventory/guests.yml"
+
+# The hosts the studio key reaches; their SSH host keys are pinned for the runner.
+iac_runner_scope_hosts: "{{ (groups['studio_gw'] | default([])) + (groups['studio_private'] | default([])) }}"
+
+# The studio's secrets, under the names roles/studio_cell reads for each cell:
+# <prefix><OWNER><suffix>, OWNER being studio_cell_owner in upper case with - as _.
+iac_runner_studio_secrets:
+  - {prefix: GITLAB_TOKEN_STUDIO_AGENT_, suffix: ""}
+  - {prefix: STUDIO_BRAIN_CELL_, suffix: _PASSWORD}
+  - {prefix: SLACK_BOT_TOKEN_, suffix: ""}
+  - {prefix: SLACK_APP_TOKEN_, suffix: ""}
+  - {prefix: GITLAB_TOKEN_DESK_CELL_, suffix: ""}
+  - {prefix: STUDIO_BRAIN_DESK_, suffix: _PASSWORD}

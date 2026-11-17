@@ -73,6 +73,22 @@ networking on every node, so that playbook stops until you re-run it with
   bootstrap), and reaches nodes as `claude-agent` for the pilot.
 - **Nothing secret lives in this directory.** The repo has a public mirror.
 
+## Deploy runners
+
+Most guests' platform changes are applied by an operator from a control node. The studio's
+are applied by CI: `iac-runner` (LXC 119, role `iac_runner`) is a protected project runner,
+tag `iac-studio`, so it runs only jobs from `main`. Its key is generated on it and accepted
+only on the studio's hosts (`iac/keys/studio`, `base_admin_key_scopes`), so it can't reach
+any other guest, and it reaches the studio through studio-gw like a control node.
+
+- It has no Terraform state or Proxmox access: Terraform, and so new or resized guests, stay
+  with the control nodes.
+- A control node gives it what it can't make itself: the guest inventory, the studio's
+  secrets (only those) and the studio hosts' SSH host keys. Rerun
+  `iac.sh play site.yml --limit iac-runner` after adding a guest, rebuilding a studio host
+  or adding a studio secret. A secret the control node doesn't have keeps its value there.
+- Vault: `5-Decisions/2026-11-16_studio-applies-from-ci`.
+
 ## Control node setup (once per operator)
 
 - terraform ≥ 1.9 and an Ansible venv (`ansible-galaxy collection install -r ansible/requirements.yml`)

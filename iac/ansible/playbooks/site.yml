@@ -127,3 +127,13 @@
     - studio_hub_client
     - forge_play
     - forge_webstation
+
+# The studio's deploy runner (LXC 119): CI applies the studio with a key only the studio's hosts
+# accept (vault: 5-Decisions/2026-11-16_studio-applies-from-ci). Run from a control node that
+# has the studio's secrets; it reads the studio hosts' SSH host keys, so they must be up.
+- name: IaC deploy runner (applies the studio from homelab-infra CI)
+  hosts: iac_runners
+  become: true
+  roles:
+    - gitlab_runner
+    - iac_runner

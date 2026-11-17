@@ -1,6 +1,10 @@
 base_admin_user: ansible
-# Every operator's public key (iac/keys/*.pub). The admin user accepts exactly these.
+# Every operator's public key (iac/keys/*.pub). The admin user accepts exactly these, plus
+# the keys of each scope in base_admin_key_scopes (iac/keys/<scope>/*.pub).
 base_admin_keys_dir: "{{ role_path }}/../../../keys"
+# Scopes whose keys this host also accepts, set per group: a deploy runner's key is accepted
+# only on the hosts it deploys (the studio's: group_vars/studio_gw.yml and studio_private.yml).
+base_admin_key_scopes: []
 base_timezone: America/Denver
 base_packages:
   - acl
