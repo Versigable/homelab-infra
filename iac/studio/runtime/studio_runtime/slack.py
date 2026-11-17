@@ -10,6 +10,11 @@ The WebSocket client (RFC 6455, client side): TLS through ssl, the HTTP/1.1 upgr
 Sec-WebSocket-Accept check, masked frames out, text and continuation frames in (a message
 split over several frames is joined), ping answered with pong, close answered with close.
 recv() takes a timeout, so the caller's loop can notice a shutdown between messages.
+
+A connection can die without closing: if the network drops for a moment, neither end's close
+arrives and the socket just goes quiet, forever (both cells on 2026-11-16). last_heard is when
+the server last sent anything, a ping, a pong or a message, and ping() asks it to answer, so the
+caller can tell a quiet connection from a dead one.
 """
 
 import base64
@@ -65,6 +70,7 @@ class WebSocket:
         self.sock = sock
         self.buf = b""
         self.closed = False
+        self.last_heard = time.monotonic()
         self._send_lock = threading.Lock()
         key = base64.b64encode(os.urandom(16)).decode()
         hostport = host if u.port is None else f"{host}:{port}"
@@ -117,12 +123,19 @@ class WebSocket:
             raise WebSocketClosed("closed")
         self._send(OP_TEXT, text.encode("utf-8"))
 
+    def ping(self, payload=b""):
+        """Ask the server to answer; its pong, read by recv(), updates last_heard."""
+        if self.closed:
+            raise WebSocketClosed("closed")
+        self._send(OP_PING, payload)
+
     def _need(self, n):
         while len(self.buf) < n:
             chunk = self.sock.recv(65536)
             if not chunk:
                 self.closed = True
                 raise WebSocketClosed("the server closed the connection")
+            self.last_heard = time.monotonic()
             self.buf += chunk
         out, self.buf = self.buf[:n], self.buf[n:]
         return out
@@ -144,8 +157,9 @@ class WebSocket:
         return fin, opcode, payload
 
     def recv(self, timeout=None):
-        """The next text message, or None if nothing started arriving within timeout seconds.
-        Raises WebSocketClosed when the connection ends."""
+        """The next text message, or None if none started arriving within timeout seconds, or if
+        what came was a ping or a pong (between messages), so the caller's loop always gets its
+        turn. Raises WebSocketClosed when the connection ends."""
         if self.closed:
             raise WebSocketClosed("closed")
         parts, kind = [], None
@@ -161,13 +175,18 @@ class WebSocket:
                 if not chunk:
                     self.closed = True
                     raise WebSocketClosed("the server closed the connection")
+                self.last_heard = time.monotonic()
                 self.buf += chunk
             self.sock.settimeout(self.io_timeout)
             fin, opcode, payload = self._read_frame()
             if opcode == OP_PING:
                 self._send(OP_PONG, payload)
+                if not parts:
+                    return None
                 continue
             if opcode == OP_PONG:
+                if not parts:
+                    return None
                 continue
             if opcode == OP_CLOSE:
                 code = struct.unpack(">H", payload[:2])[0] if len(payload) >= 2 else 1005
