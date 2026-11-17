@@ -1,0 +1,19 @@
+http:
+  routers:
+    homepage-router:
+      rule: "Host(`hub.ninjaprivacy.org`)"
+      service: homepage-svc
+      entrypoints: [websecure]
+      tls: {}
+      # Operators only. Homepage has no login of its own, so this middleware
+      # is the whole gate: the Authentik wildcard application behind it is
+      # bound to the operators group. Never remove it from this route.
+      middlewares:
+        - authentik-forward
+
+  services:
+    homepage-svc:
+      loadbalancer:
+        servers:
+          - url: http://10.0.1.5:3003
+        passHostHeader: true

@@ -1,0 +1,435 @@
+---
+# Services on the hub: https://gethomepage.dev/configs/services/
+#
+# href        = what a click opens (the public name where there is one).
+# siteMonitor = what the status dot checks. Homepage calls it from ServiceHub,
+#               so it must be an address ServiceHub can reach without a login.
+#               A service with no siteMonitor has no dot (ServiceHub cannot
+#               reach it; its own firewall only lets Traefik in).
+# Numbers come from Prometheus (10.1.0.5:9090, no credentials). A widget shows
+# four metrics at most. No API keys are used in this file.
+#
+# Group names are also used in settings.yaml (layout) and must stay unique.
+
+# ----------------------------- Services tab -----------------------------
+
+- Media:
+    - Jellyfin:
+        icon: jellyfin.png
+        href: https://jellyfin.ninjaprivacy.org
+        description: Movies and TV
+        siteMonitor: http://10.0.1.8:8096/health
+    - Seerr:
+        icon: jellyseerr.png
+        href: https://requests.ninjaprivacy.org
+        description: Media requests
+        siteMonitor: http://10.0.1.8:5055/api/v1/status
+    - Sonarr:
+        icon: sonarr.png
+        href: https://sonarr.ninjaprivacy.org
+        description: TV automation
+        siteMonitor: http://10.0.1.8:8989/ping
+    - Radarr:
+        icon: radarr.png
+        href: https://radarr.ninjaprivacy.org
+        description: Movie automation
+        siteMonitor: http://10.0.1.8:7878/ping
+    - Prowlarr:
+        icon: prowlarr.png
+        href: https://prowlarr.ninjaprivacy.org
+        description: Indexers
+        siteMonitor: http://10.0.1.8:9696/ping
+    - qBittorrent:
+        icon: qbittorrent.png
+        href: https://qbit.ninjaprivacy.org
+        description: Downloads, behind the VPN
+        siteMonitor: http://10.0.1.8:8080
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 15000
+          metrics:
+            - label: Down
+              query: sum(rate(qbittorrent_dl_info_data_total[2m]))
+              format:
+                type: byterate
+            - label: Up
+              query: sum(rate(qbittorrent_up_info_data_total[2m]))
+              format:
+                type: byterate
+            - label: Downloading
+              query: sum(qbittorrent_torrents_count{status="downloading"}) or vector(0)
+              format:
+                type: number
+            - label: Errored
+              query: sum(qbittorrent_torrents_count{status=~"error|missingFiles"}) or vector(0)
+              format:
+                type: number
+    - Navidrome:
+        icon: navidrome.png
+        href: https://navidrome.ninjaprivacy.org
+        description: Music
+        siteMonitor: http://10.0.1.14:4533/ping
+    - Ente Photos:
+        icon: ente-photos.png
+        href: https://photos.ninjaprivacy.org
+        description: Encrypted photo backup
+        siteMonitor: http://10.0.1.15:8080/ping
+
+- Games:
+    - RomM:
+        icon: romm.png
+        href: https://arcade.ninjaprivacy.org
+        description: ROM library and browser play (also games.ninjaprivacy.org)
+        siteMonitor: http://10.0.1.5:8080/api/heartbeat
+    - Webstation 1:
+        icon: mdi-controller
+        href: https://arcade.ninjaprivacy.org/streaming/
+        description: Emulator stream, jf
+        siteMonitor: http://10.0.1.8:3010
+    - Webstation 2:
+        icon: mdi-controller
+        href: https://arcade.ninjaprivacy.org/streaming-2/
+        description: Emulator stream, jf
+        siteMonitor: http://10.0.1.8:3020
+    - Webstation 3:
+        icon: mdi-controller
+        href: https://arcade.ninjaprivacy.org/streaming-3/
+        description: Emulator stream, jf
+        siteMonitor: http://10.0.1.8:3030
+    - Webstation Forge:
+        icon: mdi-controller
+        href: https://arcade.ninjaprivacy.org/streaming-forge/
+        description: Emulator stream, the Forge (5070 Ti)
+        siteMonitor: http://10.0.1.150:3040
+    - Sunshine:
+        icon: sunshine.png
+        href: https://sunshine.ninjaprivacy.org
+        description: Moonlight host on jf
+    - EmulatorJS admin:
+        icon: emulatorjs.png
+        href: http://10.0.1.5:3000
+        description: Browser games ROM manager (LAN only)
+        siteMonitor: http://10.0.1.5:3000
+
+- Apps:
+    - Nextcloud:
+        icon: nextcloud.png
+        href: https://cloud.ninjaprivacy.org
+        description: Files, calendars, contacts, photos
+        siteMonitor: https://cloud.ninjaprivacy.org/status.php
+    - Collabora:
+        icon: collabora-online.png
+        href: https://office.ninjaprivacy.org/browser/dist/admin/admin.html
+        description: Office documents (admin console)
+        siteMonitor: http://10.0.1.16:9980
+    - Wiki.js:
+        icon: wikijs.png
+        href: https://wiki.ninjaprivacy.org
+        description: Wiki
+        siteMonitor: http://10.0.1.5:3001
+    - n8n:
+        icon: n8n.png
+        href: https://n8n.ninjaprivacy.org
+        description: Workflow automation
+        siteMonitor: http://10.0.1.5:5678/healthz
+    - Bitwarden:
+        icon: bitwarden.png
+        href: https://bitwarden.ninjaprivacy.org
+        description: Passwords
+        siteMonitor: https://10.0.1.3:1443
+    - Brain (CouchDB):
+        icon: couchdb.png
+        href: https://brain.ninjaprivacy.org/_utils/
+        description: Obsidian LiveSync databases
+        siteMonitor: http://10.0.1.5:5984/_up
+    - Home Assistant (Wolverine):
+        icon: home-assistant.png
+        href: http://10.1.0.12:8123
+        description: MetaVersig's house (LAN only)
+        siteMonitor: http://10.1.0.12:8123
+    - Home Assistant (X-Mansion):
+        icon: home-assistant.png
+        href: http://10.0.1.12:8123
+        description: Firekube's house (LAN only)
+        siteMonitor: http://10.0.1.12:8123
+
+- Dev & Studio:
+    - GitLab:
+        icon: gitlab.png
+        href: https://gitlab.ninjaprivacy.org
+        description: Repos, merge requests, pipelines
+        siteMonitor: http://10.0.1.13:8081/users/sign_in
+    - Studio portal:
+        icon: unity.png
+        href: https://studio.ninjaprivacy.org
+        description: Game studio builds and play sessions
+    - Studio terminal:
+        icon: mdi-console
+        href: https://studio.ninjaprivacy.org/term/metaversig/
+        description: MetaVersig's cell
+    - Game preview:
+        icon: mdi-gamepad-variant-outline
+        href: https://game-preview.ninjaprivacy.org
+        description: Agent apps, public preview
+    - Game dev preview:
+        icon: mdi-gamepad-variant-outline
+        href: https://gamedev.ninjaprivacy.org
+        description: Agent apps, operator preview
+    - Danger Room:
+        icon: novnc.png
+        href: http://10.1.0.10:6080
+        description: Agent desktop VM (LAN only)
+        siteMonitor: http://10.1.0.10:6080
+    - LiteLLM (PGX):
+        icon: mdi-brain
+        href: http://10.1.0.4:4000/ui
+        description: Local model gateway (LAN only)
+    - Kreoly (dev):
+        icon: mdi-storefront-outline
+        href: https://kreoly.ninjaprivacy.org
+        description: Creator platform, dev site
+        siteMonitor: http://10.0.1.5:3002/api/health
+
+# ------------------------------- Infra tab -------------------------------
+
+- Cluster:
+    - Proxmox:
+        icon: proxmox.png
+        href: https://proxmox.ninjaprivacy.org
+        description: X-Mansion cluster, all three nodes
+        siteMonitor: https://10.0.1.2:8006
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: Nodes up
+              query: count(max by (id) (pve_up{id=~"node/.*"}) == 1) or vector(0)
+              format:
+                type: number
+                suffix: " / 3"
+            - label: Guests running
+              query: count(max by (id) (pve_up{id=~"(qemu|lxc)/.*"}) == 1) or vector(0)
+              format:
+                type: number
+            - label: Guests stopped
+              query: count(max by (id) (pve_up{id=~"(qemu|lxc)/.*"}) == 0) or vector(0)
+              format:
+                type: number
+            - label: No backup
+              query: count(max by (vmid) (pve_backup_guest_without_backup) == 1) or vector(0)
+              format:
+                type: number
+    - phoenix:
+        icon: mdi-server
+        href: https://10.0.1.2:8006
+        description: Edge, storage, studio (LAN only)
+        siteMonitor: https://10.0.1.2:8006
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 15000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="node/phoenix"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="node/phoenix"}) / max(pve_memory_size_bytes{id="node/phoenix"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Guests up
+              query: count(max by (id) (pve_up == 1) * on (id) group_left(node) max by (id, node) (pve_guest_info{node="phoenix"})) or vector(0)
+              format:
+                type: number
+            - label: Uptime
+              query: max(pve_uptime_seconds{id="node/phoenix"})
+              format:
+                type: duration
+    - rogue:
+        icon: mdi-server
+        href: https://10.0.2.1:8006
+        description: Media, ServiceHub, game servers (LAN only)
+        siteMonitor: https://10.0.2.1:8006
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 15000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="node/rogue"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="node/rogue"}) / max(pve_memory_size_bytes{id="node/rogue"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Guests up
+              query: count(max by (id) (pve_up == 1) * on (id) group_left(node) max by (id, node) (pve_guest_info{node="rogue"})) or vector(0)
+              format:
+                type: number
+            - label: Uptime
+              query: max(pve_uptime_seconds{id="node/rogue"})
+              format:
+                type: duration
+    - wolverine:
+        icon: mdi-server
+        href: https://10.1.0.2:8006
+        description: MetaVersig's site, agents, monitoring (LAN only)
+        siteMonitor: https://10.1.0.2:8006
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 15000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="node/wolverine"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="node/wolverine"}) / max(pve_memory_size_bytes{id="node/wolverine"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Guests up
+              query: count(max by (id) (pve_up == 1) * on (id) group_left(node) max by (id, node) (pve_guest_info{node="wolverine"})) or vector(0)
+              format:
+                type: number
+            - label: Uptime
+              query: max(pve_uptime_seconds{id="node/wolverine"})
+              format:
+                type: duration
+
+- Platform:
+    - TrueNAS:
+        icon: truenas.png
+        href: https://truenas.ninjaprivacy.org
+        description: NAS, VM 107 on phoenix
+        siteMonitor: http://10.0.1.7
+    - Traefik:
+        icon: traefik.png
+        href: https://traefik.ninjaprivacy.org/dashboard/
+        description: Reverse proxy and Cloudflare tunnel
+        siteMonitor: http://10.0.2.5:8082/metrics
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 15000
+          metrics:
+            - label: Requests
+              query: sum(rate(traefik_service_requests_total[5m])) or vector(0)
+              format:
+                type: number
+                suffix: " /s"
+                options:
+                  maximumFractionDigits: 1
+            - label: 5xx
+              query: sum(rate(traefik_service_requests_total{code=~"5.."}[5m])) or vector(0)
+              format:
+                type: number
+                suffix: " /s"
+                options:
+                  maximumFractionDigits: 2
+            - label: Last reload
+              query: time() - max(traefik_config_last_reload_success)
+              format:
+                type: duration
+                suffix: " ago"
+    - Authentik:
+        icon: authentik.png
+        href: https://auth.ninjaprivacy.org
+        description: Single sign-on
+        siteMonitor: https://10.0.1.3:9443/-/health/live/
+    - jf GPU (3060 Ti):
+        icon: nvidia.png
+        href: https://grafana.ninjaprivacy.org
+        description: Jellyfin transcodes and emulator streams
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 15000
+          metrics:
+            - label: Temp
+              query: max(nvidia_smi_temperature_gpu{instance="jf"})
+              format:
+                type: number
+                suffix: " C"
+            - label: Load
+              query: max(nvidia_smi_utilization_gpu_ratio{instance="jf"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: VRAM
+              query: max(nvidia_smi_memory_used_bytes{instance="jf"})
+              format:
+                type: bbytes
+            - label: Power
+              query: max(nvidia_smi_power_draw_watts{instance="jf"})
+              format:
+                type: number
+                suffix: " W"
+                options:
+                  maximumFractionDigits: 0
+
+- Monitoring:
+    - Grafana:
+        icon: grafana.png
+        href: https://grafana.ninjaprivacy.org
+        description: Dashboards
+        siteMonitor: http://10.1.0.5:3000/api/health
+    - Prometheus:
+        icon: prometheus.png
+        href: http://10.1.0.5:9090
+        description: Metrics (LAN only)
+        siteMonitor: http://10.1.0.5:9090/-/healthy
+        widget:
+          type: prometheus
+          url: http://10.1.0.5:9090
+    - Alertmanager:
+        icon: alertmanager.png
+        href: http://10.1.0.5:9093
+        description: Alert routing (LAN only)
+        siteMonitor: http://10.1.0.5:9093/-/healthy
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: Firing
+              query: count(ALERTS{alertstate="firing"}) or vector(0)
+              format:
+                type: number
+            - label: Pending
+              query: count(ALERTS{alertstate="pending"}) or vector(0)
+              format:
+                type: number
+            - label: Last backup
+              query: min(time() - pve_backup_last_success_timestamp_seconds)
+              format:
+                type: duration
+                suffix: " ago"
+    - ntfy:
+        icon: ntfy.png
+        href: https://ntfy.ninjaprivacy.org
+        description: Push notifications
+        siteMonitor: http://10.1.0.5:2586/v1/health

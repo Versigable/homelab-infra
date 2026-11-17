@@ -112,6 +112,18 @@ deploy-kreoly-dev:
     # trigger pipeline (other services' rules need their own file changes).
     - if: '$DEPLOY == "kreoly-dev"'
 
+deploy-homepage:
+  extends: .servicehub-deploy
+  variables:
+    SERVICE_KEY: homepage
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - hosts/servicehub/compose/homepage.yml
+        - hosts/servicehub/secrets/homepage.env.sops
+        - hosts/servicehub/config/homepage/*
+        - hosts/servicehub/scripts/deploy.sh
+
 
 # ============================================================
 # GamingHub — Per-Game Deploy Jobs
