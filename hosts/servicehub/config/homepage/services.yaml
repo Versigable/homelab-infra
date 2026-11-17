@@ -102,10 +102,6 @@
         href: https://arcade.ninjaprivacy.org/streaming-forge/
         description: Emulator stream, the Forge (5070 Ti)
         siteMonitor: http://10.0.1.150:3040
-    - Sunshine:
-        icon: sunshine.png
-        href: https://sunshine.ninjaprivacy.org
-        description: Moonlight host on jf
     - EmulatorJS admin:
         icon: emulatorjs.png
         href: http://10.0.1.5:3000
