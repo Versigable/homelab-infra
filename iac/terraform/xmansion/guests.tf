@@ -63,6 +63,23 @@ locals {
       groups      = ["docker_hosts", "cf_tunnel"]
       description = "cloudflared replicas of ninjaprivacy_org and ninjaprivacy_us (rogue). App: homelab-infra hosts/cf-tunnel (GitOps). Vault: 1-Projects/tunnel-redundancy."
     }
+    # Applies the studio's Ansible from homelab-infra CI when a merge touches it: a protected
+    # project runner (tag iac-studio) with a key that only the studio's hosts accept
+    # (iac/keys/studio), role iac_runner. On the LAN, outside the studio, so it reaches in
+    # through studio-gw like the other control nodes and the studio holds no production
+    # credential. On phoenix: rogue's memory goes to the studio cells.
+    "iac-runner" = {
+      vmid        = 119
+      node        = "phoenix"
+      ip          = "10.0.1.19"
+      cores       = 1
+      memory      = 1024
+      swap        = 512
+      disk        = 8
+      tags        = ["iac-runner"]
+      groups      = ["iac_runners"]
+      description = "Applies the studio's Ansible from homelab-infra CI (runner tag iac-studio, key iac/keys/studio). Vault: 5-Decisions/2026-11-16_studio-applies-from-ci."
+    }
   }
 
   # Every Terraform-managed VM on X-Mansion, cloned from the cloud-init template
