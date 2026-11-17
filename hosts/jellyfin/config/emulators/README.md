@@ -1,10 +1,18 @@
-# Emulator + session configs (jf VM)
+# Emulator configs (jf VM)
 
-Configs for the emulators launched via Sunshine, plus the Openbox session they
-run inside. Tracked so a rebuild reproduces a tuned host rather than defaults.
+> **Sunshine was retired on 2026-11-16.** These flatpak emulators were launched
+> through Sunshine and Moonlight. Sunshine, its headless Xorg and Openbox session
+> and their repo files (`../sunshine/`, `../openbox/`, `../../systemd/`) are gone.
+> The flatpaks are still installed on jf, but nothing launches them now; their
+> data dirs hold game saves, which is why they were left alone. Browser streaming
+> runs in the webstation containers (`../webstation/`), which carry their own
+> emulators and configs. Mentions of Sunshine below are history.
 
-Same convention as `../../systemd/`: **tracked for review and rebuild, not
-auto-deployed.** `deploy.sh` handles compose stacks only.
+Configs for the native flatpak emulators on jf. Tracked so a rebuild reproduces
+a tuned host rather than defaults.
+
+**Tracked for review and rebuild, not auto-deployed.** `deploy.sh` handles
+compose stacks only.
 
 ## Host paths
 
@@ -16,7 +24,6 @@ auto-deployed.** `deploy.sh` handles compose stacks only.
 | `dolphin/` | `~jf/.config/dolphin-emu/` |
 | `azahar/` | `~jf/.var/app/org.azahar_emu.Azahar/config/azahar-emu/` |
 | `cemu/` | `~jf/.var/app/info.cemu.Cemu/config/Cemu/` |
-| `openbox/rc.xml` | `~jf/.config/openbox/rc.xml` |
 
 Flatpak apps must be launched once before their config dir exists. Each also
 needs `flatpak override --filesystem=/mnt/gameroom` or it cannot see the ROMs.
