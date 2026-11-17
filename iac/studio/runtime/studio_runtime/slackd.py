@@ -386,9 +386,15 @@ class Slackd:
 
     # --- Socket Mode ----------------------------------------------------------------------------
 
-    def serve_socket(self, connect, ws_factory=None, recv_timeout=5):
+    def serve_socket(self, connect, ws_factory=None, recv_timeout=5, ping_every=30, silence_limit=90):
         """Connect, ack every envelope at once, hand it on; reconnect on a disconnect envelope or
-        any error, backing off up to a minute."""
+        any error, backing off up to a minute.
+
+        A connection that dies without closing just goes quiet, and then no event ever arrives
+        again (both cells, 2026-11-16: a short network outage left the bots deaf for 17 hours).
+        So the loop pings Slack every ping_every seconds, and when nothing at all has come from
+        Slack for silence_limit seconds (Slack pings every ten or so, and answers ours), it drops
+        the connection and opens a new one."""
         ws_factory = ws_factory or slack.WebSocket
         backoff = 1
         while not self.stop.is_set():
@@ -397,7 +403,15 @@ class Slackd:
                 ws = ws_factory(connect())
                 log("socket mode: connected")
                 backoff = 1
+                pinged = time.monotonic()
                 while not self.stop.is_set():
+                    now = time.monotonic()
+                    if now - ws.last_heard > silence_limit:
+                        log(f"socket mode: nothing from Slack for {now - ws.last_heard:.0f} s; reconnecting")
+                        break
+                    if now - pinged >= ping_every:
+                        ws.ping()
+                        pinged = now
                     raw = ws.recv(timeout=recv_timeout)
                     if raw is None:
                         continue
