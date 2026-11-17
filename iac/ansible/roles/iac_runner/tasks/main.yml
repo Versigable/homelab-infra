@@ -1,11 +1,14 @@
 # The deploy runner for the studio (defaults/main.yml says what a CI run uses). Runs after
 # role gitlab_runner, which installs gitlab-runner and creates its user.
 
+# python3-packaging: the next task's pip module imports it on the host's own Python, and a
+# fresh Debian LXC doesn't have it.
 - name: What the runner's jobs need besides Ansible
   ansible.builtin.apt:
     name:
       - git
       - openssh-client
+      - python3-packaging
       - python3-venv
     update_cache: true
     cache_valid_time: 3600
