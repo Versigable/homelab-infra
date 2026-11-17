@@ -8,6 +8,7 @@ set -euo pipefail
 #   deploy.sh          — Deploy ALL services (manual full redeploy)
 #   deploy.sh wiki     — Deploy only Wiki.js
 #   deploy.sh n8n      — Deploy only N8N
+#   deploy.sh homepage — Deploy only Homepage (the operators' hub)
 # ============================================================
 
 # -------- Colors / logging --------
@@ -31,7 +32,7 @@ require_cmd() {
 # -------- Target selection --------
 TARGET="${1:-all}"
 
-VALID_TARGETS="all wiki n8n romm browsergames couchdb kreoly-dev"
+VALID_TARGETS="all wiki n8n romm browsergames couchdb kreoly-dev homepage"
 if ! echo "$VALID_TARGETS" | grep -qw "$TARGET"; then
   die "Invalid target: '$TARGET'. Valid targets: ${VALID_TARGETS}"
 fi
@@ -114,6 +115,32 @@ sync_compose() {
   sudo /usr/bin/install -m 0644 -o root -g root "$src" "$dst"
 }
 
+# -------- Config dir sync (optional, per service) --------
+# Copies the plain files in a repo config dir into the service's live config
+# dir. Flat only (no subdirectories), and it never deletes: a file removed
+# from the repo stays on the host until someone removes it there.
+sync_config_dir() {
+  local repo_dir_rel="$1"
+  local live_cfg_dir="$2"
+  local src="${REPO_DIR}/${repo_dir_rel}"
+
+  [[ -d "$src" ]] || die "missing repo config dir: ${repo_dir_rel}"
+
+  log_info "Syncing ${repo_dir_rel}/ -> ${live_cfg_dir}/"
+  sudo /usr/bin/install -d -m 0755 -o root -g root "$live_cfg_dir"
+
+  local f count=0
+  shopt -s nullglob
+  for f in "$src"/*; do
+    [[ -f "$f" ]] || continue
+    sudo /usr/bin/install -m 0644 -o root -g root "$f" "${live_cfg_dir}/$(basename "$f")"
+    count=$((count + 1))
+  done
+  shopt -u nullglob
+
+  [[ "$count" -gt 0 ]] || die "no config files in ${repo_dir_rel}"
+}
+
 # -------- Fix perms for devops group --------
 fix_perms() {
   local hub_dir="$1"
@@ -178,10 +205,15 @@ FAILED=()
 
 deploy_if_target() {
   local key="$1" label="$2" compose_repo="$3" secrets_repo="$4" live_dir="$5" hub_dir="$6" home_dir="$7"
+  # Optional 8th argument: a repo config dir to copy into <hub_dir>/config.
+  local config_repo="${8:-}"
 
   if [[ "$TARGET" == "all" || "$TARGET" == "$key" ]]; then
     ensure_runner_acls "$live_dir" "$hub_dir" "$home_dir"
     sync_compose "$compose_repo" "$live_dir"
+    if [[ -n "$config_repo" ]]; then
+      sync_config_dir "$config_repo" "${hub_dir}/config"
+    fi
     if ! deploy_stack "$label" "$secrets_repo" "$live_dir" "$hub_dir" "$home_dir"; then
       FAILED+=("$key")
     fi
@@ -241,6 +273,14 @@ deploy_if_target "kreoly-dev" "Kreoly (dev)" \
   "/home/kreoly-dev/kreoly-dev-hub/compose" \
   "/home/kreoly-dev/kreoly-dev-hub" \
   "/home/kreoly-dev"
+
+deploy_if_target "homepage" "Homepage (hub)" \
+  "hosts/servicehub/compose/homepage.yml" \
+  "hosts/servicehub/secrets/homepage.env.sops" \
+  "/home/homepage/homepage-hub/compose" \
+  "/home/homepage/homepage-hub" \
+  "/home/homepage" \
+  "hosts/servicehub/config/homepage"
 
 # ============================================================
 # Summary

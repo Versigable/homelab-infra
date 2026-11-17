@@ -1,0 +1,54 @@
+name: homepage
+
+# Homepage (gethomepage.dev): the operators' hub at hub.ninjaprivacy.org.
+# One page of links to every service, with a status dot per service and
+# infra numbers read from Prometheus.
+#
+# Routing: Traefik (10.0.2.5) -> http://10.0.1.5:3003 -> container :3000,
+# behind the authentik-forward middleware. Homepage has no login of its own
+# here; the Authentik wildcard application only admits the operators group.
+#
+# Config lives in git at hosts/servicehub/config/homepage/ and deploy.sh
+# copies it to ../config, mounted read-only. Homepage re-reads it on page
+# load, so a config-only change needs no restart.
+#
+# No secrets yet: every number on the page comes from Prometheus, which needs
+# no credentials. When a widget needs an API key, add HOMEPAGE_VAR_<NAME> to
+# homepage.env.sops AND an explicit line under `environment:` below (compose's
+# .env is parse-time substitution only), then use {{HOMEPAGE_VAR_<NAME>}} in
+# the config.
+
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:v2.8.0
+    container_name: homepage
+    restart: unless-stopped
+    # The image's own unprivileged user (it owns /app/.next). Setting `user:`
+    # skips the entrypoint's chown + su-exec path, which would need
+    # capabilities that cap_drop removes.
+    user: "1000:1000"
+    environment:
+      # Homepage rejects API calls whose Host header is not listed here.
+      HOMEPAGE_ALLOWED_HOSTS: hub.ninjaprivacy.org
+      # The config mount is read-only, so log to stdout only (json-file below).
+      LOG_TARGETS: stdout
+      TZ: ${TZ}
+    volumes:
+      - ../config:/app/config:ro
+    ports:
+      # Published only on the ServiceHub LAN IP for Traefik to reach.
+      - "10.0.1.5:3003:3000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks: [homepage-net1]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  homepage-net1:
+    driver: bridge

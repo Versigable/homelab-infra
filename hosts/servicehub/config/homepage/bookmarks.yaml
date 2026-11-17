@@ -1,0 +1,31 @@
+---
+# Plain links with no status check: https://gethomepage.dev/configs/bookmarks/
+# Group names must differ from the service group names in services.yaml.
+
+- Outside:
+    - Cloudflare:
+        - icon: cloudflare.png
+          href: https://dash.cloudflare.com/
+          description: DNS, tunnel, WARP
+    - Healthchecks.io:
+        - icon: healthchecks.png
+          href: https://healthchecks.io/
+          description: Monitoring heartbeat
+    - Tailscale:
+        - icon: tailscale.png
+          href: https://login.tailscale.com/admin/machines
+          description: Tailnet machines
+    - GitHub mirror:
+        - icon: github.png
+          href: https://github.com/Versigable/homelab-infra
+          description: homelab-infra, read-only mirror
+
+- Wolverine site:
+    - pfSense (Wolverine):
+        - icon: pfsense.png
+          href: https://192.168.0.1
+          description: Home LAN only
+    - wolverine-sw1:
+        - icon: cisco.png
+          href: https://192.168.0.4
+          description: Home LAN only
