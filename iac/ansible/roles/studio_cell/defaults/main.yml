@@ -125,6 +125,9 @@ studio_cell_desk_account: ""
 #     the story in its thread; "ready to play" pings the person (ping_ready). At morning_hour,
 #     in the person's own time zone as Slack has it, they get a DM of what's waiting on them
 #     (nothing waiting, no DM; leave morning_hour empty for none);
+#   - the person can hand it any message without retyping it: "Send to <bot>" in the message's
+#     menu (a message shortcut of the Slack app), or the idea_reaction on the message. Either is
+#     their word and starts a turn of theirs in that message's thread; the message is data;
 #   - huddles file themselves (vault decision 2026-11-17): when Slack's AI notes for a huddle
 #     arrive in a channel the bot is in, the desk of the person who started the huddle reads
 #     the notes and the whole transcript and writes the huddle's note in the brain. desk_owners
@@ -153,6 +156,8 @@ studio_cell_slack:
   ping_ready: true
   morning_hour: 9
   huddles: true
+  # The reaction that files a message as an idea when the person puts it on one (:bulb:).
+  idea_reaction: bulb
   desk_owners: "{{ groups['studio_cell'] | map('extract', hostvars, 'studio_cell_slack_owner') | select | list | sort }}"
 studio_cell_desk_brain:
   url: "{{ studio_cell_brain.url }}"
