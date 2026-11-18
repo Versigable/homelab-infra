@@ -20,7 +20,7 @@ quicklaunch:
   hideInternetSearch: true
   hideVisitURL: true
 
-# Group order here is the order on the page. Two tabs: Services and Infra.
+# Group order here is the order on the page. Three tabs: Services, Infra, AI.
 layout:
   Needs you:
     tab: Services
@@ -74,3 +74,11 @@ layout:
     tab: Infra
     style: row
     columns: 4
+  Inference:
+    tab: AI
+    style: row
+    columns: 3
+  PGX & agents:
+    tab: AI
+    style: row
+    columns: 3
