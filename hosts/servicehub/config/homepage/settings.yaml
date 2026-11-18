@@ -22,11 +22,19 @@ quicklaunch:
 
 # Group order here is the order on the page. Two tabs: Services and Infra.
 layout:
+  Needs you:
+    tab: Services
+    style: row
+    columns: 4
   Media:
     tab: Services
     style: row
     columns: 4
   Games:
+    tab: Services
+    style: row
+    columns: 4
+  Game servers:
     tab: Services
     style: row
     columns: 4
