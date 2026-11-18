@@ -38,10 +38,18 @@ layout:
     tab: Services
     style: row
     columns: 4
+  Health:
+    tab: Infra
+    style: row
+    columns: 5
   Cluster:
     tab: Infra
     style: row
     columns: 4
+  Guests:
+    tab: Infra
+    style: row
+    columns: 3
   Platform:
     tab: Infra
     style: row
