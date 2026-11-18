@@ -87,6 +87,17 @@ any other guest, and it reaches the studio through studio-gw like a control node
   secrets (only those) and the studio hosts' SSH host keys. Rerun
   `iac.sh play site.yml --limit iac-runner` after adding a guest, rebuilding a studio host
   or adding a studio secret. A secret the control node doesn't have keeps its value there.
+- **The jobs** (`.gitlab-ci.yml`, `iac-studio-*`): `site.yml` limited to one target
+  (`iac-studio-gw`, `-hub`, `-forge`, `-cells`), each run when a merge to `main` changes a
+  file its apply reads. A change every studio host reads, such as role `base` or `site.yml`,
+  runs all four. studio-gw goes first, then the hub, and one studio apply runs at a time.
+  `iac-studio-all` is a play button on every `main` pipeline that applies the whole studio.
+  A role or file a studio host starts reading needs adding to its job's `changes:`.
+- Not a trigger: `iac/keys/`, because who holds keys is applied to every guest from a
+  control node. The next studio apply carries `main`'s keys anyway, since role `base` keeps
+  the list exact.
+- The runner never accepts an unknown host key (`StrictHostKeyChecking=yes`), so a studio
+  host rebuilt with a new key fails its job until a control node reruns the runner's play.
 - Vault: `5-Decisions/2026-11-16_studio-applies-from-ci`.
 
 ## Control node setup (once per operator)
