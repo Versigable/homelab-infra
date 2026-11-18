@@ -27,6 +27,61 @@ def load_config():
         return json.load(f)
 
 
+# --- a review, in a few lines ----------------------------------------------------------------
+# A review is free markdown. For the builds channel it's cut down to its opening words and the
+# titles of its findings: lines that begin with a severity, like "**[P2] Failed builds leave
+# objects on the Stage**" or "- P1: the gate skips PlayMode".
+
+_SEV = r"P[0-4]|blocker|critical|high|medium|low|major|minor|nit"
+_LEAD = r"^\s*(?:[-*+•]\s+|\d+[.)]\s+|#{1,6}\s+)?[*_]*"
+FINDING_RES = (
+    re.compile(_LEAD + rf"\[({_SEV})\][*_]*\s*[:–—-]?\s*(.+?)\s*$", re.IGNORECASE),
+    re.compile(_LEAD + r"(P[0-4])[*_]*\s*[:–—-]\s*(.+?)\s*$"),
+)
+
+
+def _plain(s):
+    """A markdown line as plain words: emphasis marks dropped, links as their text."""
+    s = re.sub(r"!?\[([^\]]+)\]\([^)\s]+\)", r"\1", s)
+    s = re.sub(r"\*{1,3}", "", s)
+    s = re.sub(r"(?<!\w)_{1,3}(?=\S)|(?<=\S)_{1,3}(?!\w)", "", s)      # not the _ inside snake_case
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def review_digest(text, max_findings=12):
+    """(summary, findings) of a review: its first paragraph of prose, at most 300 characters,
+    and [[severity, title], ...] for each finding line."""
+    findings, summary, para, fence, title_line = [], "", [], False, ""
+    for line in (text or "").splitlines() + [""]:
+        if line.strip().startswith("```"):
+            fence = not fence
+            continue
+        if fence:
+            continue
+        m = next((m for m in (r.match(line) for r in FINDING_RES) if m), None)
+        if m:
+            title = _plain(m.group(2))
+            if title and len(findings) < max_findings:
+                findings.append([m.group(1).upper() if m.group(1)[0] in "Pp" else m.group(1).lower(),
+                                 title if len(title) <= 160 else title[:159].rstrip() + "…"])
+            continue
+        s = line.strip()
+        heading = bool(re.match(r"^#{1,6}\s", s)) or bool(re.match(r"^([*_]{2}).+\1:?$", s))
+        if heading and not title_line:
+            title_line = _plain(re.sub(r"^#{1,6}\s+", "", s))
+        if not summary and s and not heading:
+            para.append(s)
+        elif para and not summary:
+            summary = _plain(" ".join(para))
+    if not summary and not findings:
+        summary = title_line                # a review that is one bold line still says something
+    if len(summary) > 300:
+        cut = summary[:300]
+        end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+        summary = cut[: end + 1] if end > 120 else cut[:299].rstrip() + "…"
+    return summary, findings
+
+
 # --- the socket protocol --------------------------------------------------------------------
 # One request per connection: a JSON line {"verb": ..., "args": [...]}. The daemon answers
 # with JSON lines: {"out": text} for progress, then {"rc": n, "result": ...} last.
