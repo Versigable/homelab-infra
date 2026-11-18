@@ -9,6 +9,19 @@
 # Numbers come from Prometheus (10.1.0.5:9090, no credentials). A widget shows
 # four metrics at most. No API keys are used in this file.
 #
+# prometheusmetric widgets can colour a value with `highlight`, keyed by the
+# metric label. The first matching rule wins, so list danger, then warn, then
+# good. A value of "-" means the query returned nothing (exporter down) and is
+# shown amber.
+# customapi widgets call the Prometheus API directly. They are used where a
+# number should read as a word (Free / In use) or where a card lists several
+# series (dynamic-list). They cannot be highlighted.
+#
+# Guest numbers (CPU, RAM, Up) sit on cards whose service has a guest of its
+# own. RAM is shown for containers only: for a VM, Proxmox reports the host
+# memory the VM holds, page cache included, so it reads near 100% when the VM
+# is healthy.
+#
 # Group names are also used in settings.yaml (layout) and must stay unique.
 
 # ----------------------------- Services tab -----------------------------
@@ -70,11 +83,50 @@
         href: https://navidrome.ninjaprivacy.org
         description: Music
         siteMonitor: http://10.0.1.14:4533/ping
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/114"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/114"}) / max(pve_memory_size_bytes{id="lxc/114"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/114"})
+              format:
+                type: duration
     - Ente Photos:
         icon: ente-photos.png
         href: https://photos.ninjaprivacy.org
         description: Encrypted photo backup
         siteMonitor: http://10.0.1.15:8080/ping
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="qemu/115"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="qemu/115"})
+              format:
+                type: duration
 
 - Games:
     - RomM:
@@ -87,16 +139,76 @@
         href: https://arcade.ninjaprivacy.org/streaming/
         description: Emulator stream, jf
         siteMonitor: http://10.0.1.8:3010
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9090/api/v1/query
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          # 1 while the container uses more than 8% of a core over 5 minutes.
+          # Idle is under 1%; a game session runs from 10% to 200%.
+          requestBody: query=sum(rate(container_cpu_usage_seconds_total{name="romm-webstation"}[5m])) > bool 0.08
+          refreshInterval: 30000
+          mappings:
+            - field: data.result.0.value.1
+              label: Status
+              remap:
+                - value: "0"
+                  to: Free
+                - value: "1"
+                  to: In use
+                - any: true
+                  to: Unknown
     - Webstation 2:
         icon: mdi-controller
         href: https://arcade.ninjaprivacy.org/streaming-2/
         description: Emulator stream, jf
         siteMonitor: http://10.0.1.8:3020
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9090/api/v1/query
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          # 1 while the container uses more than 8% of a core over 5 minutes.
+          # Idle is under 1%; a game session runs from 10% to 200%.
+          requestBody: query=sum(rate(container_cpu_usage_seconds_total{name="romm-webstation-2"}[5m])) > bool 0.08
+          refreshInterval: 30000
+          mappings:
+            - field: data.result.0.value.1
+              label: Status
+              remap:
+                - value: "0"
+                  to: Free
+                - value: "1"
+                  to: In use
+                - any: true
+                  to: Unknown
     - Webstation 3:
         icon: mdi-controller
         href: https://arcade.ninjaprivacy.org/streaming-3/
         description: Emulator stream, jf
         siteMonitor: http://10.0.1.8:3030
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9090/api/v1/query
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          # 1 while the container uses more than 8% of a core over 5 minutes.
+          # Idle is under 1%; a game session runs from 10% to 200%.
+          requestBody: query=sum(rate(container_cpu_usage_seconds_total{name="romm-webstation-3"}[5m])) > bool 0.08
+          refreshInterval: 30000
+          mappings:
+            - field: data.result.0.value.1
+              label: Status
+              remap:
+                - value: "0"
+                  to: Free
+                - value: "1"
+                  to: In use
+                - any: true
+                  to: Unknown
     - Webstation Forge:
         icon: mdi-controller
         href: https://arcade.ninjaprivacy.org/streaming-forge/
@@ -114,6 +226,22 @@
         href: https://cloud.ninjaprivacy.org
         description: Files, calendars, contacts, photos
         siteMonitor: https://cloud.ninjaprivacy.org/status.php
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="qemu/116"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="qemu/116"})
+              format:
+                type: duration
     - Collabora:
         icon: collabora-online.png
         href: https://office.ninjaprivacy.org/browser/dist/admin/admin.html
@@ -144,11 +272,57 @@
         href: http://10.1.0.12:8123
         description: MetaVersig's house (LAN only)
         siteMonitor: http://10.1.0.12:8123
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/303"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/303"}) / max(pve_memory_size_bytes{id="lxc/303"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/303"})
+              format:
+                type: duration
     - Home Assistant (X-Mansion):
         icon: home-assistant.png
         href: http://10.0.1.12:8123
         description: Firekube's house (LAN only)
         siteMonitor: http://10.0.1.12:8123
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/112"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/112"}) / max(pve_memory_size_bytes{id="lxc/112"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/112"})
+              format:
+                type: duration
 
 - Dev & Studio:
     - GitLab:
@@ -156,6 +330,29 @@
         href: https://gitlab.ninjaprivacy.org
         description: Repos, merge requests, pipelines
         siteMonitor: http://10.0.1.13:8081/users/sign_in
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/102"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/102"}) / max(pve_memory_size_bytes{id="lxc/102"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/102"})
+              format:
+                type: duration
     - Studio portal:
         icon: unity.png
         href: https://studio.ninjaprivacy.org
@@ -164,6 +361,22 @@
         icon: mdi-console
         href: https://studio.ninjaprivacy.org/term/metaversig/
         description: MetaVersig's cell
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="qemu/160"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="qemu/160"})
+              format:
+                type: duration
     - Game preview:
         icon: mdi-gamepad-variant-outline
         href: https://game-preview.ninjaprivacy.org
@@ -177,6 +390,22 @@
         href: http://10.1.0.10:6080
         description: Agent desktop VM (LAN only)
         siteMonitor: http://10.1.0.10:6080
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="qemu/104"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="qemu/104"})
+              format:
+                type: duration
     - LiteLLM (PGX):
         icon: mdi-brain
         href: http://10.1.0.4:4000/ui
@@ -188,6 +417,367 @@
         siteMonitor: http://10.0.1.5:3002/api/health
 
 # ------------------------------- Infra tab -------------------------------
+
+- Health:
+    - Disks:
+        icon: mdi-harddisk
+        href: https://grafana.ninjaprivacy.org
+        description: SMART, 8 disks on phoenix and rogue
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 60000
+          metrics:
+            - label: Failing
+              query: sum(1 - smartmon_device_smart_healthy)
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Pending
+              query: sum(smartmon_current_pending_sector_raw_value) + sum(smartmon_offline_uncorrectable_raw_value)
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Realloc 7d
+              query: sum(max_over_time(smartmon_reallocated_sector_ct_raw_value[7d]) - min_over_time(smartmon_reallocated_sector_ct_raw_value[7d]))
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: NVMe wear
+              query: max(nvme_percentage_used_ratio)
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+          highlight:
+            Failing:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 1
+                - level: good
+                  when: eq
+                  value: 0
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Pending:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 1
+                - level: good
+                  when: eq
+                  value: 0
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Realloc 7d:
+              numeric:
+                - level: warn
+                  when: gte
+                  value: 1
+                - level: good
+                  when: eq
+                  value: 0
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            NVMe wear:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 90
+                - level: warn
+                  when: gte
+                  value: 70
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+    - Temps:
+        icon: mdi-thermometer
+        href: https://grafana.ninjaprivacy.org
+        description: Hottest sensor of each kind
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: phoenix CPU
+              query: max(node_hwmon_temp_celsius{instance="phoenix"} * on (instance, chip) group_left node_hwmon_chip_names{chip_name="k10temp"})
+              format:
+                type: number
+                suffix: " °C"
+                options:
+                  maximumFractionDigits: 0
+            - label: rogue CPU
+              query: max(node_hwmon_temp_celsius{instance="rogue"} * on (instance, chip) group_left node_hwmon_chip_names{chip_name="k10temp"})
+              format:
+                type: number
+                suffix: " °C"
+                options:
+                  maximumFractionDigits: 0
+            - label: NVMe
+              query: max(nvme_temperature_celsius)
+              format:
+                type: number
+                suffix: " °C"
+                options:
+                  maximumFractionDigits: 0
+            - label: HDD
+              query: max(smartmon_temperature_celsius_raw_value)
+              format:
+                type: number
+                suffix: " °C"
+                options:
+                  maximumFractionDigits: 0
+          highlight:
+            phoenix CPU:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 95
+                - level: warn
+                  when: gte
+                  value: 85
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            rogue CPU:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 95
+                - level: warn
+                  when: gte
+                  value: 85
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            NVMe:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 80
+                - level: warn
+                  when: gte
+                  value: 70
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            HDD:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 55
+                - level: warn
+                  when: gte
+                  value: 50
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+    - Backups:
+        icon: mdi-backup-restore
+        href: https://proxmox.ninjaprivacy.org
+        description: Proxmox Backup Server, every guest daily
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 60000
+          metrics:
+            - label: Oldest
+              query: (time() - min(max by (vmid) (pve_backup_last_success_timestamp_seconds))) / 3600
+              format:
+                type: number
+                suffix: " h"
+                options:
+                  maximumFractionDigits: 0
+            - label: Missing
+              query: sum(max by (vmid) (pve_backup_guest_without_backup))
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Guests
+              query: count(max by (vmid) (pve_backup_last_success_timestamp_seconds))
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Checked
+              query: (time() - max(pve_backup_metrics_last_run_timestamp_seconds)) / 60
+              format:
+                type: number
+                suffix: " min ago"
+                options:
+                  maximumFractionDigits: 0
+          highlight:
+            Oldest:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 60
+                - level: warn
+                  when: gte
+                  value: 36
+                - level: good
+                  when: lt
+                  value: 36
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Missing:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 1
+                - level: good
+                  when: eq
+                  value: 0
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Guests:
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Checked:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 180
+                - level: warn
+                  when: gte
+                  value: 60
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+    - Certificate:
+        icon: mdi-certificate
+        href: https://traefik.ninjaprivacy.org/dashboard/
+        description: "*.ninjaprivacy.org, Let's Encrypt via Traefik"
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 300000
+          metrics:
+            - label: Days left
+              query: (min(traefik_tls_certs_not_after) - time()) / 86400
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Expires
+              query: min(traefik_tls_certs_not_after)
+              format:
+                type: date
+                scale: 1000
+                options:
+                  dateStyle: medium
+          highlight:
+            Days left:
+              numeric:
+                - level: danger
+                  when: lt
+                  value: 10
+                - level: warn
+                  when: lt
+                  value: 25
+                - level: good
+                  when: gte
+                  value: 25
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+    - VPN:
+        icon: mdi-vpn
+        href: https://qbit.ninjaprivacy.org
+        description: qBittorrent's ProtonVPN path
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: Firewalled
+              query: max(qbittorrent_firewalled)
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Connected
+              query: max(qbittorrent_connected)
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: Peers
+              query: sum(qbittorrent_total_peer_connections)
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            - label: DHT nodes
+              query: max(qbittorrent_dht_nodes)
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+          highlight:
+            Firewalled:
+              numeric:
+                - level: danger
+                  when: eq
+                  value: 1
+                - level: good
+                  when: eq
+                  value: 0
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Connected:
+              numeric:
+                - level: danger
+                  when: eq
+                  value: 0
+                - level: good
+                  when: eq
+                  value: 1
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Peers:
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            DHT nodes:
+              numeric:
+                - level: danger
+                  when: eq
+                  value: 0
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
 
 - Cluster:
     - Proxmox:
@@ -210,13 +800,24 @@
               format:
                 type: number
             - label: Guests stopped
-              query: count(max by (id) (pve_up{id=~"(qemu|lxc)/.*"}) == 0) or vector(0)
+              query: count(max by (id) (pve_up{id=~"(qemu|lxc)/.*"}) == 0 and on (id) max by (id) (pve_guest_info{template="0"})) or vector(0)
               format:
                 type: number
-            - label: No backup
-              query: count(max by (vmid) (pve_backup_guest_without_backup) == 1) or vector(0)
+            - label: Locked
+              query: count(max by (id) (pve_lock_state) == 1) or vector(0)
               format:
                 type: number
+          highlight:
+            Guests stopped:
+              numeric:
+                - level: warn
+                  when: gte
+                  value: 1
+            Locked:
+              numeric:
+                - level: warn
+                  when: gte
+                  value: 1
     - phoenix:
         icon: mdi-server
         href: https://10.0.1.2:8006
@@ -314,12 +915,90 @@
               format:
                 type: duration
 
+- Guests:
+    - Busiest guests:
+        icon: mdi-speedometer
+        href: https://proxmox.ninjaprivacy.org
+        description: CPU, as a share of each guest's own cores
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9090/api/v1/query
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          requestBody: query=sort_desc(topk(8, max by (id) (pve_cpu_usage_ratio{id=~"(qemu|lxc)/.*"}) * on (id) group_left (name) max by (id, name) (pve_guest_info)))
+          refreshInterval: 30000
+          display: dynamic-list
+          mappings:
+            items: data.result
+            name: metric.name
+            label: value.1
+            format: percent
+            scale: 100
+            limit: 8
+    - Container memory:
+        icon: mdi-memory
+        href: https://proxmox.ninjaprivacy.org
+        description: LXC memory use, fullest first
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9090/api/v1/query
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          requestBody: query=sort_desc(topk(8, max by (id) (pve_memory_usage_bytes{id=~"lxc/.*"}) / max by (id) (pve_memory_size_bytes{id=~"lxc/.*"}) * on (id) group_left (name) max by (id, name) (pve_guest_info)))
+          refreshInterval: 30000
+          display: dynamic-list
+          mappings:
+            items: data.result
+            name: metric.name
+            label: value.1
+            format: percent
+            scale: 100
+            limit: 8
+    - Storage:
+        icon: mdi-database
+        href: https://proxmox.ninjaprivacy.org
+        description: Proxmox storage, fullest first
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9090/api/v1/query
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          requestBody: query=sort_desc(max by (name) (label_join((max by (id) (pve_disk_usage_bytes{id=~"storage/.*"}) / max by (id) (pve_disk_size_bytes{id=~"storage/.*"}) * on (id) group_left (node, storage) max by (id, node, storage) (pve_storage_info)) and on (id) (max by (id) (pve_storage_shared) == 0), "name", " ", "node", "storage")) or max by (name) (label_replace(max by (storage) ((max by (id) (pve_disk_usage_bytes{id=~"storage/.*"}) / max by (id) (pve_disk_size_bytes{id=~"storage/.*"}) * on (id) group_left (node, storage) max by (id, node, storage) (pve_storage_info)) and on (id) (max by (id) (pve_storage_shared) == 1)), "name", "$1 (shared)", "storage", "(.*)")))
+          refreshInterval: 30000
+          display: dynamic-list
+          mappings:
+            items: data.result
+            name: metric.name
+            label: value.1
+            format: percent
+            scale: 100
+            limit: 8
+
 - Platform:
     - TrueNAS:
         icon: truenas.png
         href: https://truenas.ninjaprivacy.org
         description: NAS, VM 107 on phoenix
         siteMonitor: http://10.0.1.7
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="qemu/107"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="qemu/107"})
+              format:
+                type: duration
     - Traefik:
         icon: traefik.png
         href: https://traefik.ninjaprivacy.org/dashboard/
@@ -349,11 +1028,41 @@
               format:
                 type: duration
                 suffix: " ago"
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="qemu/100"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
     - Authentik:
         icon: authentik.png
         href: https://auth.ninjaprivacy.org
         description: Single sign-on
         siteMonitor: https://10.0.1.3:9443/-/health/live/
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/101"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/101"}) / max(pve_memory_size_bytes{id="lxc/101"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/101"})
+              format:
+                type: duration
     - jf GPU (3060 Ti):
         icon: nvidia.png
         href: https://grafana.ninjaprivacy.org
@@ -367,7 +1076,7 @@
               query: max(nvidia_smi_temperature_gpu{instance="jf"})
               format:
                 type: number
-                suffix: " C"
+                suffix: " °C"
             - label: Load
               query: max(nvidia_smi_utilization_gpu_ratio{instance="jf"})
               format:
@@ -419,11 +1128,29 @@
               query: count(ALERTS{alertstate="pending"}) or vector(0)
               format:
                 type: number
-            - label: Last backup
-              query: min(time() - pve_backup_last_success_timestamp_seconds)
+            - label: Silenced
+              query: sum(alertmanager_silences{state="active"})
               format:
-                type: duration
-                suffix: " ago"
+                type: number
+          highlight:
+            Firing:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 1
+                - level: good
+                  when: eq
+                  value: 0
+            Pending:
+              numeric:
+                - level: warn
+                  when: gte
+                  value: 1
+            Silenced:
+              numeric:
+                - level: warn
+                  when: gte
+                  value: 1
     - ntfy:
         icon: ntfy.png
         href: https://ntfy.ninjaprivacy.org
