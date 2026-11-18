@@ -528,10 +528,6 @@
               query: max(pve_uptime_seconds{id="qemu/104"})
               format:
                 type: duration
-    - LiteLLM (PGX):
-        icon: mdi-brain
-        href: http://10.1.0.4:4000/ui
-        description: Local model gateway (LAN only)
     - Kreoly (dev):
         icon: mdi-storefront-outline
         href: https://kreoly.ninjaprivacy.org
@@ -1278,3 +1274,297 @@
         href: https://ntfy.ninjaprivacy.org
         description: Push notifications
         siteMonitor: http://10.1.0.5:2586/v1/health
+
+# --------------------------------- AI tab ---------------------------------
+# The ThinkStation PGX (GB10, co-owned with Emilio and Dave). Its numbers come
+# from Prometheus job "node", instance "pgx": node_exporter on the host plus
+# pgx-metrics.sh (hosts/pgx/node-exporter/), which copies the GB10 GPU
+# (pgx_gpu_*) and vLLM's own counters (vllm:*, pgx_vllm_up) every 15 s.
+# vLLM's port itself stays private (it has no API key).
+
+- Inference:
+    - vLLM:
+        icon: mdi-brain
+        description: The local model on the PGX. Waiting > 0 means it is saturated
+        widgets:
+          - type: customapi
+            url: http://10.1.0.5:9090/api/v1/query
+            method: POST
+            headers:
+              Content-Type: application/x-www-form-urlencoded
+            # Up/down plus the served model name. When vLLM is down its own
+            # series vanish, so the `or on()` branch still reports the 0.
+            requestBody: query=pgx_vllm_up * on() group_left(model_name) count by (model_name) (vllm:num_requests_running) or on() label_replace(pgx_vllm_up, "model_name", "-", "", "")
+            refreshInterval: 30000
+            mappings:
+              - field: data.result.0.value.1
+                label: Status
+                remap:
+                  - value: "1"
+                    to: Serving
+                  - value: "0"
+                    to: Down
+              - field: data.result.0.metric.model_name
+                label: Model
+          - type: prometheusmetric
+            url: http://10.1.0.5:9090
+            refreshInterval: 30000
+            metrics:
+              - label: Running
+                query: sum(vllm:num_requests_running)
+                format:
+                  type: number
+              - label: Waiting
+                query: sum(vllm:num_requests_waiting)
+                format:
+                  type: number
+              - label: KV cache
+                query: max(vllm:kv_cache_usage_perc)
+                format:
+                  type: percent
+                  scale: 100
+                  options:
+                    maximumFractionDigits: 0
+              - label: Preempted 1h
+                query: sum(increase(vllm:num_preemptions_total[1h]))
+                format:
+                  type: number
+                  options:
+                    maximumFractionDigits: 0
+            highlight:
+              Running:
+                string:
+                  - level: warn
+                    when: equals
+                    value: "-"
+              Waiting:
+                numeric:
+                  - level: danger
+                    when: gte
+                    value: 4
+                  - level: warn
+                    when: gte
+                    value: 1
+                string:
+                  - level: warn
+                    when: equals
+                    value: "-"
+              KV cache:
+                numeric:
+                  - level: danger
+                    when: gte
+                    value: 95
+                  - level: warn
+                    when: gte
+                    value: 80
+                string:
+                  - level: warn
+                    when: equals
+                    value: "-"
+              Preempted 1h:
+                numeric:
+                  - level: warn
+                    when: gte
+                    value: 1
+                string:
+                  - level: warn
+                    when: equals
+                    value: "-"
+    - Speed:
+        icon: mdi-speedometer
+        description: Tokens per second over 5 minutes; first token and requests over the last hour
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: Output tok/s
+              query: sum(rate(vllm:generation_tokens_total[5m]))
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 1
+            - label: Prompt tok/s
+              query: sum(rate(vllm:prompt_tokens_total[5m]))
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+            # Average time to first token; "-" when there were no requests.
+            - label: First token
+              query: (sum(rate(vllm:time_to_first_token_seconds_sum[1h])) / sum(rate(vllm:time_to_first_token_seconds_count[1h]))) >= 0
+              format:
+                type: number
+                suffix: " s"
+                options:
+                  maximumFractionDigits: 1
+            - label: Requests 1h
+              query: sum(increase(vllm:request_success_total[1h]))
+              format:
+                type: number
+                options:
+                  maximumFractionDigits: 0
+    - LiteLLM:
+        icon: mdi-router-network
+        href: http://10.1.0.4:4000/ui
+        description: The front door (port 4000) - keys, routes, usage (LAN only)
+        siteMonitor: http://10.1.0.4:4000/health/readiness
+        widget:
+          type: customapi
+          url: http://10.1.0.4:4000/health/readiness
+          refreshInterval: 60000
+          mappings:
+            - field: status
+              label: Status
+              remap:
+                - value: healthy
+                  to: Healthy
+            - field: db
+              label: Database
+              remap:
+                - value: connected
+                  to: Connected
+
+- PGX & agents:
+    - PGX host:
+        icon: mdi-server
+        description: Memory is shared with the GPU; below 16 GiB free is a warning
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: Mem free
+              query: node_memory_MemAvailable_bytes{instance="pgx"} / 1073741824
+              format:
+                type: number
+                suffix: " GiB"
+                options:
+                  maximumFractionDigits: 0
+            - label: Swap used
+              query: (node_memory_SwapTotal_bytes{instance="pgx"} - node_memory_SwapFree_bytes{instance="pgx"}) / 1073741824
+              format:
+                type: number
+                suffix: " GiB"
+                options:
+                  maximumFractionDigits: 1
+            - label: CPU
+              # Idle as a share of all CPU time, so a short or patchy window
+              # can't skew it (avg(rate(idle)) reads high until 5 min of data).
+              query: 1 - sum(rate(node_cpu_seconds_total{instance="pgx", mode="idle"}[5m])) / sum(rate(node_cpu_seconds_total{instance="pgx"}[5m]))
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: time() - node_boot_time_seconds{instance="pgx"}
+              format:
+                type: duration
+          highlight:
+            Mem free:
+              numeric:
+                - level: danger
+                  when: lt
+                  value: 8
+                - level: warn
+                  when: lt
+                  value: 16
+                - level: good
+                  when: gte
+                  value: 16
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Swap used:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 12
+                - level: warn
+                  when: gte
+                  value: 8
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+    - GB10 GPU:
+        icon: mdi-expansion-card
+        description: From nvidia-smi; GPU memory is the host memory on the left
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: Load
+              query: max(pgx_gpu_utilization_percent)
+              format:
+                type: percent
+                options:
+                  maximumFractionDigits: 0
+            - label: Temp
+              query: max(pgx_gpu_temperature_celsius)
+              format:
+                type: number
+                suffix: " °C"
+                options:
+                  maximumFractionDigits: 0
+            - label: Power
+              query: max(pgx_gpu_power_watts)
+              format:
+                type: number
+                suffix: " W"
+                options:
+                  maximumFractionDigits: 0
+            - label: Clock
+              query: max(pgx_gpu_sm_clock_mhz)
+              format:
+                type: number
+                suffix: " MHz"
+                options:
+                  maximumFractionDigits: 0
+          highlight:
+            Load:
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+            Temp:
+              numeric:
+                - level: danger
+                  when: gte
+                  value: 90
+                - level: warn
+                  when: gte
+                  value: 80
+              string:
+                - level: warn
+                  when: equals
+                  value: "-"
+    - Agents (openclaw):
+        icon: mdi-robot-outline
+        description: Merquery (Hermes) and Dr. Clawbotnik, LXC 301 on Wolverine
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/301"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/301"}) / max(pve_memory_size_bytes{id="lxc/301"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/301"})
+              format:
+                type: duration
