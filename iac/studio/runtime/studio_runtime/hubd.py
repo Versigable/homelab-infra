@@ -523,10 +523,15 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         def go(cn, c):
+            # The body is read before anything is answered. A connection closed with request
+            # bytes still unread is reset, and the client loses the answer: until 2026-11-17 a
+            # reported play was marked here and seen by its cell as "connection reset", every
+            # time, because this path never read the cell's two-byte body.
+            data = self.body_json()
             if self.path == "/v1/forge/sync":
                 if c["kind"] != "forge":
                     raise Forbidden("only the Forge syncs sessions")
-                return self.reply(200, self.server.broker.sync(self.body_json()))
+                return self.reply(200, self.server.broker.sync(data))
             if c["kind"] != "cell":
                 raise Forbidden("only cells post builds and plays")
             depot = self.server.depot
@@ -535,13 +540,13 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 self.server.broker.reported(m.group(1), cn)
                 return self.reply(200, {"reported": m.group(1)})
             if self.path == "/v1/builds":
-                m = self.body_json()
+                m = data
                 bid = depot.add_build(m, cn, c["owner"])
                 url = f"{self.server.cfg['portal_url']}/g/{m['game']}/r/{m['revision']}"
                 log(f"depot: build {bid} {m['game']}@{m['revision'][:10]} {m['target']} from {cn} ({c['owner']})")
                 return self.reply(201, {"id": bid, "url": url})
             if self.path == "/v1/mr-state":
-                return self.reply(200, {"builds": depot.mr_state(self.body_json(), cn)})
+                return self.reply(200, {"builds": depot.mr_state(data, cn)})
             raise BadRequest("no such path")
         self.run(go)
 

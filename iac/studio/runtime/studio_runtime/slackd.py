@@ -18,8 +18,12 @@ Kannis's), connected by Socket Mode: the cell connects out, nothing listens for 
   model in between.
 - Between turns the working copy is pulled from the brain; after each turn its changes are
   pushed as the person (deskbrain).
-- agentd's events (/var/lib/studio/events.jsonl) become the item's thread in #studio-builds,
-  and a DM for whatever needs the owner.
+- agentd's events (/var/lib/studio/events.jsonl) become the item's message in #studio-builds:
+  it always shows where the work stands now, with its thread as the story (feed.py), and a DM
+  for whatever needs the owner. Each morning the owner gets a DM of what's waiting on them.
+- A huddle's AI notes arriving in a channel start a turn nobody asked for: the desk of the
+  person who started the huddle files it in the brain (huddles.py). Such a turn can't write to
+  GitLab. Buttons under its reply, the owner's to press, carry on from there.
 """
 
 import collections
@@ -39,7 +43,7 @@ import time
 import traceback
 import uuid
 
-from . import common, slack
+from . import common, feed, huddles, slack
 
 RUNTIME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TURN_RUN = os.path.join(RUNTIME_DIR, "bin", "studio-desk-turn")
@@ -57,7 +61,9 @@ CARD_HOURS = 24
 KEEP_TURNS = 50
 SLACK_LIMIT = 3900
 DM_EVENTS = ("blocked", "refused", "void", "failed", "waiting", "stopped")
-EVENT_KINDS = ("claimed", "done", "review", "played") + DM_EVENTS
+EVENT_KINDS = ("claimed", "done", "review", "played", "merged", "closed") + DM_EVENTS
+KEEP_HUDDLES = 20
+HUDDLE_FILE_MAX = 24 << 20      # a transcript is about 50 KB a minute; this is some eight hours
 SERVER_NAME = "studio-desk"
 MCP_INSTRUCTIONS = (
     "The studio desk's tools in Slack, acting as your person's desk account on the studio's games. "
@@ -280,9 +286,14 @@ def systemd_runner(d, n, turn_dir, resume):
 
 
 class Turn:
-    def __init__(self, channel, thread_ts, ts, text, files, dm):
+    """One message for the desk to answer. auto is set when nobody wrote it (a huddle's notes
+    arrived): such a turn can't write to GitLab. react_ts is the message its reactions go on,
+    when that isn't the message that bounds the thread's history (a button's click)."""
+
+    def __init__(self, channel, thread_ts, ts, text, files, dm, auto=None, huddle=None, react_ts=None):
         self.channel, self.thread_ts, self.ts = channel, thread_ts, ts
         self.text, self.files, self.dm = text, files or [], dm
+        self.auto, self.huddle, self.react_ts = auto, huddle, react_ts or ts
 
     @property
     def key(self):
@@ -313,7 +324,12 @@ class Slackd:
         self.threads = read_json(self._p("threads.json"), {})
         self.cards = read_json(self._p("cards.json"), {})
         self.builds = read_json(self._p("builds.json"), {"items": {}, "mrs": {}})
+        self.huddles = read_json(self._p("huddles.json"), {})
+        self.morning = read_json(self._p("morning.json"), {})
         self.seq = read_json(self._p("seq.json"), {"turn": 0})
+        self.morning_retry = 0.0
+        self.tz = (0, 0.0)           # the owner's UTC offset in seconds, and when Slack last said so
+        self.channel_names = {}
 
     @staticmethod
     def _p(name):
@@ -448,6 +464,11 @@ class Slackd:
         etype = ev.get("type")
         if etype not in ("message", "app_mention"):
             return
+        if etype == "message":
+            try:
+                self.maybe_huddle(ev)
+            except Exception:  # noqa: BLE001 - a huddle that can't be filed never costs a message
+                log("huddle check failed:\n" + traceback.format_exc())
         if ev.get("bot_id") or ev.get("user") == self.bot_user or not ev.get("user"):
             return
         if ev.get("subtype") and ev.get("subtype") != "file_share":
@@ -482,7 +503,7 @@ class Slackd:
             waiting = self.busy or not self.queue.empty()
             self.queue.put(turn)
         if waiting:
-            self.react(turn.channel, turn.ts, "hourglass_flowing_sand")
+            self.react(turn.channel, turn.react_ts, "hourglass_flowing_sand")
 
     def worker(self):
         while not self.stop.is_set():
@@ -521,17 +542,19 @@ class Slackd:
             self.save("seq")
             return self.seq["turn"]
 
-    def history(self, turn):
-        """The thread's messages since this desk's last turn in it, before this one."""
-        last = (self.threads.get(turn.key) or {}).get("last_ts")
+    def thread_messages(self, turn):
         if turn.thread_ts == turn.ts:
             return []
         try:
-            msgs = self.api.call("conversations.replies", channel=turn.channel, ts=turn.thread_ts,
+            return self.api.call("conversations.replies", channel=turn.channel, ts=turn.thread_ts,
                                  limit=100).get("messages") or []
         except slack.SlackError as e:
             log(f"history of {turn.key}: {e}")
             return []
+
+    def history(self, turn, msgs):
+        """The thread's messages since this desk's last turn in it, before this one."""
+        last = (self.threads.get(turn.key) or {}).get("last_ts")
         fresh = turn.key not in self.sessions
         out = []
         for m in msgs:
@@ -567,9 +590,13 @@ class Slackd:
                 skipped.append(name)
         return saved, skipped
 
-    def prompt(self, turn, history, saved, skipped):
+    def prompt(self, turn, history, saved, skipped, huddle=None):
+        if turn.auto == "huddle":
+            return huddles.auto_prompt(turn.huddle, self.owner_name)
         where = "a direct message" if turn.dm else "a Slack thread"
         parts = [f"{self.owner_name} wrote to you in {where}:", "", self.clean(turn.text) or "(no text)"]
+        if huddle:
+            parts += huddles.thread_section(huddle, self.owner_name)
         if saved:
             parts += ["", "They sent pictures, now saved in the studio brain (pass these paths as `images` to the "
                           "desk tools to put them on an issue or comment):"] + [f"- {p}" for p in saved]
@@ -581,16 +608,31 @@ class Slackd:
         return "\n".join(parts) + "\n"
 
     def do_turn(self, turn):
-        self.react(turn.channel, turn.ts, "hourglass_flowing_sand", add=False)
-        self.react(turn.channel, turn.ts, "eyes")
+        self.react(turn.channel, turn.react_ts, "hourglass_flowing_sand", add=False)
+        self.react(turn.channel, turn.react_ts, "eyes")
         try:
             self.copy.pull()
         except Exception as e:  # noqa: BLE001 - a stale copy beats no answer
             log(f"pull before the turn: {e}")
+        if turn.auto == "huddle":
+            why = self.prepare_huddle(turn.huddle)
+            if why:
+                log(f"huddle {turn.huddle['file']}: not filed ({why})")
+                self.set_huddle(turn.huddle["file"], state="failed", error=why[:200])
+                self.post(turn.channel, f"I couldn't read this huddle's notes ({_escape(cut(why, 200))}), so it isn't "
+                                        f"filed. {self.owner_name} can ask me again here once that's sorted.",
+                          thread_ts=turn.thread_ts)
+                self.react(turn.channel, turn.react_ts, "eyes", add=False)
+                return
         saved, skipped = self.save_pictures(turn)
-        history = self.history(turn)
-        text = self.prompt(turn, history, saved, skipped)
-        status = self.post(turn.channel, "_On it…_", thread_ts=turn.thread_ts)
+        msgs = self.thread_messages(turn)
+        history = [] if turn.auto else self.history(turn, msgs)
+        # The person's first words in a huddle's thread come with what the desk has of the huddle.
+        huddle = None
+        if not turn.auto and turn.key not in self.sessions:
+            huddle = self.thread_huddle(turn, msgs)
+        text = self.prompt(turn, history, saved, skipped, huddle)
+        status = self.post(turn.channel, "_Filing this huddle…_" if turn.auto else "_On it…_", thread_ts=turn.thread_ts)
         resume = self.sessions.get(turn.key)
         sid, result, rli, err, rc, turn_dir = self.run_claude(turn, text, resume, status)
         if resume and result is None and not sid:
@@ -642,7 +684,9 @@ class Slackd:
         self.update(turn.channel, status, chunks[0])
         for c in chunks[1:]:
             self.post(turn.channel, c, thread_ts=turn.thread_ts)
-        self.react(turn.channel, turn.ts, "eyes", add=False)
+        self.react(turn.channel, turn.react_ts, "eyes", add=False)
+        if turn.auto == "huddle":
+            self.huddle_filed(turn, result is not None)
         self.prune_turns()
 
     def run_claude(self, turn, text, resume, status):
@@ -692,6 +736,248 @@ class Slackd:
             for f in os.listdir(d):
                 os.unlink(os.path.join(d, f))
             os.rmdir(d)
+
+    # --- huddles file themselves (huddles.py) -------------------------------------------------------
+
+    def owner_offset(self):
+        """The owner's UTC offset in seconds, as Slack has it (asked again every six hours)."""
+        off, at = self.tz
+        if not at or time.monotonic() - at > 6 * 3600:
+            try:
+                off = int(self.api.call("users.info", user=self.owner_id)["user"].get("tz_offset") or 0)
+            except (slack.SlackError, KeyError, TypeError, ValueError) as e:
+                log(f"the owner's time zone: {e}")
+            self.tz = (off, time.monotonic())
+        return off
+
+    def channel_name(self, channel):
+        """A channel's name, or None when Slack won't say (the app needs channels:read)."""
+        if channel not in self.channel_names:
+            try:
+                self.channel_names[channel] = self.api.call("conversations.info", channel=channel)["channel"].get("name")
+            except (slack.SlackError, KeyError) as e:
+                log(f"the name of {channel}: {e}")
+                return None                 # asked again next time: the scope can come with a reinstall
+        return self.channel_names[channel]
+
+    def set_huddle(self, fid, **kw):
+        with self.lock:
+            self.huddles.setdefault(fid, {}).update(kw)
+            for old in sorted(self.huddles, key=lambda k: self.huddles[k].get("at") or "")[:-200]:
+                del self.huddles[old]
+            self.save("huddles")
+
+    def maybe_huddle(self, ev):
+        """A message that carries a huddle's AI notes starts the filing, once per huddle, on the
+        one desk whose huddle it is. Slackbot posts the notes in the huddle's thread and attaches
+        them to the thread's first message, so the same file can come twice."""
+        if not self.s.get("huddles", True):
+            return
+        changed = ev.get("subtype") == "message_changed" and isinstance(ev.get("message"), dict)
+        msg = ev["message"] if changed else ev
+        channel = ev.get("channel")
+        if not channel or channel.startswith("D"):
+            return
+        sure, maybe = huddles.candidates(msg)
+        thread_ts = msg.get("thread_ts") or msg.get("ts")
+        for fid in sure + maybe:
+            with self.lock:
+                if fid in self.huddles:
+                    continue
+                self.huddles[fid] = {"state": "seen", "at": now().isoformat(), "channel": channel,
+                                     "thread_ts": thread_ts}
+                self.save("huddles")
+            self.take_huddle(fid, channel, thread_ts, msg.get("ts") or thread_ts, fid in sure)
+
+    def take_huddle(self, fid, channel, thread_ts, ts, sure):
+        if not sure:
+            try:
+                info = self.api.call("files.info", file=fid)["file"]
+            except (slack.SlackError, KeyError) as e:
+                log(f"file {fid} in {channel}: {e}")
+                info = {}
+            if not huddles.is_notes(info):
+                self.set_huddle(fid, state="not notes")
+                return
+        parent = {}
+        try:
+            first = self.api.call("conversations.replies", channel=channel, ts=thread_ts, limit=1).get("messages") or []
+            parent = first[0] if first else {}
+        except slack.SlackError as e:
+            log(f"huddle {fid}: the thread's first message: {e}")
+        facts = huddles.room_facts(parent)
+        who = huddles.filer(self.owner_id, self.s.get("desk_owners"), facts["created_by"], facts["attendees"])
+        if who != self.owner_id:
+            log(f"huddle {fid} in {channel}: {self.name_of(who)}'s desk files it")
+            self.set_huddle(fid, state="theirs")
+            return
+        log(f"huddle {fid} in {channel}: filing it")
+        self.set_huddle(fid, state="queued")
+        with self.lock:
+            self.threads.setdefault(f"{channel}:{thread_ts}", {"last_ts": None})
+            self.save("threads")
+        h = dict(facts, file=fid, channel=channel, thread_ts=thread_ts)
+        self.enqueue(Turn(channel, thread_ts, ts, "", None, False, auto="huddle", huddle=h))
+
+    @property
+    def huddle_dir(self):
+        """Beside the brain copy, not in it: desk reads it, and nothing here goes to the brain."""
+        return os.path.join(os.path.dirname(self.brain), "huddles")
+
+    def write_for_desk(self, path, text):
+        os.makedirs(os.path.dirname(path), mode=0o750, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        try:
+            gid = pwd.getpwuid(self.desk_uid).pw_gid
+            for p, mode in ((self.huddle_dir, 0o750), (os.path.dirname(path), 0o750), (path, 0o640)):
+                os.chown(p, 0, gid)
+                os.chmod(p, mode)
+        except (OSError, KeyError) as e:
+            log(f"{path}: {e}")
+
+    def slack_file(self, fid):
+        """(the file's details, its bytes) with the bot's token."""
+        info = self.api.call("files.info", file=fid)["file"]
+        url = info.get("url_private_download") or info.get("url_private")
+        if not url:
+            raise slack.SlackError("files.info", "no download address", fid)
+        return info, self.api.download(url, HUDDLE_FILE_MAX)
+
+    def prepare_huddle(self, h):
+        """Slack's notes and transcript of a huddle, saved as text for the desk, and what else
+        the turn tells it: when, who, which game. Returns why it can't be done, or None."""
+        fid = h["file"]
+        try:
+            info, raw = self.slack_file(fid)
+        except (slack.SlackError, KeyError) as e:
+            return str(e)
+        notes = huddles.canvas_text(raw)
+        if not notes:
+            return "the notes came back empty"
+        notes = re.sub(r"<@([UW][A-Z0-9]+)(\|[^>]*)?>", lambda m: "@" + self.name_of(m.group(1)), notes)
+        d = os.path.join(self.huddle_dir, fid)
+        h["notes_path"] = os.path.join(d, "notes.md")
+        self.write_for_desk(h["notes_path"], notes + "\n")
+        turns = []
+        tid = huddles.transcript_id(raw, fid) or info.get("huddle_transcript_file_id")
+        if not tid:
+            h["transcript_error"] = "the notes don't link one"
+        else:
+            try:
+                turns = huddles.transcript_turns(self.slack_file(tid)[1])
+                if not turns:
+                    h["transcript_error"] = "it has no words in it"
+            except (slack.SlackError, KeyError) as e:
+                h["transcript_error"] = str(e)
+        if turns:
+            h["transcript_path"] = os.path.join(d, "transcript.md")
+            self.write_for_desk(h["transcript_path"], huddles.render_transcript(turns, self.name_of))
+            h.pop("transcript_error", None)
+        offset = self.owner_offset()
+        start = h.get("start") or (turns[0][0] // 1000 if turns else None) or info.get("created")
+        end = h.get("end") or (turns[-1][0] // 1000 if turns else None)
+        h["when"] = huddles.when_text(start, end, offset)
+        h["day"] = time.strftime("%Y-%m-%d", time.gmtime(int(start) + offset)) if start else time.strftime("%Y-%m-%d")
+        people = h.get("attendees") or sorted({who for _, who, _ in turns if who})
+        h["attendee_names"] = [self.name_of(u) for u in people]
+        if h.get("created_by"):
+            h["created_by_name"] = self.name_of(h["created_by"])
+        name = self.channel_name(h["channel"])
+        if name:
+            h["channel_name"] = name
+            if common.NAME_RE.match(name) and os.path.isdir(os.path.join(self.brain, "Games", name)):
+                h["game"] = name
+        log(f"huddle {fid}: notes {len(notes)} chars, transcript "
+            + (f"{len(turns)} turns" if turns else f"none ({h.get('transcript_error')})")
+            + f", game {h.get('game') or 'not known'}")
+        self.prune_huddles()
+        return None
+
+    def prune_huddles(self):
+        try:
+            names = sorted(os.listdir(self.huddle_dir), key=lambda n: os.path.getmtime(os.path.join(self.huddle_dir, n)))
+        except OSError:
+            return
+        for n in names[:-KEEP_HUDDLES]:
+            d = os.path.join(self.huddle_dir, n)
+            try:
+                for f in os.listdir(d):
+                    os.unlink(os.path.join(d, f))
+                os.rmdir(d)
+            except OSError as e:
+                log(f"{d}: {e}")
+
+    def thread_huddle(self, turn, msgs):
+        """The huddle whose thread the person is writing in, ready for the desk, or None."""
+        if not self.s.get("huddles", True):
+            return None
+        for m in msgs:
+            sure, maybe = huddles.candidates(m)
+            for fid in sure + maybe:
+                if fid not in sure:
+                    try:
+                        if not huddles.is_notes(self.api.call("files.info", file=fid)["file"]):
+                            continue
+                    except (slack.SlackError, KeyError):
+                        continue
+                h = dict(huddles.room_facts(msgs[0]), file=fid, channel=turn.channel, thread_ts=turn.thread_ts)
+                why = self.prepare_huddle(h)
+                if why:
+                    log(f"huddle {fid} in {turn.key}: not readable ({why})")
+                    return None
+                return h
+        return None
+
+    def huddle_filed(self, turn, ok):
+        """After the filing turn: the buttons that carry on from it, the owner's to press."""
+        h = turn.huddle
+        self.set_huddle(h["file"], state="filed" if ok else "failed", game=h.get("game"), day=h.get("day"),
+                        thread_ts=turn.thread_ts, channel=turn.channel)
+        els = huddles.buttons(h) if ok else []
+        if not els:
+            return
+        blocks = [{"type": "context", "elements": [{"type": "mrkdwn", "text": f"For {_escape(self.owner_name)} to press:"}]},
+                  {"type": "actions", "elements": els}]
+        try:
+            ts = self.post(turn.channel, "What next with this huddle?", thread_ts=turn.thread_ts, blocks=blocks)
+            self.set_huddle(h["file"], buttons_ts=ts)
+        except slack.SlackError as e:
+            log(f"huddle {h['file']}: buttons: {e}")
+
+    def on_huddle_button(self, aid, fid, user, channel, thread, message):
+        """The owner's press is their word: it starts an ordinary turn of theirs in the huddle's
+        thread, with the button's words, in the session that filed the huddle."""
+        with self.lock:
+            h = self.huddles.get(fid)
+            if not h or h.get("state") != "filed":
+                why = "That huddle isn't one I filed."
+            elif user != self.owner_id:
+                why = f"Only {self.owner_name} can press this: it's their desk."
+            elif aid in (h.get("pressed") or []):
+                why = "That's asked already."
+            else:
+                why = None
+                h.setdefault("pressed", []).append(aid)
+                self.save("huddles")
+        if why:
+            self.ephemeral(channel, user, why, thread_ts=thread)
+            return
+        asked = ", ".join(huddles.BUTTONS[a][0].lower() for a in h["pressed"])
+        blocks = [{"type": "context", "elements": [{"type": "mrkdwn",
+                                                    "text": f"Asked by {_escape(self.owner_name)}: {asked}"}]}]
+        left = [b for b in huddles.buttons({"file": fid, "game": h.get("game")}) if b["action_id"] not in h["pressed"]]
+        if left:
+            blocks.append({"type": "actions", "elements": left})
+        mts = message.get("ts") or h.get("buttons_ts")
+        if mts:
+            self.update(channel, mts, f"Asked: {asked}", blocks)
+        thread_ts = h.get("thread_ts") or thread or mts
+        with self.lock:
+            self.threads.setdefault(f"{channel}:{thread_ts}", {"last_ts": None})
+            self.save("threads")
+        self.enqueue(Turn(channel, thread_ts, f"{time.time():.6f}", huddles.button_text(aid, h), None, False,
+                          react_ts=mts))
 
     # --- cards: the owner's click is the submit ---------------------------------------------------
 
@@ -761,6 +1047,10 @@ class Slackd:
         aid, cid = act.get("action_id"), act.get("value")
         channel = (p.get("channel") or {}).get("id") or (p.get("container") or {}).get("channel_id")
         thread = (p.get("message") or {}).get("thread_ts")
+        if (aid or "").startswith("feed_"):
+            return                      # Play it and Open the MR are links; Slack only tells us they were pressed
+        if aid in huddles.BUTTONS:
+            return self.on_huddle_button(aid, cid, user, channel, thread, p.get("message") or {})
         with self.lock:
             card = self.cards.get(cid)
             if not card or aid not in ("desk_submit", "desk_stop", "desk_cancel"):
@@ -844,6 +1134,11 @@ class Slackd:
         return tools + propose_tools(self.mod)
 
     def call_tool(self, name, args):
+        turn = self.active
+        if turn is not None and turn.auto and (name in self.mod.WRITE_TOOLS or name.startswith("propose_")):
+            raise self.mod.DeskError(f"nobody asked for this turn (it was started by a huddle's notes), so it can "
+                                     f"read GitLab but not write to it. Say what you'd do, and {self.owner_name} "
+                                     "can ask you for it.")
         if name == "propose_submit":
             return self.propose("submit", args)
         if name == "propose_stop":
@@ -912,8 +1207,9 @@ class Slackd:
             try:
                 self.poll_events()
                 if time.monotonic() - last_sweep > 60:
-                    self.sweep_cards()
                     last_sweep = time.monotonic()
+                    self.sweep_cards()
+                    self.maybe_morning()
             except Exception:  # noqa: BLE001
                 log("events failed:\n" + traceback.format_exc())
 
@@ -944,28 +1240,9 @@ class Slackd:
         cur["offset"] += end + 1
         write_json(self._p("events.cursor"), cur)
 
-    def event_text(self, e):
-        kind, item, mr = e.get("event"), e.get("item") or {}, e.get("mr") or {}
-        short = (item.get("ref") or "?").split("/", 1)[-1]
-        link = f"<{item['url']}|{short}>" if item.get("url") else short
-        mshort = (mr.get("ref") or "").split("/", 1)[-1]
-        mlink = f"<{mr['url']}|{mshort}>" if mr.get("url") else mshort
-        text = cut(e.get("text"), 1200)
-        if kind == "claimed":
-            return f"{link} *{_escape(item.get('title') or '')}* · claimed by {self.owner_name}'s cell ({e.get('vendor') or '?'})"
-        if kind == "done":
-            return (f":package: MR ready: {mlink}" + (f" · gates {_escape(e['gates'])}" if e.get("gates") else "")
-                    + (f" · <{e['play_url']}|Play it>" if e.get("play_url") else ""))
-        if kind == "review":
-            return f":mag: Review by {e.get('vendor') or '?'} on {mlink or link}:\n{mrkdwn(text)}"
-        if kind == "played":
-            return f":video_game: Played by {_escape(e.get('person') or 'someone')} for {e.get('minutes') or '?'} min"
-        label = {"blocked": ":construction: Blocked", "failed": ":x: Failed", "stopped": ":octagonal_sign: Stopped",
-                 "refused": ":no_entry: Not started", "void": ":no_entry: Not started",
-                 "waiting": ":hourglass: Waiting"}.get(kind, kind or "?")
-        return f"{label}: {link}" + (f"\n{mrkdwn(text)}" if text else "")
-
     def on_agentd_event(self, e):
+        """One event of the cell's work: a reply in the item's thread, and the item's message
+        brought up to date, so the channel reads as a list of where everything stands."""
         kind = e.get("event")
         if kind not in EVENT_KINDS:
             log(f"event skipped: unknown kind {kind!r}")
@@ -977,32 +1254,109 @@ class Slackd:
             if kind == "done" and mr.get("ref"):
                 mrs[mr["ref"]] = ref          # the MR's later events go in its issue's thread
                 self.save("builds")
-            if kind in ("review", "played"):
+            if kind in ("review", "played", "merged", "closed"):
                 key = mrs.get(mr.get("ref")) or mrs.get(ref) or mr.get("ref") or ref
             elif item.get("kind") == "mr":
                 key = mrs.get(ref, ref)
             else:
                 key = ref
-        text = self.event_text(e)
+        ping = self.owner_id if kind == "done" and self.s.get("ping_ready", True) else None
+        text = feed.reply(e, self.owner_name, mrkdwn, ping=ping)
         channel = self.s.get("builds_channel") or ""
         where = None
         if channel:
-            parent = self.builds["items"].get(key)
-            if kind == "claimed" or not parent:
-                short = ref.split("/", 1)[-1] or "?"
-                head = text if kind == "claimed" else (
-                    (f"<{item['url']}|{short}>" if item.get("url") else short)
-                    + f" *{_escape(item.get('title') or '')}*")
-                ts = self.post(channel, head)
+            entry = self.builds["items"].get(key)
+            if kind in feed.OVER and entry and entry.get("state") in feed.OVER:
+                return                        # said already
+            # An issue claimed again starts a new message; a review claimed on an MR that has
+            # one carries on in it.
+            again = kind == "claimed" and item.get("kind") != "mr"
+            if not entry or again:
+                old, entry = entry, feed.apply(feed.new_entry(e), e)
+                htext, blocks = feed.head(entry, self.owner_name)
+                entry["channel"], entry["ts"] = channel, self.post(channel, htext, blocks=blocks)
                 with self.lock:
-                    self.builds["items"][key] = parent = {"channel": channel, "ts": ts}
+                    self.builds["items"][key] = entry
                     self.save("builds")
-            if kind != "claimed":
-                self.post(channel, text, thread_ts=parent["ts"])
-            where = parent
-        if kind in DM_EVENTS or (not channel and kind in ("done", "review", "played")):
+                if kind != "claimed":
+                    self.post(channel, text, thread_ts=entry["ts"])
+                if old and old.get("ts") and old.get("state") not in feed.OVER:
+                    old["newer"] = self.permalink(channel, entry["ts"])
+                    if old["newer"]:
+                        self.update(old["channel"], old["ts"], *feed.head(old, self.owner_name))
+            else:
+                feed.apply(entry, e)
+                with self.lock:
+                    self.save("builds")
+                self.post(channel, text, thread_ts=entry["ts"])
+                self.update(entry["channel"], entry["ts"], *feed.head(entry, self.owner_name))
+            where = entry
+        if kind in DM_EVENTS or (not channel and kind in ("done", "review", "played", "merged")):
             link = self.permalink(where["channel"], where["ts"]) if where else None
             self.post(self.owner_dm(), text + (f"\n<{link}|The thread in #studio-builds>" if link else ""))
+
+    # --- the morning list -------------------------------------------------------------------------
+
+    def maybe_morning(self):
+        """Once a day, in the owner's morning: a DM of what's waiting on them. Nothing waiting,
+        no DM."""
+        hour = self.s.get("morning_hour")
+        if hour in (None, "", False) or int(hour) < 0:
+            return
+        local = now() + dt.timedelta(seconds=self.owner_offset())
+        day = local.date().isoformat()
+        if self.morning.get("last") == day or not int(hour) <= local.hour < int(hour) + 3:
+            return
+        if time.monotonic() < self.morning_retry:
+            return
+        try:
+            text = feed.morning(*self.waiting())
+        except self.mod.DeskError as e:
+            log(f"morning list: {e}; trying again in ten minutes")
+            self.morning_retry = time.monotonic() + 600
+            return
+        with self.lock:
+            self.morning["last"] = day
+            self.save("morning")
+        if text:
+            self.post(self.owner_dm(), text)
+        log(f"morning list for {day}: {'sent' if text else 'nothing waiting'}")
+
+    def waiting(self):
+        """(the owner's, the others'): open MRs with what each is waiting for, and the owner's
+        blocked or failed issues. Read from GitLab as the desk account."""
+        gl = self.desk.gl
+        mine = {self.cfg.get("gitlab_agent"), (self.cfg.get("agentd") or {}).get("desk"), self.cfg.get("owner")} - {None, ""}
+        rows, others = [], []
+        for p in gl.games():
+            for m in gl.get_all(f"/projects/{p['id']}/merge_requests", state="opened", limit=100):
+                labels = m.get("labels") or []
+                full = (m.get("references") or {}).get("full") or f"{p['path_with_namespace']}!{m['iid']}"
+                st = (gl.get(f"/projects/{p['id']}/repository/commits/{m['sha']}/statuses") or []) if m.get("sha") else []
+                played = [x for x in st if x.get("name") == "studio/played"]
+                gates = next((x for x in st if x.get("name") == "studio/gates"), None)
+                notes = []
+                if "agent-running" in labels:
+                    notes.append("a job is running on it")
+                entry = self.builds["items"].get(self.builds["mrs"].get(full) or full) or {}
+                rv = entry.get("review") or {}
+                if rv.get("findings"):
+                    notes.append(f"{rv.get('vendor')}'s review has {feed.plural(rv['findings'], 'finding')}")
+                notes.append(played[0].get("description") or "played" if played else "not played yet")
+                row = {"mark": feed.link(m.get("web_url"), f"{p['path']}!{m['iid']}"), "title": m.get("title"),
+                       "notes": notes, "play_url": (gates or {}).get("target_url") if not played else None}
+                who = (m.get("author") or {}).get("username")
+                if who in mine:
+                    rows.append(row)
+                else:
+                    row["notes"].insert(0, f"by {who}")
+                    others.append(row)
+            for label, word in (("agent-blocked", "blocked"), ("agent-failed", "failed")):
+                for it in gl.get_all(f"/projects/{p['id']}/issues", state="opened", labels=label, limit=50):
+                    if (it.get("author") or {}).get("username") in mine:
+                        rows.append({"mark": feed.link(it.get("web_url"), f"{p['path']}#{it['iid']}"),
+                                     "title": it.get("title"), "notes": [word]})
+        return rows, others
 
 
 # --- studio-desk-mcp: the desk tools for Claude, through the socket ---------------------------------

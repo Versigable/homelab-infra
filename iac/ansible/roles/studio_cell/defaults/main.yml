@@ -120,7 +120,18 @@ studio_cell_desk_account: ""
 #     studio-desk-<owner> (lock-studio-brain.py), never over a note changed meanwhile, never
 #     CLAUDE.md, never deleting; jobs (agent) still only read the brain;
 #   - it tells the story of the cell's work in studio_cell_slack_builds_channel (group_vars),
-#     and DMs the person what needs them.
+#     and DMs the person what needs them. Each piece of work is one message there, which always
+#     shows where it stands (building, ready with a Play button, reviewed, played, merged), with
+#     the story in its thread; "ready to play" pings the person (ping_ready). At morning_hour,
+#     in the person's own time zone as Slack has it, they get a DM of what's waiting on them
+#     (nothing waiting, no DM; leave morning_hour empty for none);
+#   - huddles file themselves (vault decision 2026-11-17): when Slack's AI notes for a huddle
+#     arrive in a channel the bot is in, the desk of the person who started the huddle reads
+#     the notes and the whole transcript and writes the huddle's note in the brain. desk_owners
+#     is every desk's person, so each desk works out alone whose huddle it is. Nobody asked for
+#     that turn, so it can read GitLab but not write to it; buttons under its reply, the
+#     person's to press, carry on from there. What was said is saved for the desk beside the
+#     brain copy (studio_cell_desk_huddles_dir), never in it.
 # Set in host_vars: studio_cell_slack_owner, studio_cell_slack_bot. Its secrets come from the
 # control node's environment (iac.sh exports the secrets env file):
 #   SLACK_BOT_TOKEN_<OWNER>, SLACK_APP_TOKEN_<OWNER>   the Slack app's bot and app-level tokens
@@ -139,6 +150,10 @@ studio_cell_slack:
   turn_minutes: 15
   turn_memory_max: 2G
   max_file_mb: 5
+  ping_ready: true
+  morning_hour: 9
+  huddles: true
+  desk_owners: "{{ groups['studio_cell'] | map('extract', hostvars, 'studio_cell_slack_owner') | select | list | sort }}"
 studio_cell_desk_brain:
   url: "{{ studio_cell_brain.url }}"
   db: "{{ studio_cell_brain.db }}"
@@ -157,10 +172,12 @@ studio_cell_desk_claude_project: "/home/desk/.claude/projects/{{ studio_cell_des
 # Claude's settings for the Slack desk's turns (--settings, with --permission-mode dontAsk):
 # anything these don't allow is denied, never asked. The brain copy and its memory link, the
 # web, and the desk's tools (studio-slackd's socket); no shell; CLAUDE.md stays the people's.
+studio_cell_desk_huddles_dir: "{{ studio_cell_desk_brain.dir | dirname }}/huddles"
 studio_cell_claude_desk_settings:
   permissions:
     allow:
       - "Read(/{{ studio_cell_desk_brain.dir }}/**)"
+      - "Read(/{{ studio_cell_desk_huddles_dir }}/**)"
       - "Edit(/{{ studio_cell_desk_brain.dir }}/**)"
       - "Read(/{{ studio_cell_desk_claude_project }}/memory/**)"
       - "Edit(/{{ studio_cell_desk_claude_project }}/memory/**)"
@@ -191,6 +208,9 @@ studio_cell_agentd:
   ceilings: {five_hour: 0.6, seven_day: 0.7}
   review_after_implement: true
   keep_worktrees: false
+  # How often open MRs are looked at for a merge or a close (the builds channel says so, and
+  # the hub's portal follows).
+  mr_sync_seconds: 120
 # agent holds no SSH key, so SSH remotes on the big public forges are fetched over HTTPS
 # instead (a public repository needs no sign-in). In agent's environment only (jobs, and its
 # logins through /etc/profile.d/studio-cell.sh), so the owner's own Git setup is untouched.

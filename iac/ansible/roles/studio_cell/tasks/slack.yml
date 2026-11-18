@@ -8,7 +8,9 @@
 #   - submits and stops work only when the person presses the button, as the desk account;
 #   - keeps the working copy of the studio brain (/srv/studio/desk/brain, the person's desk
 #     memory included) and writes changes back as studio-desk-<owner> after each turn;
-#   - posts the cell's work from studio-agentd's events to the builds channel and DMs.
+#   - posts the cell's work from studio-agentd's events to the builds channel and DMs;
+#   - files a huddle in the brain when Slack's AI notes for it arrive (vault decision
+#     2026-11-17), reading the notes and transcript it saves for desk in /srv/studio/desk/huddles.
 # Its secrets stay root's; desk holds only its own Claude sign-in.
 
 - name: The Slack desk's secrets directory
@@ -106,6 +108,18 @@
     - {path: "{{ studio_cell_desk_brain.dir }}", owner: desk, mode: "0750"}
     - {path: /var/lib/studio/slack, owner: root, mode: "0700"}
   when: item.owner != 'desk' or studio_cell_desk_ready
+
+# What was said in a huddle, as Slack's notes and transcript, for the desk's filing turn to
+# read: beside the brain copy, so none of it reaches the brain except the note the desk writes.
+# studio-slackd writes it (root); desk only reads.
+- name: The huddles the desk reads
+  ansible.builtin.file:
+    path: "{{ studio_cell_desk_huddles_dir }}"
+    state: directory
+    owner: root
+    group: desk
+    mode: "0750"
+  when: studio_cell_desk_ready
 
 # Claude Code keeps a project's memory in ~/.claude/projects/<dir>/memory: here, the person's desk
 # memory in the copy, so the Slack desk and their local desk share one memory.
@@ -218,6 +232,8 @@
     - {user: agent, path: "{{ studio_cell_desk_brain.dir }}"}
     - {user: agent, path: /home/desk}
     - {user: unity, path: "{{ studio_cell_desk_brain.dir }}"}
+    - {user: agent, path: "{{ studio_cell_desk_huddles_dir }}"}
+    - {user: unity, path: "{{ studio_cell_desk_huddles_dir }}"}
     - {user: desk, path: /etc/studio/slack/app-token}
     - {user: desk, path: /etc/studio/slack/gitlab-token}
     - {user: desk, path: /etc/studio/gitlab-token}

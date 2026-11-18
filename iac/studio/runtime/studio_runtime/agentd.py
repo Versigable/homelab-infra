@@ -55,6 +55,8 @@ VENDOR_RUN_DIR = os.path.join(os.path.dirname(common.RUN_DIR), "studio-jobs")
 EVENTS_FILE = os.path.join(common.STATE_DIR, "events.jsonl")
 EVENTS_MAX = 5 << 20
 DESK_USAGE_FILE = os.path.join(common.STATE_DIR, "desk-usage.json")
+# Plays noted on their MRs whose report the hub hasn't confirmed yet (a list of play ids).
+NOTED_PLAYS_FILE = os.path.join(common.STATE_DIR, "plays-noted.json")
 
 
 def now():
@@ -510,7 +512,10 @@ class Agentd:
                 f"origin/{item['target_branch']}...HEAD` is the change. Read AGENTS.md. Review for "
                 "correctness, tests that would fail without the change, the studio's rules, and anything a "
                 "player would notice. Don't change files or commit. Write the review as markdown to a file "
-                "and run `studio done --review <file>`." + brain)
+                "and run `studio done --review <file>`. Open it with a sentence or two giving your verdict. "
+                "Give each finding a line of its own that starts with its severity in brackets, `[P1]` for "
+                "what must be fixed down to `[P3]` for what's minor, then a short title, with the details "
+                "under it: the people's chat shows the verdict and those titles." + brain)
 
     def brain_note(self, job):
         """Where the studio brain's read-only copy is (studio-brain-sync), if this cell has one."""
@@ -657,11 +662,17 @@ class Agentd:
                 self.event("blocked", item, job=job, text=res["text"])
             elif job["kind"] == "review" and res.get("kind") == "review":
                 fresh = "; a fresh session, not the one that wrote the change" if job.get("same_vendor") else ""
-                self.gl.note("mr", item["project_id"], item["iid"],
-                             f"**Review by {job['vendor']}** (job `{job.id}`{fresh})\n\n{res['text']}")
+                note = self.gl.note("mr", item["project_id"], item["iid"],
+                                    f"**Review by {job['vendor']}** (job `{job.id}`{fresh})\n\n{res['text']}")
                 self.gl.relabel("mr", item["project_id"], item["iid"], add=[REVIEW], remove=[RUNNING])
                 job.set(state="done", finished_at=now().isoformat())
-                self.event("review", item, job=job, text=res["text"],
+                # The builds channel shows the review's opening words and its findings' titles,
+                # taken here from the whole text (an event's text is cut short), and links the note.
+                summary, findings = common.review_digest(res["text"])
+                note_url = (f"{item['web_url']}#note_{note['id']}"
+                            if item.get("web_url") and isinstance(note, dict) and note.get("id") else None)
+                self.event("review", item, job=job, text=res["text"], summary=summary, findings=findings,
+                           note_url=note_url,
                            mr={"ref": item.get("ref"), "url": item.get("web_url"), "iid": item.get("iid")})
             else:
                 self.push(job)
@@ -817,8 +828,9 @@ class Agentd:
             return
         except (hubmod.HubError, GitLabError) as e:
             log(f"hub sync: plays: {e}")
-        check_mrs = time.time() - self.mr_synced > 600
+        check_mrs = time.time() - self.mr_synced > int(self.a.get("mr_sync_seconds", 120))
         cutoff = now() - dt.timedelta(days=31)
+        told = set()                  # MRs whose merge went out as an event in this pass
         for job in Job.all():
             h = job.get("hub")
             if not h or not job.get("finished_at") or ts(job["finished_at"]) < cutoff:
@@ -835,6 +847,15 @@ class Agentd:
                                       timeout=15)
                         mr.update(state=cur["state"], title=cur["title"])
                         job.set(hub=h)
+                        # Merged or closed: the builds channel's last word on the item. Several
+                        # jobs can have built the same MR; it's said once.
+                        key = (mr["project_id"], mr["iid"])
+                        if cur["state"] in ("merged", "closed") and key not in told:
+                            told.add(key)
+                            who = (cur.get("merged_by") or cur.get("merge_user") or cur.get("closed_by") or {})
+                            self.event(cur["state"], job["item"], job=job, mr=self.mr_ref(cur, job["game"]),
+                                       person=who.get("username"),
+                                       text=f"{cur['state']} by {who.get('username') or 'someone'}")
             except (OSError, ssl.SSLError) as e:
                 log(f"hub sync: the hub didn't answer ({e}); next poll")
                 return
@@ -847,19 +868,45 @@ class Agentd:
         """Play evidence: each session someone watched, on a build this cell uploaded, becomes a
         note on its MR and a studio/played status on the revision, once. The name is the
         person's Authentik one, written plainly so GitLab notifies no one by mistake."""
+        noted = self.noted_plays()
         for p in self.hub.call("GET", "/v1/plays", timeout=15) or []:
             mins = max(1, round(p["viewer_seconds"] / 60))
             url = f"{self.hub.portal}/g/{p['game']}/r/{p['revision']}"
-            if p.get("project_id") and p.get("mr_iid"):
-                self.gl.note("mr", p["project_id"], p["mr_iid"], self.play_note(p, mins, url))
-                self.gl.status(p["project_id"], p["revision"], "success", "studio/played",
-                               f"played by {p['person']}, {mins} min", target_url=url)
-            self.hub.call("POST", f"/v1/plays/{p['id']}/reported", {}, timeout=15)
+            if p["id"] not in noted:
+                if p.get("project_id") and p.get("mr_iid"):
+                    self.gl.note("mr", p["project_id"], p["mr_iid"], self.play_note(p, mins, url))
+                    self.gl.status(p["project_id"], p["revision"], "success", "studio/played",
+                                   f"played by {p['person']}, {mins} min", target_url=url)
+                it = self.played_item(p)
+                self.event("played", it, person=p["person"], minutes=mins, play_url=url,
+                           mr={"ref": it["ref"], "url": it["url"], "iid": it["iid"]} if p.get("mr_iid") else None,
+                           text=f"played by {p['person']} for {mins} min on {p['revision'][:10]}")
+                noted.append(p["id"])
+                self.save_noted(noted)
+            # Telling the hub comes last and its answer may be lost: the note and the event are
+            # out either way, and a play still listed at the next poll is only reported again,
+            # never noted twice. No body goes with it.
+            self.hub.call("POST", f"/v1/plays/{p['id']}/reported", timeout=15)
+            noted.remove(p["id"])
+            self.save_noted(noted)
             log(f"play {p['id']}: {p['person']}, {mins} min on {p['game']}@{p['revision'][:10]} reported")
-            it = self.played_item(p)
-            self.event("played", it, person=p["person"], minutes=mins, play_url=url,
-                       mr={"ref": it["ref"], "url": it["url"], "iid": it["iid"]} if p.get("mr_iid") else None,
-                       text=f"played by {p['person']} for {mins} min on {p['revision'][:10]}")
+
+    @staticmethod
+    def noted_plays():
+        """Plays whose note and event are out, until the hub has taken their report."""
+        try:
+            with open(NOTED_PLAYS_FILE, encoding="utf-8") as f:
+                ids = json.load(f)
+        except (FileNotFoundError, ValueError):
+            return []
+        return [x for x in ids if isinstance(x, str)][-200:] if isinstance(ids, list) else []
+
+    @staticmethod
+    def save_noted(ids):
+        tmp = f"{NOTED_PLAYS_FILE}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(ids[-200:], f)
+        os.replace(tmp, NOTED_PLAYS_FILE)
 
     def played_item(self, p):
         """The MR a play was on, as an event's item (its link from the job that opened it)."""
