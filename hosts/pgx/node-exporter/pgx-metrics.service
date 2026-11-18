@@ -1,0 +1,13 @@
+[Unit]
+Description=PGX GPU and vLLM metrics for node_exporter (textfile, every 15 s)
+After=network-online.target lxd.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/pgx-metrics.sh
+Restart=always
+RestartSec=15
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

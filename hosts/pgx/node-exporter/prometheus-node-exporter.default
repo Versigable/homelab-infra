@@ -1,0 +1,5 @@
+# /etc/default/prometheus-node-exporter on the PGX (from homelab-infra
+# hosts/pgx/node-exporter/). Listen on the LAB address only, for Prometheus on
+# the monitoring LXC (10.1.0.5), not on the HOME Wi-Fi or tailnet addresses.
+# The textfile directory holds pgx.prom from pgx-metrics.sh.
+ARGS="--web.listen-address=10.1.0.4:9100 --collector.textfile.directory=/var/lib/prometheus/node-exporter"
