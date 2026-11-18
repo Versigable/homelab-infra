@@ -7,7 +7,18 @@
 #               A service with no siteMonitor has no dot (ServiceHub cannot
 #               reach it; its own firewall only lets Traefik in).
 # Numbers come from Prometheus (10.1.0.5:9090, no credentials). A widget shows
-# four metrics at most. No API keys are used in this file.
+# four metrics at most.
+#
+# API keys: two, and each one was a yes from MetaVersig. They live in
+# homepage.env.sops and appear here only as {{HOMEPAGE_VAR_...}}. Homepage
+# calls those APIs from the server and never sends keys or headers to the
+# browser; the page itself sits behind its own Authentik login.
+#   HOMEPAGE_VAR_GITLAB_TOKEN  project access token "hub-read" on homelab-infra:
+#                              Reporter, read_api only, expires 2027-11-17.
+#                              GitLab lets any signed-in account read
+#                              "internal" projects, so it can read those too.
+#   HOMEPAGE_VAR_SEERR_KEY     Seerr's API key. Seerr has only this one key, and
+#                              it has admin rights; the widget only reads counts.
 #
 # prometheusmetric widgets can colour a value with `highlight`, keyed by the
 # metric label. The first matching rule wins, so list danger, then warn, then
@@ -25,6 +36,79 @@
 # Group names are also used in settings.yaml (layout) and must stay unique.
 
 # ----------------------------- Services tab -----------------------------
+
+# Things waiting on an operator. "No items found" in a list means nothing is
+# waiting.
+- Needs you:
+    - Alerts:
+        icon: mdi-alert-decagram-outline
+        href: http://10.1.0.5:9093
+        description: Firing now and not silenced (LAN link)
+        widget:
+          type: customapi
+          url: http://10.1.0.5:9093/api/v2/alerts?active=true&silenced=false&inhibited=false
+          refreshInterval: 30000
+          display: dynamic-list
+          mappings:
+            name: labels.alertname
+            label: labels.severity
+            limit: 6
+    - Merge requests:
+        icon: mdi-source-merge
+        href: https://gitlab.ninjaprivacy.org/gitops/homelab-infra/-/merge_requests
+        description: Open on homelab-infra
+        widget:
+          type: customapi
+          url: http://10.0.1.13:8081/api/v4/projects/1/merge_requests?state=opened&order_by=created_at&sort=desc&per_page=6
+          headers:
+            PRIVATE-TOKEN: "{{HOMEPAGE_VAR_GITLAB_TOKEN}}"
+          refreshInterval: 60000
+          display: dynamic-list
+          mappings:
+            name: title
+            label: references.short
+            limit: 6
+            target: https://gitlab.ninjaprivacy.org/gitops/homelab-infra/-/merge_requests/{iid}
+    - Pipeline:
+        icon: mdi-pipe
+        href: https://gitlab.ninjaprivacy.org/gitops/homelab-infra/-/pipelines
+        description: Latest on main, homelab-infra
+        widget:
+          type: customapi
+          url: http://10.0.1.13:8081/api/v4/projects/1/pipelines?ref=main&per_page=1
+          headers:
+            PRIVATE-TOKEN: "{{HOMEPAGE_VAR_GITLAB_TOKEN}}"
+          refreshInterval: 60000
+          mappings:
+            # Any other status (manual, skipped, ...) shows as GitLab names it.
+            - field: 0.status
+              label: Status
+              remap:
+                - value: success
+                  to: Passed
+                - value: failed
+                  to: Failed
+                - value: running
+                  to: Running
+                - value: pending
+                  to: Pending
+                - value: canceled
+                  to: Canceled
+            - field: 0.id
+              label: Pipeline
+              format: text
+            - field: 0.updated_at
+              label: Updated
+              format: relativeDate
+    - Requests:
+        icon: jellyseerr.png
+        href: https://requests.ninjaprivacy.org
+        description: Seerr. Pending = waiting for approval
+        widget:
+          type: seerr
+          url: http://10.0.1.8:5055
+          key: "{{HOMEPAGE_VAR_SEERR_KEY}}"
+          fields: [pending, issues, processing, completed]
 
 - Media:
     - Jellyfin:
@@ -219,6 +303,44 @@
         href: http://10.0.1.5:3000
         description: Browser games ROM manager (LAN only)
         siteMonitor: http://10.0.1.5:3000
+
+# Running game servers only; the stopped GamingHub games are left off.
+- Game servers:
+    - NinjaShrouded:
+        icon: mdi-shield-sword
+        description: Enshrouded on Wolverine, enshrouded.ninjaprivacy.org:15637
+        widget:
+          # Steam query on the game port, from ServiceHub over the LAN.
+          type: gamedig
+          serverType: enshrouded
+          url: udp://10.1.0.14:15637
+          fields: [status, players, ping]
+    - Vulfkube:
+        icon: mdi-axe-battle
+        description: Valheim on GamingHub. A private server answers no queries, so these are GamingHub's numbers
+        widget:
+          type: prometheusmetric
+          url: http://10.1.0.5:9090
+          refreshInterval: 30000
+          metrics:
+            - label: CPU
+              query: max(pve_cpu_usage_ratio{id="lxc/109"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: RAM
+              query: max(pve_memory_usage_bytes{id="lxc/109"}) / max(pve_memory_size_bytes{id="lxc/109"})
+              format:
+                type: percent
+                scale: 100
+                options:
+                  maximumFractionDigits: 0
+            - label: Up
+              query: max(pve_uptime_seconds{id="lxc/109"})
+              format:
+                type: duration
 
 - Apps:
     - Nextcloud:

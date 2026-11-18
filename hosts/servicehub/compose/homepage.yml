@@ -52,6 +52,9 @@ services:
       HOMEPAGE_OIDC_CLIENT_ID: ${HOMEPAGE_OIDC_CLIENT_ID}
       HOMEPAGE_OIDC_CLIENT_SECRET: ${HOMEPAGE_OIDC_CLIENT_SECRET}
       HOMEPAGE_AUTH_SECRET: ${HOMEPAGE_AUTH_SECRET}
+      # Widget API keys, used in services.yaml as {{HOMEPAGE_VAR_...}}.
+      HOMEPAGE_VAR_GITLAB_TOKEN: ${HOMEPAGE_VAR_GITLAB_TOKEN}
+      HOMEPAGE_VAR_SEERR_KEY: ${HOMEPAGE_VAR_SEERR_KEY}
     volumes:
       - ../config:/app/config:ro
     ports:
