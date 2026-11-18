@@ -460,3 +460,151 @@ deploy-ente:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - hosts/ente/**/*
+
+# ============================================================
+# The studio's platform (iac/ansible), applied by iac-runner (LXC 119 on phoenix): a protected
+# runner whose key only the studio's hosts accept (iac/README.md, "Deploy runners"; vault:
+# 5-Decisions/2026-11-16_studio-applies-from-ci). One job per target, run when a merge to main
+# changes a file that target's apply reads. studio-gw goes first (the studio's only way out),
+# then the hub (it holds the CA the Forge and the cells use), one studio apply at a time.
+# iac-studio-all applies the whole studio, by hand, from any main pipeline.
+#
+# iac/keys/ starts no job: the control nodes apply who holds keys, to every guest. Every
+# studio apply still carries main's keys (role base keeps the list exact).
+# Push pipelines only: in other pipelines (web, trigger, schedule) `changes:` is always true.
+# ============================================================
+.iac-studio:
+  stage: deploy
+  tags: ["iac-studio"]
+  resource_group: iac-studio
+  variables:
+    IAC_VENV: /opt/homelab-iac/venv
+    IAC_SSH_KEY: /etc/homelab-iac/id_studio
+    GITLAB_TOKEN_FILE: /etc/homelab-iac/studio.env
+    # ansible.cfg's ssh_args, but never accepting an unknown host key: the runner holds every
+    # studio host's key already (role iac_runner), so an unknown one is refused.
+    ANSIBLE_SSH_ARGS: >-
+      -o ControlMaster=auto -o ControlPersist=60s -o StrictHostKeyChecking=yes
+      -o UserKnownHostsFile=~/.ssh/known_hosts_iac
+  before_script:
+    # The guest inventory is generated from Terraform, which the runner can't read; a control
+    # node copies its own there (role iac_runner).
+    - cp /etc/homelab-iac/guests.yml iac/ansible/inventory/guests.yml
+  script:
+    - bash iac/scripts/iac.sh play site.yml --limit "$IAC_STUDIO_LIMIT"
+
+# What each apply reads, as rules a job lists: any one matching runs it.
+.iac-studio-rules:
+  # Every studio host's apply.
+  shared: &iac-studio-shared
+    if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    changes:
+      - iac/ansible/playbooks/site.yml
+      - iac/ansible/ansible.cfg
+      - iac/ansible/requirements.yml
+      - iac/ansible/inventory/group_vars/vm_guests.yml
+      - iac/ansible/roles/base/**/*
+      - iac/ansible/roles/nfs_client/**/*
+      - iac/scripts/iac.sh
+  # The guests on studio0 behind studio-gw: the hub, the Forge and the cells.
+  private: &iac-studio-private
+    if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    changes:
+      - iac/ansible/inventory/group_vars/studio_private.yml
+      - iac/ansible/roles/studio_guest/**/*
+  # A cell's owner, desk and keys: studio-gw (the owners' jump keys), the hub (whose cell is
+  # whose) and the cells.
+  cell-hosts: &iac-studio-cell-hosts
+    if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    changes:
+      - iac/ansible/inventory/host_vars/cell-*.yml
+  # The studio runtime (studio-agentd, the broker, forge-playd): the hub, the Forge and the cells.
+  runtime: &iac-studio-runtime
+    if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    changes:
+      - iac/studio/runtime/**/*
+  # The hub's clients: the Forge and the cells.
+  hub-client: &iac-studio-hub-client
+    if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    changes:
+      - iac/ansible/roles/studio_hub_client/**/*
+
+iac-studio-gw:
+  extends: .iac-studio
+  variables:
+    IAC_STUDIO_LIMIT: studio_gw
+  rules:
+    - *iac-studio-shared
+    - *iac-studio-cell-hosts
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - iac/ansible/inventory/group_vars/studio_gw.yml
+        - iac/ansible/roles/studio_gw/**/*
+
+iac-studio-hub:
+  extends: .iac-studio
+  variables:
+    IAC_STUDIO_LIMIT: studio_hub
+  needs:
+    - {job: iac-studio-gw, optional: true}
+  rules:
+    - *iac-studio-shared
+    - *iac-studio-private
+    - *iac-studio-cell-hosts
+    - *iac-studio-runtime
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - iac/ansible/roles/studio_hub/**/*
+
+iac-studio-forge:
+  extends: .iac-studio
+  variables:
+    IAC_STUDIO_LIMIT: studio_forge
+  needs:
+    - {job: iac-studio-gw, optional: true}
+    - {job: iac-studio-hub, optional: true}
+  rules:
+    - *iac-studio-shared
+    - *iac-studio-private
+    - *iac-studio-runtime
+    - *iac-studio-hub-client
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - iac/ansible/inventory/group_vars/studio_forge.yml
+        - iac/ansible/inventory/host_vars/studio-forge.yml
+        - iac/ansible/roles/docker/**/*
+        - iac/ansible/roles/forge_gpu/**/*
+        - iac/ansible/roles/forge_play/**/*
+        - iac/ansible/roles/forge_webstation/**/*
+        # The webstation's files (role forge_webstation copies them from here).
+        - hosts/jellyfin/config/webstation/**/*
+
+iac-studio-cells:
+  extends: .iac-studio
+  variables:
+    IAC_STUDIO_LIMIT: studio_cell
+  needs:
+    - {job: iac-studio-gw, optional: true}
+    - {job: iac-studio-hub, optional: true}
+  rules:
+    - *iac-studio-shared
+    - *iac-studio-private
+    - *iac-studio-cell-hosts
+    - *iac-studio-runtime
+    - *iac-studio-hub-client
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - iac/ansible/inventory/group_vars/studio_cell.yml
+        - iac/ansible/roles/studio_cell/**/*
+        - iac/studio/desk/**/*
+
+# The whole studio, by hand: the play button on any main pipeline (like the stopped ARK maps
+# above, it has no `changes:`, so it is always there and never runs by itself).
+iac-studio-all:
+  extends: .iac-studio
+  variables:
+    IAC_STUDIO_LIMIT: "studio_gw:studio_private"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
