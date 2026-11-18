@@ -5,9 +5,10 @@ http:
       service: homepage-svc
       entrypoints: [websecure]
       tls: {}
-      # Operators only. Homepage has no login of its own, so this middleware
-      # is the whole gate: the Authentik wildcard application behind it is
-      # bound to the operators group. Never remove it from this route.
+      # Operators only: the Authentik wildcard application behind this
+      # middleware is bound to the operators group. Homepage also has its own
+      # Authentik login (OIDC application `hub`), which covers the LAN port
+      # that bypasses Traefik. Keep both; never remove the middleware here.
       middlewares:
         - authentik-forward
 
