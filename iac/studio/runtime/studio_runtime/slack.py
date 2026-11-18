@@ -35,6 +35,8 @@ USER_AGENT = "studio-slackd/1.0"
 # The bot token goes only to Slack's own hosts: a file's download URL must start with one of
 # these (tests add their fake).
 FILES_PREFIXES = ("https://files.slack.com/",)
+# An interaction's response_url, where a private answer to a shortcut goes (no token is sent).
+HOOKS_PREFIXES = ("https://hooks.slack.com/",)
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MESSAGE = 16 << 20
 
@@ -287,6 +289,22 @@ class Api:
         if len(data) > limit:
             raise SlackError("download", "too large", f"over {limit >> 20} MB")
         return data
+
+
+def respond(url, text):
+    """A note only the person who used a shortcut sees, through the interaction's response_url.
+    Only to Slack's own host; never fatal."""
+    if not any(str(url or "").startswith(p) for p in HOOKS_PREFIXES):
+        return False
+    req = urllib.request.Request(url, data=json.dumps({"text": text, "response_type": "ephemeral"}).encode(), method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", USER_AGENT)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            r.read()
+        return True
+    except (urllib.error.URLError, OSError):
+        return False
 
 
 def socket_mode_url(app_token, base=None):
