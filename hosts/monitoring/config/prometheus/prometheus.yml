@@ -67,6 +67,17 @@ scrape_configs:
         labels:
           instance: jf
           site: x-mansion
+      # ThinkStation PGX (co-owned with Emilio and Dave; installed by hand from
+      # hosts/pgx/node-exporter/, no CI). Same LAB VLAN as this LXC, reached
+      # over wolverine-sw1, not vmbr1, so the TCP drop above doesn't apply.
+      # Besides host metrics it carries a textfile from pgx-metrics.sh: GB10
+      # GPU (pgx_gpu_*) and vLLM's own counters (vllm:*, pgx_vllm_up).
+      # Being in this job, it gets the host-health alerts too (MemoryHigh is
+      # the one that matters on unified memory).
+      - targets: ['10.1.0.4:9100']
+        labels:
+          instance: pgx
+          site: wolverine
 
   # ============================================================
   # Per-app exporters (Phase 2)
