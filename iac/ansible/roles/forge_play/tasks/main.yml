@@ -102,6 +102,7 @@
   delegate_to: localhost
   become: false
   run_once: true
+  check_mode: false
 
 - name: Builds downloaded and checked on the control node
   ansible.builtin.get_url:
@@ -114,6 +115,8 @@
     label: "{{ item.id }} {{ item.version }}"
   delegate_to: localhost
   become: false
+  # Fetching to the control node's cache changes nothing on a host; check mode needs the file.
+  check_mode: false
   run_once: true
 
 - name: Build directories

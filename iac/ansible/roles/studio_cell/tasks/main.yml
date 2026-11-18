@@ -29,6 +29,18 @@
 - name: Egress per user
   ansible.builtin.import_tasks: egress.yml
 
+# Before the first download into it (ttyd in term.yml, then Codex in codex.yml). A control node
+# that never ran this role before (iac-runner, 2026-11-17) has no such directory.
+- name: Download cache on the control node
+  ansible.builtin.file:
+    path: "{{ studio_cell_codex_cache }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
 - name: The owner's browser terminal
   ansible.builtin.import_tasks: term.yml
 
