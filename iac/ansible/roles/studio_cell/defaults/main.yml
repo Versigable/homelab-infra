@@ -178,11 +178,15 @@ studio_cell_desk_claude_project: "/home/desk/.claude/projects/{{ studio_cell_des
 # anything these don't allow is denied, never asked. The brain copy and its memory link, the
 # web, and the desk's tools (studio-slackd's socket); no shell; CLAUDE.md stays the people's.
 studio_cell_desk_huddles_dir: "{{ studio_cell_desk_brain.dir | dirname }}/huddles"
+# Pictures from the Slack thread a turn is in, saved by studio-slackd for desk to look at
+# (slack_thread, and what's new in the thread on each turn); like the huddles, never in the brain.
+studio_cell_desk_threads_dir: "{{ studio_cell_desk_brain.dir | dirname }}/threads"
 studio_cell_claude_desk_settings:
   permissions:
     allow:
       - "Read(/{{ studio_cell_desk_brain.dir }}/**)"
       - "Read(/{{ studio_cell_desk_huddles_dir }}/**)"
+      - "Read(/{{ studio_cell_desk_threads_dir }}/**)"
       - "Edit(/{{ studio_cell_desk_brain.dir }}/**)"
       - "Read(/{{ studio_cell_desk_claude_project }}/memory/**)"
       - "Edit(/{{ studio_cell_desk_claude_project }}/memory/**)"

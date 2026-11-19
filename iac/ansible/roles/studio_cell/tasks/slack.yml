@@ -110,15 +110,18 @@
   when: item.owner != 'desk' or studio_cell_desk_ready
 
 # What was said in a huddle, as Slack's notes and transcript, for the desk's filing turn to
-# read: beside the brain copy, so none of it reaches the brain except the note the desk writes.
-# studio-slackd writes it (root); desk only reads.
-- name: The huddles the desk reads
+# read, and the pictures in the Slack threads it's in: beside the brain copy, so none of it
+# reaches the brain except what the desk writes. studio-slackd writes them (root); desk only reads.
+- name: The huddles and thread pictures the desk reads
   ansible.builtin.file:
-    path: "{{ studio_cell_desk_huddles_dir }}"
+    path: "{{ item }}"
     state: directory
     owner: root
     group: desk
     mode: "0750"
+  loop:
+    - "{{ studio_cell_desk_huddles_dir }}"
+    - "{{ studio_cell_desk_threads_dir }}"
   when: studio_cell_desk_ready
 
 # Claude Code keeps a project's memory in ~/.claude/projects/<dir>/memory: here, the person's desk
@@ -234,6 +237,8 @@
     - {user: unity, path: "{{ studio_cell_desk_brain.dir }}"}
     - {user: agent, path: "{{ studio_cell_desk_huddles_dir }}"}
     - {user: unity, path: "{{ studio_cell_desk_huddles_dir }}"}
+    - {user: agent, path: "{{ studio_cell_desk_threads_dir }}"}
+    - {user: unity, path: "{{ studio_cell_desk_threads_dir }}"}
     - {user: desk, path: /etc/studio/slack/app-token}
     - {user: desk, path: /etc/studio/slack/gitlab-token}
     - {user: desk, path: /etc/studio/gitlab-token}
