@@ -609,7 +609,13 @@ class Slackd:
     def prompt(self, turn, history, saved, skipped, huddle=None):
         if turn.auto == "huddle":
             return huddles.auto_prompt(turn.huddle, self.owner_name)
-        where = "a direct message" if turn.dm else "a Slack thread"
+        if turn.dm:
+            where = "a direct message"
+        else:
+            # Where it is: a game's channel is about that game, and an answer shouldn't suggest making
+            # the channel it's written in. Without channels:read Slack won't say, and it stays vague.
+            name = self.channel_name(turn.channel)
+            where = f"a thread in #{name}" if name else "a Slack thread"
         parts = [f"{self.owner_name} wrote to you in {where}:", "", self.clean(turn.text) or "(no text)"]
         if huddle:
             parts += huddles.thread_section(huddle, self.owner_name)
