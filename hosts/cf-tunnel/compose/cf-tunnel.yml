@@ -1,0 +1,60 @@
+# cf-tunnel: cloudflared replicas on LXC 117 cf-tunnel-1 (phoenix) and LXC 118
+# cf-tunnel-2 (rogue), so WARP and the Proxmox breakglass path survive either node
+# going down. Cloudflare spreads each tunnel's traffic across all its connected
+# replicas. Deployed by scripts/deploy.sh, which starts only the services whose
+# secret exists. Vault: 1-Projects/tunnel-redundancy.
+name: cf-tunnel
+
+x-cloudflared: &cloudflared
+  # PINNED. Upgrade deliberately, together with hosts/traefik's cloudflared, and stay
+  # within a year of the latest release (Cloudflare's support window).
+  image: cloudflare/cloudflared:2026.10.5
+  restart: unless-stopped
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # Replica of ninjaprivacy_org (locally managed): every *.ninjaprivacy.org hostname,
+  # and the private route WARP clients use into the lab. The Traefik VM runs the
+  # third replica.
+  cf-org:
+    <<: *cloudflared
+    container_name: cf-org
+    # --edge-ip-version 4: the default became auto in 2026.4.0, and these guests get an
+    # IPv6 default route by RA but no global address. The metrics server serves /ready
+    # for deploy.sh.
+    command: ["tunnel", "--no-autoupdate", "--edge-ip-version", "4",
+              "--metrics", "0.0.0.0:20241",
+              "--config", "/etc/cloudflared/config.yml", "run"]
+    env_file:
+      # TUNNEL_TOKEN, from secrets/org.env.sops. It replaces the credentials JSON.
+      - path: org.env
+        required: false
+    ports:
+      - "127.0.0.1:20241:20241"
+    labels:
+      # Hash of the config, from .env (deploy.sh), so a config edit recreates cf-org.
+      cf-tunnel.config-sha: "${CF_ORG_CONFIG_SHA:-}"
+    volumes:
+      - /home/cf-tunnel/cf-tunnel-hub/config/cloudflared-org.yml:/etc/cloudflared/config.yml:ro
+
+  # Replica of ninjaprivacy_us, "tunnel B" (cloud managed): Proxmox breakglass. Its
+  # hostnames and origins live in the Zero Trust dashboard, not here.
+  cf-us:
+    <<: *cloudflared
+    container_name: cf-us
+    command: ["tunnel", "--no-autoupdate", "--edge-ip-version", "4",
+              "--metrics", "0.0.0.0:20242", "run"]
+    env_file:
+      # TUNNEL_TOKEN, from secrets/us.env.sops.
+      - path: us.env
+        required: false
+    ports:
+      - "127.0.0.1:20242:20242"
