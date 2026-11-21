@@ -4,12 +4,11 @@
 #   - service is https://10.0.2.5 (the Traefik VM), not https://traefik1, since these
 #     guests don't share Traefik's Docker network;
 #   - no credentials-file: the container authenticates with TUNNEL_TOKEN.
-# Two keys below do nothing, here and on Traefik (`cloudflared tunnel ingress validate`
-# lists them as unused, on 2025.8.1 and 2026.10.5 alike). They stay so the two files match
-# until both are fixed together:
-#   - noChunkedEncoding: the key is disableChunkedEncoding, so the Proxmox console
-#     setting has never applied on this tunnel;
-#   - warp-routing.enabled: ignored since 2023.9; the tunnel's private routes decide.
+# Proxmox gets disableChunkedEncoding (fixed 2026-11-21 on both files together: the key
+# used to be spelled noChunkedEncoding, which cloudflared ignored, so the console setting
+# never applied). Both files keep warp-routing.enabled, which cloudflared has ignored
+# since 2023.9 (the tunnel's private routes decide); `ingress validate` lists it as
+# unused, and it's harmless.
 tunnel: 37111c6c-064b-4381-9065-9313b50dffb3
 
 ingress:
@@ -17,7 +16,7 @@ ingress:
     service: https://10.0.2.5
     originRequest:
       noTLSVerify: true
-      noChunkedEncoding: true    # only for proxmox (no-op, see above)
+      disableChunkedEncoding: true    # only for proxmox
   - hostname: "*.ninjaprivacy.org"
     service: https://10.0.2.5
     originRequest:
