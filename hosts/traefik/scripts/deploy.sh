@@ -41,6 +41,20 @@ sudo /usr/bin/install -m 0644 -o root -g root "$REPO_COMPOSE" "$LIVE_COMPOSE"
 log "Syncing config/ -> live (static+dynamic)"
 sudo /usr/local/sbin/gitops-sync-traefik "$REPO_CFG_DIR" "$LIVE_CFG_DIR"
 
+# cloudflared (ninjaprivacy_org) config. Until 2026-11-21 the live copy was placed by
+# hand and never synced. cloudflared reads it only at startup, so its hash goes into
+# cloudflared.env (that service's only env_file): an edit recreates ninjaprivacy_org,
+# never traefik1. The other two replicas (hosts/cf-tunnel) carry the tunnel meanwhile.
+REPO_CF_CONFIG="${REPO_DIR}/hosts/traefik/data/cloudflared/config.yml"
+LIVE_CF_CONFIG="/home/traefik/traefik-hub/data/cloudflared/config.yml"
+[[ -f "$REPO_CF_CONFIG" ]] || die "missing repo cloudflared config: $REPO_CF_CONFIG"
+log "Syncing cloudflared config -> live"
+sudo /usr/bin/install -m 0664 -o traefik -g devops "$REPO_CF_CONFIG" "$LIVE_CF_CONFIG"
+CF_TMP="$(mktemp)"
+echo "CF_CONFIG_SHA=$(grep -vE '^[[:space:]]*(#|$)' "$REPO_CF_CONFIG" | sha256sum | cut -d' ' -f1)" > "$CF_TMP"
+sudo /usr/bin/install -m 0644 -o root -g root "$CF_TMP" "${LIVE_STACK_DIR}/cloudflared.env"
+rm -f "$CF_TMP"
+
 [[ -r "${SOPS_AGE_KEY_FILE}" ]] || die "age key not readable: ${SOPS_AGE_KEY_FILE}"
 [[ -f "${SOPS_ENV_FILE}" ]] || die "missing encrypted env: ${SOPS_ENV_FILE}"
 [[ -d "${LIVE_STACK_DIR}" ]] || die "LIVE_STACK_DIR missing: ${LIVE_STACK_DIR}"

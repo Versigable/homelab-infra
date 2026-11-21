@@ -8,7 +8,7 @@ name: cf-tunnel
 x-cloudflared: &cloudflared
   # PINNED. Upgrade deliberately, together with hosts/traefik's cloudflared, and stay
   # within a year of the latest release (Cloudflare's support window).
-  image: cloudflare/cloudflared:2026.10.5
+  image: cloudflare/cloudflared:2026.11.1
   restart: unless-stopped
   cap_drop:
     - ALL

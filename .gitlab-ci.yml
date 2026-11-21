@@ -7,6 +7,9 @@ stages:
 deploy-traefik:
   stage: deploy
   tags: ["traefik"]
+  # One edge-connector deploy at a time (with deploy-cf-tunnel-1/-2): the three
+  # ninjaprivacy_org replicas and the two tunnel B ones never all restart together.
+  resource_group: edge-connectors
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -615,6 +618,9 @@ iac-studio-all:
 # ============================================================
 .cf-tunnel-deploy:
   stage: deploy
+  # One at a time (with deploy-traefik): deploy.sh waits for each replica to register
+  # before the next one restarts, so neither tunnel loses all its connectors.
+  resource_group: edge-connectors
   script:
     - bash hosts/cf-tunnel/scripts/deploy.sh
   rules:

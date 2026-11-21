@@ -67,10 +67,18 @@ services:
       - traefik-net1
 
   cloudflared:
-    image: cloudflare/cloudflared:2025.8.1
+    # PINNED. Upgrade together with hosts/cf-tunnel (the two other replicas of this
+    # tunnel), within a year of the latest release (Cloudflare's support window).
+    image: cloudflare/cloudflared:2026.11.1
     container_name: ninjaprivacy_org
     restart: unless-stopped
-    command: ["tunnel","--no-autoupdate","--config","/etc/cloudflared/config.yml","run"]
+    # --edge-ip-version 4: the default became auto in 2026.4.0, and this VM gets an IPv6
+    # default route by RA but no global address.
+    command: ["tunnel","--no-autoupdate","--edge-ip-version","4","--config","/etc/cloudflared/config.yml","run"]
+    # Only CF_CONFIG_SHA (deploy.sh), so a config.yml edit recreates this container
+    # and not traefik1. Not ./.env: that one is traefik1's and holds its secrets.
+    env_file:
+      - ./cloudflared.env
     volumes:
       - ../data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
       - ../data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
