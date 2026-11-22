@@ -25,8 +25,8 @@ CI and must not reach the rest.
 ## Agent logins
 
 `agents/<name>/` holds the public keys of one AI agent's own Linux login on the hosts it
-administers (role `agent_login`, `playbooks/agent-logins.yml`): phoenix, rogue, jf, PBS and
-the Traefik VM. They are **not** operator keys: neither Terraform nor role `base` reads this
+administers (role `agent_login`, `playbooks/agent-logins.yml`): phoenix, rogue, wolverine, jf,
+PBS and the Traefik VM. They are **not** operator keys: neither Terraform nor role `base` reads this
 directory (both take only the top-level `*.pub` and the scopes a host lists).
 
 | Directory | Agent | Keys |
