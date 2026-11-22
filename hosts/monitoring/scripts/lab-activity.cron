@@ -1,5 +1,6 @@
 # Lab activity counts (connections, logins) for node_exporter's textfile collector.
 # Install: /usr/local/bin/lab-activity-textfile.sh + this file as /etc/cron.d/lab-activity
-# on phoenix, rogue, wolverine and jf. Vault: 1-Projects/lab-activity-monitoring.
+# on phoenix, rogue, wolverine and jf. Optional /etc/lab-activity.conf: SKIP_VMIDS="..."
+# (wolverine: "303", the house Home Assistant). Vault: 1-Projects/lab-activity-monitoring.
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 * * * * * root /usr/local/bin/lab-activity-textfile.sh >/dev/null 2>>/var/log/lab-activity.err
