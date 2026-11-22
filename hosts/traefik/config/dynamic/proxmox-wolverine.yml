@@ -1,0 +1,19 @@
+# Wolverine's Proxmox UI (MetaVersig's site), reached over the pfSense site-to-site WireGuard.
+# Main name; the breakglass name proxmox-wolverine.ninjaprivacy.us runs on wolverine's own
+# tunnel (vault: 1-Projects/tunnel-redundancy).
+http:
+  routers:
+    proxmox-wolverine-router:
+      rule: "Host(`proxmox-wolverine.ninjaprivacy.org`)"
+      service: proxmox-wolverine-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+  services:
+    proxmox-wolverine-svc:
+      loadbalancer:
+        servers:
+          - url: https://10.1.0.2:8006
+        passHostHeader: true

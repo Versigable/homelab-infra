@@ -17,6 +17,11 @@ ingress:
     originRequest:
       noTLSVerify: true
       disableChunkedEncoding: true    # only for proxmox
+  - hostname: proxmox-wolverine.ninjaprivacy.org
+    service: https://10.0.2.5
+    originRequest:
+      noTLSVerify: true
+      disableChunkedEncoding: true    # only for proxmox
   - hostname: "*.ninjaprivacy.org"
     service: https://10.0.2.5
     originRequest:
