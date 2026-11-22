@@ -29,7 +29,8 @@ services:
     container_name: cf-org
     # --edge-ip-version 4: the default became auto in 2026.4.0, and these guests get an
     # IPv6 default route by RA but no global address. The metrics server serves /ready
-    # for deploy.sh.
+    # for deploy.sh and /metrics for Prometheus on the monitoring LXC (job cloudflared),
+    # so its port is published on the LXC's LAN IP, not just loopback.
     command: ["tunnel", "--no-autoupdate", "--edge-ip-version", "4",
               "--metrics", "0.0.0.0:20241",
               "--config", "/etc/cloudflared/config.yml", "run"]
@@ -38,7 +39,7 @@ services:
       - path: org.env
         required: false
     ports:
-      - "127.0.0.1:20241:20241"
+      - "20241:20241"
     labels:
       # Hash of the config, from .env (deploy.sh), so a config edit recreates cf-org.
       cf-tunnel.config-sha: "${CF_ORG_CONFIG_SHA:-}"
@@ -57,7 +58,7 @@ services:
       - path: us.env
         required: false
     ports:
-      - "127.0.0.1:20242:20242"
+      - "20242:20242"
 
   # wolverine's own tunnel, ninjaprivacy_wolverine (cloud managed): the Proxmox breakglass
   # proxmox-wolverine.ninjaprivacy.us -> https://10.1.0.2:8006. Runs only on LXC 305 on
@@ -73,4 +74,4 @@ services:
       - path: wolverine.env
         required: false
     ports:
-      - "127.0.0.1:20243:20243"
+      - "20243:20243"

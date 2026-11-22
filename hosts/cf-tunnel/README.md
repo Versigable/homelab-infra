@@ -11,9 +11,14 @@ tunnels would carry their traffic over the site-to-site WireGuard and fail when 
 
 | Service | Tunnel | Managed | Secret | Metrics / ready |
 |---|---|---|---|---|
-| `cf-org` | `ninjaprivacy_org` (37111c6c-…), public sites + WARP | locally: `config/cloudflared-org.yml` | `secrets/org.env.sops` | `127.0.0.1:20241/ready` |
-| `cf-us` | `ninjaprivacy_us`, "tunnel B", Proxmox breakglass | Zero Trust dashboard | `secrets/us.env.sops` | `127.0.0.1:20242/ready` |
-| `cf-wv` (305 only) | `ninjaprivacy_wolverine` (98ab834e-…), `proxmox-wolverine.ninjaprivacy.us` → `https://10.1.0.2:8006` | Cloudflare (dashboard or API) | `secrets/wolverine.env.sops` | `127.0.0.1:20243/ready` |
+| `cf-org` | `ninjaprivacy_org` (37111c6c-…), public sites + WARP | locally: `config/cloudflared-org.yml` | `secrets/org.env.sops` | `:20241/ready`, `/metrics` |
+| `cf-us` | `ninjaprivacy_us`, "tunnel B", Proxmox breakglass | Zero Trust dashboard | `secrets/us.env.sops` | `:20242/ready`, `/metrics` |
+| `cf-wv` (305 only) | `ninjaprivacy_wolverine` (98ab834e-…), `proxmox-wolverine.ninjaprivacy.us` → `https://10.1.0.2:8006` | Cloudflare (dashboard or API) | `secrets/wolverine.env.sops` | `:20243/ready`, `/metrics` |
+
+The metrics ports are published on the LXC's LAN IP: Prometheus on the monitoring LXC
+scrapes `/metrics` (job `cloudflared`; vault 1-Projects/lab-activity-monitoring). The
+same port also answers `/config` (ingress rules, already in this repo) and
+`/debug/pprof`, to the LAN only.
 
 The Traefik VM runs the third `ninjaprivacy_org` replica (`hosts/traefik`). Keep
 `config/cloudflared-org.yml` in step with `hosts/traefik/data/cloudflared/config.yml`, and
