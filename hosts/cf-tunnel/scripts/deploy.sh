@@ -4,16 +4,18 @@ set -euo pipefail
 # ============================================================
 # deploy.sh (cf-tunnel) — Model B GitOps
 #
-# Deploys the cloudflared replicas to /home/cf-tunnel/cf-tunnel-hub on LXC 117
-# (cf-tunnel-1, phoenix) and LXC 118 (cf-tunnel-2, rogue). The same files go to both.
+# Deploys cloudflared to /home/cf-tunnel/cf-tunnel-hub on LXC 117 (cf-tunnel-1, phoenix)
+# and LXC 118 (cf-tunnel-2, rogue), which run replicas of the org tunnel and tunnel B, and
+# on LXC 305 (cf-tunnel-wolverine), which runs only wolverine's own tunnel. The same files
+# go to all three; CF_TUNNELS (set per CI job) picks which tunnels a guest runs.
 # There is no manual bootstrap: the LXCs, their runners, the runner's sudoers, the SOPS
 # age keys and the directory layout all come from iac/ (Terraform + Ansible).
 #
 # A service starts only when its secret exists (secrets/org.env.sops -> cf-org,
-# secrets/us.env.sops -> cf-us), and is removed when its secret goes away, so each
+# secrets/us.env.sops -> cf-us, secrets/wolverine.env.sops -> cf-wv), and is removed when its secret goes away, so each
 # tunnel can move here on its own schedule.
 #
-# Usage: deploy.sh
+# Usage: CF_TUNNELS="org us" deploy.sh   (the default; LXC 305 uses CF_TUNNELS=wolverine)
 # ============================================================
 
 RED='\033[0;31m'
@@ -43,8 +45,14 @@ REPO_COMPOSE="${REPO_APP}/compose/cf-tunnel.yml"
 REPO_ORG_CONFIG="${REPO_APP}/config/cloudflared-org.yml"
 
 # secret name -> compose service, and the metrics port deploy.sh checks
-declare -A SERVICE=( [org]=cf-org [us]=cf-us )
-declare -A METRICS_PORT=( [org]=20241 [us]=20242 )
+declare -A SERVICE=( [org]=cf-org [us]=cf-us [wolverine]=cf-wv )
+declare -A METRICS_PORT=( [org]=20241 [us]=20242 [wolverine]=20243 )
+# The tunnels this guest runs. Every other service is removed, so a guest never runs a
+# tunnel it isn't meant to (and it can't decrypt the other secrets anyway).
+read -r -a TUNNELS <<< "${CF_TUNNELS:-org us}"
+for t in "${TUNNELS[@]}"; do
+  [[ -n "${SERVICE[$t]:-}" ]] || die "unknown tunnel in CF_TUNNELS: $t"
+done
 
 # -------- Pre-flight --------
 require_cmd sops
@@ -70,7 +78,7 @@ compose() { (cd "${LIVE_COMPOSE_DIR}" && sudo /usr/bin/docker compose "$@"); }
 ENABLED=()
 render_envs() {
   local name sops_file live_env
-  for name in org us; do
+  for name in "${TUNNELS[@]}"; do
     sops_file="${REPO_APP}/secrets/${name}.env.sops"
     live_env="${LIVE_COMPOSE_DIR}/${name}.env"
     if [[ ! -f "${sops_file}" ]]; then
@@ -108,7 +116,7 @@ sync_files() {
 compose_up() {
   local name services=() off=()
   for name in "${ENABLED[@]}"; do services+=("${SERVICE[$name]}"); done
-  for name in org us; do
+  for name in "${!SERVICE[@]}"; do
     [[ " ${ENABLED[*]} " == *" ${name} "* ]] || off+=("${SERVICE[$name]}")
   done
   if (( ${#off[@]} )); then

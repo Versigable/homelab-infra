@@ -67,6 +67,12 @@ creation_rules:
   # (MetaVersig's api-keys.env: ENSHROUDED_ADMIN_PASSWORD, ENSHROUDED_FRIEND_PASSWORD).
   - path_regex: ^hosts/wolverine-games/secrets/.*\.env\.sops$
     age: ["age1n9wdn96pq8a0xmlqn88uft6n7mam648crqc7rlvclsw9axhf03nqrnrz57"]
+  # wolverine's own tunnel (ninjaprivacy_wolverine), only on LXC 305 cf-tunnel-wolverine.
+  # Must come before the general cf-tunnel rule below (sops uses the first match). After a
+  # rebuild, put the new key here and re-encrypt from the tunnel's token (Cloudflare API:
+  # GET /accounts/<id>/cfd_tunnel/<tunnel id>/token).
+  - path_regex: ^hosts/cf-tunnel/secrets/wolverine\.env\.sops$
+    age: ["age1f8tj6rfyy40c2jgjlqz57ewy395jkdd68je7wl5wamq2kyx9xuhse23hf4"]
   # cloudflared replicas: LXC 117 cf-tunnel-1 (phoenix) and LXC 118 cf-tunnel-2 (rogue),
   # both built by iac/. Both guests run the same tunnels, so each file is encrypted to both
   # keys. Files: org.env.sops and us.env.sops, each one TUNNEL_TOKEN (see

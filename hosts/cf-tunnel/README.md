@@ -4,10 +4,16 @@ LXC 117 `cf-tunnel-1` (phoenix, 10.0.1.17, runner 18) and LXC 118 `cf-tunnel-2` 
 10.0.1.18, runner 19), built by `iac/`. Each runs a replica of both Cloudflare tunnels, so
 WARP and the Proxmox breakglass path survive either node going down.
 
+LXC 305 `cf-tunnel-wolverine` (wolverine, 10.1.0.15, runner 23) runs only wolverine's own
+tunnel (`CF_TUNNELS=wolverine` in its CI job). It is a separate tunnel, not a replica: a
+connector serves every hostname of its tunnel, so a wolverine replica of the X-Mansion
+tunnels would carry their traffic over the site-to-site WireGuard and fail when it's down.
+
 | Service | Tunnel | Managed | Secret | Metrics / ready |
 |---|---|---|---|---|
 | `cf-org` | `ninjaprivacy_org` (37111c6c-…), public sites + WARP | locally: `config/cloudflared-org.yml` | `secrets/org.env.sops` | `127.0.0.1:20241/ready` |
 | `cf-us` | `ninjaprivacy_us`, "tunnel B", Proxmox breakglass | Zero Trust dashboard | `secrets/us.env.sops` | `127.0.0.1:20242/ready` |
+| `cf-wv` (305 only) | `ninjaprivacy_wolverine` (98ab834e-…), `proxmox-wolverine.ninjaprivacy.us` → `https://10.1.0.2:8006` | Cloudflare (dashboard or API) | `secrets/wolverine.env.sops` | `127.0.0.1:20243/ready` |
 
 The Traefik VM runs the third `ninjaprivacy_org` replica (`hosts/traefik`). Keep
 `config/cloudflared-org.yml` in step with `hosts/traefik/data/cloudflared/config.yml`, and
@@ -59,6 +65,13 @@ grep -c '^TUNNEL_TOKEN=ENC\[' /root/us.env.sops     # expect 1
 ```
 
 (`read -rs` reads the pasted token without echoing it.)
+
+### `wolverine.env.sops` (ninjaprivacy_wolverine)
+
+Same as `us.env.sops`, with LXC 305's key only
+(`K=age1f8tj6rfyy40c2jgjlqz57ewy395jkdd68je7wl5wamq2kyx9xuhse23hf4`, run on 305). The
+token is in the dashboard the same way, or from the API with a token that has Cloudflare
+Tunnel Write: `GET /accounts/<account id>/cfd_tunnel/98ab834e-1ef1-4365-a0ff-cd6b07c6e21f/token`.
 
 Commit the encrypted file as `hosts/cf-tunnel/secrets/<name>.env.sops`; the merge deploys it.
 
