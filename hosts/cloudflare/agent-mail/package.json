@@ -1,0 +1,25 @@
+{
+  "name": "agent-mail",
+  "private": true,
+  "type": "module",
+  "description": "Receive-only inboxes for homelab agents on agents.ninjaprivacy.org (Cloudflare Email Routing -> Worker -> KV)",
+  "scripts": {
+    "types": "wrangler types --include-runtime=true --strict-vars=false",
+    "typecheck": "wrangler types --include-runtime=true --strict-vars=false && tsc --noEmit -p . && tsc --noEmit -p test",
+    "test": "vitest run",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "postal-mime": "^4.2.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.9.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1",
+    "wrangler": "^4.166.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261119.1": true
+  }
+}
