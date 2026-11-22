@@ -80,6 +80,22 @@ locals {
       groups      = ["iac_runners"]
       description = "Applies the studio's Ansible from homelab-infra CI (runner tag iac-studio, key iac/keys/studio). Vault: 5-Decisions/2026-11-16_studio-applies-from-ci."
     }
+    # Wintermute, Firekube's Claude Code agent, reachable from any device: Remote Control (the
+    # Claude app / claude.ai), a browser terminal behind Traefik + Authentik, and SSH. Its own
+    # guest, not a shared agent box: the agent holds lab-admin credentials, and only a guest
+    # boundary keeps another agent from reading them. On rogue (most free RAM after jf's trim).
+    "wintermute" = {
+      vmid        = 120
+      node        = "rogue"
+      ip          = "10.0.1.20"
+      cores       = 2
+      memory      = 4096
+      swap        = 512
+      disk        = 32
+      tags        = ["agent", "wintermute"]
+      groups      = ["agent_hosts"]
+      description = "Wintermute: Firekube's Claude Code agent (tmux + Remote Control, ttyd, SSH). Role agent_host. Vault: 1-Projects/wintermute."
+    }
   }
 
   # Every Terraform-managed VM on X-Mansion, cloned from the cloud-init template

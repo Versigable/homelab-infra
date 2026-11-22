@@ -1,0 +1,11 @@
+# Root-only container options, applied on the node by pve_lxc_rootonly. No Docker here, so no
+# keyctl; nesting for systemd's own sandboxing in Debian 13.
+lxc_features: nesting=1
+
+# Role agent_host (vault: 1-Projects/wintermute). Firekube's Claude Code agent.
+agent_host_user: wintermute
+agent_host_session: wintermute
+agent_host_rc_name: Wintermute
+# Keys that may log in as the agent user (and so attach to its tmux session). Firekube's own
+# key goes here once he sends the .pub; until then he uses the browser terminal or Remote Control.
+agent_host_login_keys: []
