@@ -165,3 +165,10 @@ At a high level:
 
 ## License
 Private homelab repo. Licensing determined by the project owner if/when open-sourced.
+
+## Secret scanning (gitleaks)
+
+- `.gitleaks.toml`: gitleaks default rules plus narrow allowlists (apt key checksums, SOPS files).
+- **Before you commit:** `ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit` once per clone (needs gitleaks v8.30+ on PATH). It blocks a commit that adds a secret; findings are redacted.
+- **After merge:** the `secret-scan` job scans each push to `main` (in `.post`, so it never blocks a deploy). A red `secret-scan` means: rotate the secret first, then clean up.
+- A false positive: add the narrowest allowlist you can to `.gitleaks.toml`, in the same MR.

@@ -1,0 +1,15 @@
+# gitleaks config for homelab-infra (gitleaks v8.30+).
+# Default rules, plus allowlists for known non-secrets. Keep allowlists narrow.
+title = "homelab-infra"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "SHA-256 checksums of apt/GPG signing keys (*_key_sha256), public data"
+regexTarget = "line"
+regexes = ['''^\s*[a-z0-9_]+_key_sha256:\s*["']?[0-9a-f]{64}["']?\s*$''']
+
+[[allowlists]]
+description = "SOPS-encrypted files: values are ciphertext"
+paths = ['''\.sops(\.[a-z]+)?$''', '''\.enc\.(ya?ml|json|env)$''']

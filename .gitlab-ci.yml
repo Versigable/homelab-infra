@@ -635,3 +635,32 @@ deploy-cf-tunnel-1:
 deploy-cf-tunnel-2:
   extends: .cf-tunnel-deploy
   tags: ["cf-tunnel-2"]
+
+# ============================================================
+# Secret scan (gitleaks) on every push to main
+# ============================================================
+# All runners here are protected (main only), so this scans right after a merge,
+# not on the MR. It runs in .post: a finding turns the pipeline red but never
+# blocks a deploy. Before a commit, the same check runs in scripts/hooks/pre-commit.
+# Findings are redacted. Allowlists live in .gitleaks.toml.
+secret-scan:
+  stage: .post
+  tags: ["navidrome"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  variables:
+    GITLEAKS_VERSION: "8.30.1"
+    GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  script:
+    - d=$(mktemp -d)
+    - curl -fsSL -o "$d/gl.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+    - echo "${GITLEAKS_SHA256}  $d/gl.tgz" | sha256sum -c -
+    - tar -xzf "$d/gl.tgz" -C "$d" gitleaks
+    - |
+      if [ -n "${CI_COMMIT_BEFORE_SHA:-}" ] && [ "$CI_COMMIT_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+        range="${CI_COMMIT_BEFORE_SHA}..${CI_COMMIT_SHA}"
+      else
+        range="-1 ${CI_COMMIT_SHA}"
+      fi
+      echo "scanning $range"
+      "$d/gitleaks" git --redact --no-banner --config .gitleaks.toml --log-opts="$range" .
