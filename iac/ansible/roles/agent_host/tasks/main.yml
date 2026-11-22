@@ -156,6 +156,16 @@
 
 # --- The browser terminal -------------------------------------------------------------------
 
+- name: The download cache on the control node
+  ansible.builtin.file:
+    path: "{{ agent_host_cache }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
 - name: The ttyd release binary, checked, on the control node
   ansible.builtin.get_url:
     url: "https://github.com/tsl0922/ttyd/releases/download/{{ agent_host_ttyd_version }}/ttyd.x86_64"
