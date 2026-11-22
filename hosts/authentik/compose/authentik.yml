@@ -19,7 +19,12 @@ services:
       - ../data/redis:/data
 
   authentik-server:
+    # 2025.2.4 on ghcr.io is now an arm64-only image (checked 2026-11-22); the amd64 build we run
+    # exists only locally on LXC 101 (backup: /root/authentik-server-2025.2.4-amd64.tar.gz,
+    # `docker load` then `docker tag <id> ghcr.io/goauthentik/server:2025.2.4`). Never pull it
+    # until the planned upgrade to a current release.
     image: ghcr.io/goauthentik/server:2025.2.4
+    pull_policy: never
     restart: unless-stopped
     command: server
     volumes:
@@ -39,7 +44,12 @@ services:
       - "9300:9300"  # Prometheus metrics (no auth on the dedicated port; LAN-only)
 
   authentik-worker:
+    # 2025.2.4 on ghcr.io is now an arm64-only image (checked 2026-11-22); the amd64 build we run
+    # exists only locally on LXC 101 (backup: /root/authentik-server-2025.2.4-amd64.tar.gz,
+    # `docker load` then `docker tag <id> ghcr.io/goauthentik/server:2025.2.4`). Never pull it
+    # until the planned upgrade to a current release.
     image: ghcr.io/goauthentik/server:2025.2.4
+    pull_policy: never
     restart: unless-stopped
     command: worker
     depends_on:

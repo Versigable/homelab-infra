@@ -44,14 +44,11 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Authentik is far behind (2025.2.4 on 2026-11-22): step through one release at a time, each in its own MR.",
+      "description": "Authentik off: the 2025.2.4 tag on ghcr.io is arm64-only now and we run a local amd64 copy with pull_policy: never. Upgrade by hand (planned), then turn this back on, one release at a time.",
       "matchPackageNames": [
         "ghcr.io/goauthentik/server"
       ],
-      "separateMultipleMajor": true,
-      "addLabels": [
-        "authentik"
-      ]
+      "enabled": false
     },
     {
       "description": "Game servers: off for now. Merging a compose change runs `docker compose up -d`, which starts a stopped server. Enable once the deploy skips stopped stacks.",
