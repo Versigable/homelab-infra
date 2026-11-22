@@ -10,3 +10,8 @@ agent_host_rc_name: Wintermute
 # key (Bitwarden "[pubkey] Firekube · ssh", the same key jf accepts for him).
 agent_host_login_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFLWlBZkFzikUXvgP6lQkEyuF5Cc5bY6TLCMIQPsZt9t pm"
+
+# SSH also from X-Mansion's home LAN, where Firekube's PC is (routed to the lab without NAT,
+# so it arrives as 192.168.77.x, not through WARP). Login is still key-only: the ansible user
+# takes the operators' keys, wintermute takes agent_host_login_keys.
+agent_host_ssh_from: [10.0.0.0/16, 192.168.77.0/24]
