@@ -23,7 +23,13 @@
 #   lab_activity_textfile_last_run_timestamp_seconds
 #
 # Ports 9100 (node_exporter) and the monitoring LXC's own scrapes are left out.
+#
+# /etc/lab-activity.conf (optional): SKIP_VMIDS="303 ..." leaves those guests out
+# entirely, e.g. a house's own Home Assistant, whose traffic is that household's, not
+# lab use. Wolverine skips 303 (home-assistant-wolverine, MetaVersig's house).
 set -euo pipefail
+SKIP_VMIDS=""
+[[ -r /etc/lab-activity.conf ]] && . /etc/lab-activity.conf
 
 TEXTFILE_DIR=/var/lib/prometheus/node-exporter
 OUT="$TEXTFILE_DIR/lab_activity.prom"
@@ -42,6 +48,7 @@ count_conns() {
   lsns -t net -n -o NS,PID | sort -k1,1 -u | while read -r _ pid; do
     vmid=$(grep -o 'lxc/[0-9]*' "/proc/$pid/cgroup" 2>/dev/null | head -1 | cut -d/ -f2 || true)
     vmid=${vmid:-0}
+    [[ " $SKIP_VMIDS " == *" $vmid "* ]] && continue
     listen=" $(nsenter -t "$pid" -n ss -Htln 2>/dev/null | awk '{n=split($4,a,":"); print a[n]}' | sort -u | tr '\n' ' ') "
     nsenter -t "$pid" -n ss -Htn state established 2>/dev/null |
       awk -v L="$listen" -v id="$vmid" -v mon="$MONITORING_IP" '{
