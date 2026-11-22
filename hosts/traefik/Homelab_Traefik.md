@@ -30,12 +30,16 @@
 ## Ownership & Permissions
 - Tree owned by **traefik:traefik**.
 - `compose/.env` → **600**.
-- **Cloudflared:** must be owned by **65532:65532**; dirs **750**; files **640**.
-  ```bash
-  chown -R 65532:65532 data/cloudflared
-  chmod 750 data/cloudflared data/cloudflared/creds
-  chmod 640 data/cloudflared/config.yml data/cloudflared/creds/*.json
-  ```
+- **Cloudflared** (the container runs as uid **65532**, not in `devops`):
+  - `data/cloudflared/config.yml`: 664 traefik:devops, written by `deploy.sh`. Not secret.
+  - `data/cloudflared/creds/<tunnel-id>.json` (the tunnel secret): 660 traefik:devops,
+    **no "other" read**, plus a named ACL entry so the container can still read it
+    (set 2026-11-21; before that it was 664, readable by every user on the VM):
+    ```bash
+    F=data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json
+    sudo setfacl -m u:65532:r "$F" && sudo chmod o-r "$F"
+    ```
+    Check after any change: `docker restart ninjaprivacy_org` logs 4 × "Registered tunnel connection".
 - **ACME:** Traefik creates its storage files itself (mode 600); don't pre-create
   them, because the setgid/default-ACL dir would make them 660/664, which Traefik
   refuses. `data/acme/acme.json` is a stale 2025 leftover (664) that nothing uses.
