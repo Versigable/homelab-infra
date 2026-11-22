@@ -1,0 +1,88 @@
+{
+  "_comment": "Copy of hosts/monitoring/config/lab-activity/servers.json (keep both in step). who.py asks the a2s ones for player names.",
+  "servers": [
+    {
+      "name": "enshrouded",
+      "where": "wolverine-games",
+      "host": "10.1.0.14",
+      "ports": [
+        15637
+      ]
+    },
+    {
+      "name": "palworld",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27018
+      ]
+    },
+    {
+      "name": "sotf",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27016,
+        27015
+      ]
+    },
+    {
+      "name": "rust",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        28016,
+        27017
+      ]
+    },
+    {
+      "name": "satisfactory",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27027
+      ]
+    },
+    {
+      "name": "ark-island",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27019
+      ]
+    },
+    {
+      "name": "ark-ragnarok",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27021
+      ]
+    },
+    {
+      "name": "ark-lostisland",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27023
+      ]
+    },
+    {
+      "name": "ark-fjordur",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        27025
+      ]
+    },
+    {
+      "name": "minecraft",
+      "where": "gaminghub",
+      "host": "10.0.1.9",
+      "ports": [
+        19132
+      ],
+      "kind": "bedrock"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# who.ninjaprivacy.org: which person uses which service (admin-only page).
+# The who container (compose) is reached only on traefik-net1; its port isn't
+# published. authentik-forward is the domain-wide forward auth (app "proxmox",
+# bound to Hokagis), and who.py also requires Hokagis in X-authentik-groups.
+# Keep authentik-forward on this router: without it a client could send that
+# header itself. Vault: 1-Projects/lab-activity-monitoring.
+http:
+  routers:
+    who-router:
+      rule: "Host(`who.ninjaprivacy.org`)"
+      service: who-svc
+      entrypoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+
+  services:
+    who-svc:
+      loadbalancer:
+        servers:
+          - url: http://who:8080

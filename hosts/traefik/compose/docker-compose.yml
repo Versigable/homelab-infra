@@ -88,6 +88,31 @@ services:
     networks:
       - traefik-net1
 
+  # who.ninjaprivacy.org: which person uses which service, admin-only (Hokagis).
+  # stdlib Python, no build; reads only when the page is opened (60 s cache),
+  # keeps no data. Its port is NOT published: Traefik reaches it on traefik-net1.
+  # Secrets (read-only Authentik events token, Jellyfin key, Navidrome
+  # lab-activity login) come from who.env, never ./.env (traefik1's).
+  # Vault: 1-Projects/lab-activity-monitoring.
+  who:
+    image: python:3.13.13-alpine3.23
+    container_name: who
+    restart: unless-stopped
+    user: "65534:65534"
+    command: ["python", "/app/who.py"]
+    # who.env = its secrets + WHO_CODE_SHA (deploy.sh), so a who.py edit recreates
+    # only this container. Nothing of who's goes in ./.env: that would recreate traefik1.
+    env_file:
+      - ./who.env
+    volumes:
+      - ../config/who:/app:ro
+      - ../config/dynamic:/etc/traefik/dynamic:ro
+      - ../data/traefik-logs:/var/log/traefik:ro
+    mem_limit: 128m
+    cpus: 0.5
+    networks:
+      - traefik-net1
+
 networks:
   traefik-net1:
     external: true

@@ -7,7 +7,7 @@ creation_rules:
 
   # Traefik host (10.0.2.5)
   - path_regex: ^hosts/traefik/secrets/.*\.env\.sops$
-    age: ["age1L53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
+    age: ["age1l53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
 
   # ServiceHub host (10.0.1.5)
   # Matches: wiki.env.sops, n8n.env.sops, etc.
@@ -84,7 +84,7 @@ creation_rules:
   # Future: Kubernetes / Argo secrets
   # ============================================================
   - path_regex: ^k8s/.*/secrets/.*\.(yaml|yml|json)\.sops$
-    age: ["age1L53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
+    age: ["age1l53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
 
   - path_regex: ^clusters/.*/secrets/.*\.(yaml|yml|json)\.sops$
-    age: ["age1L53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
+    age: ["age1l53qjaf89q76dragageg4e4yr3na04maxems9fptt2288x9t4edscawufa"]
