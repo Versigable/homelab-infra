@@ -4,6 +4,13 @@
     state: present
     update_cache: true
 
+- name: Extra hosts entries
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ item }}"
+    regexp: "^{{ item.split()[0] | regex_escape }}\\s+{{ item.split()[1] | regex_escape }}(\\s|$)"
+  loop: "{{ agent_host_extra_hosts }}"
+
 # --- The agent user -------------------------------------------------------------------------
 
 - name: The agent user (no sudo, no password)

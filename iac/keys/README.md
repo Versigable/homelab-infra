@@ -9,6 +9,7 @@ one and running it revokes access. Private keys stay on their control node.
 |---|---|
 | `homelab-iac.pub` | WSL on MetaVersig's workstation (since 2026-10-17) |
 | `homelab-iac-fk.pub` | fk-claude, Firekube's Claude Code VM (since 2026-10-23) |
+| `homelab-iac-wintermute.pub` | wintermute (LXC 120), Wintermute, Firekube's Claude Code agent (since 2026-11-21); `homelab-iac-fk.pub` goes once fk-claude retires |
 
 ## Scoped keys
 

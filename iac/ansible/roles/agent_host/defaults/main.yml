@@ -39,6 +39,9 @@ agent_host_term_from: [10.0.2.5]
 agent_host_ssh_from: [10.0.0.0/16]
 agent_host_deny_from: [10.77.0.0/16]
 
+# Extra /etc/hosts lines, e.g. a LAN address for a name that otherwise resolves to Cloudflare.
+agent_host_extra_hosts: []
+
 agent_host_packages:
   - git
   - jq
