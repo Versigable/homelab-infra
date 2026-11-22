@@ -17,8 +17,7 @@ groups:
             of job {{ $labels.job }} for more than 5 minutes.
 
   # ============================================================
-  # Host health (node_exporter on phoenix + rogue)
-  # Wolverine deferred — see feedback_wolverine-lxc-intra-lab-tcp-drop
+  # Host health (node_exporter: phoenix, rogue, wolverine, jf, PGX)
   # ============================================================
   - name: host-health
     interval: 30s
