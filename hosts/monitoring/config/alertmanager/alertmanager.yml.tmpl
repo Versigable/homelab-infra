@@ -20,10 +20,10 @@ receivers:
   - name: discord
     # Discord exposes a Slack-compatible webhook variant — append /slack to the
     # webhook URL and Alertmanager's slack_configs receiver works directly.
-    # The ${DISCORD_WEBHOOK_URL} placeholder is rendered at deploy time by
-    # envsubst (see hosts/monitoring/scripts/deploy.sh).
+    # The URL is a secret, so it is not in this file: deploy.sh writes it
+    # (with /slack appended) to a 0400 file only the alertmanager user can read.
     slack_configs:
-      - api_url: '${DISCORD_WEBHOOK_URL}/slack'
+      - api_url_file: /run/secrets/alertmanager/discord_slack_url
         channel: '#homelab-alerts'
         send_resolved: true
         title: '{{ if eq .Status "firing" }}🔥 [FIRING]{{ else }}✅ [RESOLVED]{{ end }} {{ .GroupLabels.alertname }}'
@@ -38,7 +38,8 @@ receivers:
   - name: ntfy-urgent
     # ntfy's built-in `alertmanager` template formats the webhook payload.
     # Posted over monitoring-net, so there is no Cloudflare hop. The token is
-    # write-only to `urgent` and rendered by envsubst from ntfy.env.sops.
+    # write-only to `urgent`; deploy.sh writes it from ntfy.env.sops to a
+    # 0400 file, so this config holds no secret values.
     # Resolved notices stay Discord-only, so a fix at 3 a.m. doesn't buzz
     # through DND.
     webhook_configs:
@@ -47,4 +48,4 @@ receivers:
         http_config:
           authorization:
             type: Bearer
-            credentials: '${NTFY_ALERTMANAGER_TOKEN}'
+            credentials_file: /run/secrets/alertmanager/ntfy_token

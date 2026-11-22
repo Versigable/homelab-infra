@@ -67,7 +67,6 @@ log_info "TARGET=${TARGET}"
 require_cmd sops
 require_cmd docker
 require_cmd sudo
-require_cmd envsubst
 sudo -n /usr/bin/docker ps >/dev/null 2>&1 || die "runner needs NOPASSWD sudo for /usr/bin/docker"
 sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD sudo for /usr/bin/install"
 [[ -f "${SOPS_AGE_KEY_FILE}" && -r "${SOPS_AGE_KEY_FILE}" ]] || die "sops age key not readable: ${SOPS_AGE_KEY_FILE}"
@@ -152,7 +151,7 @@ sync_static_configs() {
 
 # -------- Decrypt secrets + render alertmanager.yml + install both --------
 decrypt_and_render() {
-  log_info "Decrypting secrets + rendering alertmanager template"
+  log_info "Decrypting secrets + installing alertmanager config and secret files"
   (
     umask 077
     local tmp_env tmp_amgr
@@ -175,14 +174,23 @@ decrypt_and_render() {
     . "${tmp_env}"
     set +a
 
-    # Whitelist substitution: only ${DISCORD_WEBHOOK_URL} and
-    # ${NTFY_ALERTMANAGER_TOKEN} are replaced; any other ${...} in the
-    # template passes through, which protects future edits from accidental
-    # substitution.
-    envsubst '${DISCORD_WEBHOOK_URL} ${NTFY_ALERTMANAGER_TOKEN}' < "${REPO_AMGR_TMPL}" > "${tmp_amgr}"
+    # alertmanager.yml holds no secrets: Alertmanager reads the Discord URL
+    # and the ntfy token from 0400 files owned by its user (65534), mounted
+    # read-only at /run/secrets/alertmanager. Reading the config is safe.
+    [[ -n "${DISCORD_WEBHOOK_URL:-}" ]] || die "DISCORD_WEBHOOK_URL missing"
+    [[ -n "${NTFY_ALERTMANAGER_TOKEN:-}" ]] || die "NTFY_ALERTMANAGER_TOKEN missing"
+    local tmp_dc tmp_nt
+    tmp_dc="$(mktemp)"; tmp_nt="$(mktemp)"
+    trap 'rm -f "${tmp_env}" "${tmp_amgr}" "${tmp_dc}" "${tmp_nt}"' EXIT
+    printf '%s/slack' "${DISCORD_WEBHOOK_URL}" > "${tmp_dc}"
+    printf '%s' "${NTFY_ALERTMANAGER_TOKEN}" > "${tmp_nt}"
+    sudo /usr/bin/install -d -m 0700 -o root -g root "${LIVE_HUB}/secrets"
+    sudo /usr/bin/install -d -m 0500 -o 65534 -g 65534 "${LIVE_HUB}/secrets/alertmanager"
+    sudo /usr/bin/install -m 0400 -o 65534 -g 65534 "${tmp_dc}" "${LIVE_HUB}/secrets/alertmanager/discord_slack_url"
+    sudo /usr/bin/install -m 0400 -o 65534 -g 65534 "${tmp_nt}" "${LIVE_HUB}/secrets/alertmanager/ntfy_token"
 
     sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}"  "${LIVE_COMPOSE_DIR}/.env"
-    sudo /usr/bin/install -m 0644 -o root -g root "${tmp_amgr}" "${LIVE_CONFIG_DIR}/alertmanager/alertmanager.yml"
+    sudo /usr/bin/install -m 0644 -o root -g root "${REPO_AMGR_TMPL}" "${LIVE_CONFIG_DIR}/alertmanager/alertmanager.yml"
   )
 }
 
