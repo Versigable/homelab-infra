@@ -1,0 +1,231 @@
+- name: Packages
+  ansible.builtin.apt:
+    name: "{{ agent_host_packages }}"
+    state: present
+    update_cache: true
+
+# --- The agent user -------------------------------------------------------------------------
+
+- name: The agent user (no sudo, no password)
+  ansible.builtin.user:
+    name: "{{ agent_host_user }}"
+    shell: /bin/bash
+    create_home: true
+    password: "!"
+    groups: []
+    append: false
+
+- name: The agent user's SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ agent_host_user }}/.ssh"
+    state: directory
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+    mode: "0700"
+
+# Exact list: a key removed from host_vars is removed here.
+- name: Keys that may log in as the agent user
+  ansible.builtin.copy:
+    dest: "/home/{{ agent_host_user }}/.ssh/authorized_keys"
+    content: |
+      # Managed by Ansible (role agent_host, host_vars agent_host_login_keys).
+      {% for k in agent_host_login_keys %}
+      {{ k }}
+      {% endfor %}
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+    mode: "0600"
+
+# --- Claude Code ----------------------------------------------------------------------------
+
+- name: Claude Code repository key
+  ansible.builtin.get_url:
+    url: https://downloads.claude.ai/keys/claude-code.asc
+    dest: /etc/apt/keyrings/claude-code.asc
+    checksum: "sha256:{{ agent_host_claude_key_sha256 }}"
+    mode: "0644"
+
+- name: Claude Code repository
+  ansible.builtin.deb822_repository:
+    name: claude-code
+    types: deb
+    uris: https://downloads.claude.ai/claude-code/apt/stable
+    suites: stable
+    components: main
+    signed_by: /etc/apt/keyrings/claude-code.asc
+
+- name: Claude Code, pinned
+  ansible.builtin.apt:
+    name: "claude-code={{ agent_host_claude_version }}"
+    update_cache: true
+    allow_change_held_packages: true
+
+- name: Hold Claude Code
+  ansible.builtin.dpkg_selections:
+    name: claude-code
+    selection: hold
+
+- name: Managed settings directory
+  ansible.builtin.file:
+    path: /etc/claude-code
+    state: directory
+    mode: "0755"
+
+# apt owns the binary, so Claude Code's own updater stays off. Everything else (permissions,
+# hooks) is the agent's own ~/.claude/settings.json.
+- name: Managed settings
+  ansible.builtin.copy:
+    dest: /etc/claude-code/managed-settings.json
+    content: "{{ {'env': {'DISABLE_AUTOUPDATER': '1'}} | to_nice_json }}\n"
+    mode: "0644"
+
+- name: Claude Code runs
+  ansible.builtin.command: claude --version
+  become: true
+  become_user: "{{ agent_host_user }}"
+  register: agent_host_claude_check
+  changed_when: false
+  failed_when: >-
+    agent_host_claude_check.rc != 0
+    or agent_host_claude_version.split('-')[0] not in agent_host_claude_check.stdout
+
+# --- The session: tmux + Claude Code with Remote Control -------------------------------------
+
+- name: The tmux settings
+  ansible.builtin.copy:
+    dest: /etc/tmux.conf
+    content: |
+      # Managed by Ansible (role agent_host). Mouse on, so the browser's wheel scrolls history.
+      set -g mouse on
+      set -g history-limit 50000
+      set -g default-terminal "tmux-256color"
+    mode: "0644"
+
+# Picks the last conversation back up after a crash, a network give-up or /exit, so the Claude
+# app keeps finding the same session. First run (no conversation yet) starts a new one. The
+# first start asks to trust the folder and to sign in: the owner answers once in the browser
+# terminal.
+- name: The session's Claude loop
+  ansible.builtin.copy:
+    dest: /usr/local/bin/agent-host-claude
+    content: |
+      #!/bin/bash
+      # Managed by Ansible (role agent_host). Runs inside tmux session {{ agent_host_session }}.
+      cd "$HOME/homelab-brain" 2>/dev/null || cd "$HOME"
+      while :; do
+        claude --continue --remote-control {{ agent_host_rc_name | quote }} \
+          || claude --remote-control {{ agent_host_rc_name | quote }}
+        echo "claude exited at $(date -u +%FT%TZ); starting again in 5 s (Ctrl-C twice to stop)"
+        sleep 5
+      done
+    mode: "0755"
+
+- name: The session's unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/agent-host-claude.service
+    content: |
+      # Managed by Ansible (role agent_host). Not restarted by Ansible: a restart ends the
+      # agent's live session. Restart by hand when it's idle.
+      [Unit]
+      Description=Claude Code for {{ agent_host_user }} in tmux session {{ agent_host_session }} (Remote Control on)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=forking
+      User={{ agent_host_user }}
+      Group={{ agent_host_user }}
+      WorkingDirectory=/home/{{ agent_host_user }}
+      Environment=HOME=/home/{{ agent_host_user }} TERM=xterm-256color LANG=C.UTF-8
+      ExecStart=/usr/bin/tmux new-session -d -s {{ agent_host_session }} /usr/local/bin/agent-host-claude
+      ExecStop=/usr/bin/tmux kill-session -t {{ agent_host_session }}
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify: Reload systemd
+
+- name: The session runs
+  ansible.builtin.systemd_service:
+    name: agent-host-claude
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- The browser terminal -------------------------------------------------------------------
+
+- name: The ttyd release binary, checked, on the control node
+  ansible.builtin.get_url:
+    url: "https://github.com/tsl0922/ttyd/releases/download/{{ agent_host_ttyd_version }}/ttyd.x86_64"
+    dest: "{{ agent_host_cache }}/ttyd-{{ agent_host_ttyd_version }}.x86_64"
+    checksum: "sha256:{{ agent_host_ttyd_sha256 }}"
+    mode: "0600"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
+- name: The ttyd binary
+  ansible.builtin.copy:
+    src: "{{ agent_host_cache }}/ttyd-{{ agent_host_ttyd_version }}.x86_64"
+    dest: /usr/local/bin/ttyd
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart agent-host-term
+
+# Attaches to the session's tmux (never a second session): closing the tab leaves it running.
+# Who gets in is decided before ttyd: Authentik at Traefik, then this guest's firewall, which
+# takes the port from Traefik only.
+- name: The browser terminal's unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/agent-host-term.service
+    content: |
+      # Managed by Ansible (role agent_host). Reached only through Traefik + Authentik.
+      [Unit]
+      Description=Browser terminal on tmux session {{ agent_host_session }} (ttyd)
+      After=agent-host-claude.service
+      Wants=agent-host-claude.service
+
+      [Service]
+      User={{ agent_host_user }}
+      Group={{ agent_host_user }}
+      WorkingDirectory=/home/{{ agent_host_user }}
+      Environment=HOME=/home/{{ agent_host_user }} TERM=xterm-256color LANG=C.UTF-8
+      ExecStart=/usr/local/bin/ttyd --port {{ agent_host_term_port }} --writable --check-origin \
+        --client-option titleFixed={{ agent_host_rc_name }} \
+        /usr/bin/tmux new-session -A -s {{ agent_host_session }}
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart agent-host-term
+
+- name: The browser terminal runs
+  ansible.builtin.systemd_service:
+    name: agent-host-term
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- Firewall -------------------------------------------------------------------------------
+
+- name: Firewall rules
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: Firewall on at boot
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true
+    state: started

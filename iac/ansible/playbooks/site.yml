@@ -114,6 +114,15 @@
     - sops_age
     - service_layout
 
+# An agent's own guest (Wintermute): Claude Code in one tmux session with Remote Control, a
+# browser terminal on that session, SSH. No GitLab runner and no Docker; the agent user has no
+# sudo on its own guest, so changes to it come through this role.
+- name: Agent hosts (Claude Code, tmux + Remote Control, ttyd)
+  hosts: agent_hosts
+  become: true
+  roles:
+    - agent_host
+
 # The studio's GPU VM. No GitLab runner here, by design: the Forge holds no one's credentials
 # (only its own certificate for the hub) and can't reach GitLab, so its lanes are platform
 # (Ansible), and work reaches it through the studio hub's broker (vault:

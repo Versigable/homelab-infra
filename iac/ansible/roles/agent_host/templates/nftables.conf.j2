@@ -1,0 +1,20 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role agent_host). Inbound: SSH from the LAN, the browser terminal from
+# Traefik only, nothing from the studio network. Outbound is open: the agent works on the lab.
+flush ruleset
+
+table inet agent_host {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iif "lo" accept
+    ct state invalid drop
+    ct state established,related accept
+    ip saddr { {{ agent_host_deny_from | join(', ') }} } drop
+    meta l4proto { icmp, ipv6-icmp } accept
+    ip saddr { {{ agent_host_ssh_from | join(', ') }} } tcp dport 22 accept
+    ip saddr { {{ agent_host_term_from | join(', ') }} } tcp dport {{ agent_host_term_port }} accept
+  }
+  chain forward {
+    type filter hook forward priority filter; policy drop;
+  }
+}

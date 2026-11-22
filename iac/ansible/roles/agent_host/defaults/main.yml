@@ -1,0 +1,44 @@
+# An agent's own guest (vault: 1-Projects/wintermute). One Linux user runs Claude Code in one
+# tmux session with Remote Control on, so the same conversation is reachable three ways:
+#   - the Claude app / claude.ai/code (Remote Control: outbound HTTPS only, the owner's account)
+#   - a browser terminal (ttyd attached to the session) behind Traefik + Authentik
+#   - SSH as the agent user, then `tmux attach -t <session>`
+# The agent user has no sudo here: it holds lab credentials, and this role (run by an operator)
+# is the only way its own guest changes.
+
+agent_host_user: agent
+agent_host_session: agent
+# The session's name in the Claude app's list.
+agent_host_rc_name: "{{ inventory_hostname }}"
+# Public keys that may log in as the agent user. Exact list; empty means SSH as the agent user
+# is closed (operators still reach the guest as `ansible`).
+agent_host_login_keys: []
+
+# Claude Code from Anthropic's signed apt repository, pinned and held (bumped by MR), the same
+# pin as the studio cells (group_vars/studio_cell.yml).
+agent_host_claude_version: "2.1.308-1"
+agent_host_claude_key_sha256: bd70a5e4a268002704024ceba7f8446024114e94f3f0bdd11c23a9e592be81c6
+
+# ttyd's release binary, checked against its SHA256SUMS (Debian 13 doesn't package it); the
+# same pin as the studio cells.
+agent_host_ttyd_version: "1.7.7"
+agent_host_ttyd_sha256: 8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+agent_host_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-iac/agent-host"
+
+# Firewall (templates/nftables.conf.j2). The browser terminal's port takes Traefik only; SSH
+# takes X-Mansion's LAN (WARP users arrive from Traefik's and the cf-tunnel replicas' addresses,
+# all inside it). The studio network (10.77.0.0/16) is refused before anything else.
+agent_host_term_port: 7681
+agent_host_term_from: [10.0.2.5]
+agent_host_ssh_from: [10.0.0.0/16]
+agent_host_deny_from: [10.77.0.0/16]
+
+agent_host_packages:
+  - git
+  - jq
+  - nftables
+  - openssh-client
+  - python3-venv
+  - rsync
+  - tmux
+  - unzip
