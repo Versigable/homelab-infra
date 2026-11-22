@@ -43,6 +43,8 @@ services:
       # Directory bind-mount (see prometheus block for rationale).
       - ../config/alertmanager:/etc/alertmanager:ro
       - ../data/alertmanager:/alertmanager
+      # Secrets (Discord webhook, ntfy token) as 0400 files, written by deploy.sh.
+      - ../secrets/alertmanager:/run/secrets/alertmanager:ro
     ports:
       - "10.1.0.5:9093:9093"
     networks: [monitoring-net]
