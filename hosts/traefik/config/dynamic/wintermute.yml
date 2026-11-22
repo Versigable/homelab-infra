@@ -1,0 +1,33 @@
+http:
+  routers:
+    # Wintermute's browser terminal (vault: 1-Projects/wintermute): ttyd on LXC 120 attached to
+    # the agent's tmux session, so whoever gets in has a shell holding the agent's lab
+    # credentials. Two gates, both needed:
+    #   1. authentik-forward, with the Authentik provider "WintermuteForwardAuth" (forward_single
+    #      for this host only, bound to Firekube only). The outpost picks the provider by host.
+    #   2. wintermute-owner: the guest's own check of X-authentik-username against
+    #      agent_host_term_owners (role agent_host), so a host that ever fell back to the
+    #      domain-wide provider still lets nobody else in.
+    # The guest's firewall takes both ports from this host only.
+    wintermute-router:
+      rule: Host(`wintermute.ninjaprivacy.org`)
+      entryPoints: [websecure]
+      tls: {}
+      middlewares:
+        - authentik-forward
+        - wintermute-owner
+      service: wintermute-term
+
+  middlewares:
+    wintermute-owner:
+      forwardAuth:
+        address: "http://10.0.1.20:7682/"
+        authRequestHeaders:
+          - X-authentik-username
+
+  services:
+    wintermute-term:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://10.0.1.20:7681"

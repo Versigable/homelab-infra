@@ -15,3 +15,7 @@ agent_host_login_keys:
 # so it arrives as 192.168.77.x, not through WARP). Login is still key-only: the ansible user
 # takes the operators' keys, wintermute takes agent_host_login_keys.
 agent_host_ssh_from: [10.0.0.0/16, 192.168.77.0/24]
+
+# Authentik usernames allowed into the browser terminal (agent_host's owner check, after
+# Authentik's WintermuteForwardAuth provider). Firekube only.
+agent_host_term_owners: []

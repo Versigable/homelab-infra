@@ -29,6 +29,12 @@ agent_host_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-ia
 # takes X-Mansion's LAN (WARP users arrive from Traefik's and the cf-tunnel replicas' addresses,
 # all inside it). The studio network (10.77.0.0/16) is refused before anything else.
 agent_host_term_port: 7681
+# The owner check Traefik asks after Authentik (tasks/main.yml, agent-host-authz): only these
+# Authentik usernames get the browser terminal. Empty = nobody. It doesn't trust the outpost's
+# provider set-up alone: if this host ever fell back to the domain-wide provider, every
+# Authentik user would otherwise get a shell holding the agent's credentials.
+agent_host_authz_port: 7682
+agent_host_term_owners: []
 agent_host_term_from: [10.0.2.5]
 agent_host_ssh_from: [10.0.0.0/16]
 agent_host_deny_from: [10.77.0.0/16]

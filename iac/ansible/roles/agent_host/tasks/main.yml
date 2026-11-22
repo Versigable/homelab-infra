@@ -224,6 +224,62 @@
     state: started
     daemon_reload: true
 
+# --- The owner check (Traefik forwardAuth, after Authentik) ---------------------------------
+
+- name: The owner check's program
+  ansible.builtin.copy:
+    dest: /usr/local/bin/agent-host-authz
+    content: |
+      #!/usr/bin/python3 -I
+      # Managed by Ansible (role agent_host). Traefik's forwardAuth after Authentik: 204 only
+      # when X-authentik-username (set by the authentik-forward middleware) is an owner.
+      import http.server, json, sys
+      OWNERS = set(json.loads(sys.argv[2]))
+      class H(http.server.BaseHTTPRequestHandler):
+          def do_GET(self):
+              user = self.headers.get("X-authentik-username", "")
+              ok = bool(user) and user in OWNERS
+              self.send_response(204 if ok else 403)
+              self.end_headers()
+              self.log_message("%s %s", "allow" if ok else "deny", user or "-")
+          do_HEAD = do_GET
+      http.server.ThreadingHTTPServer(("0.0.0.0", int(sys.argv[1])), H).serve_forever()
+    mode: "0755"
+  notify: Restart agent-host-authz
+
+- name: The owner check's unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/agent-host-authz.service
+    content: |
+      # Managed by Ansible (role agent_host). Reached only by Traefik (firewall).
+      [Unit]
+      Description=Owner check for the browser terminal (Traefik forwardAuth)
+      After=network-online.target
+
+      [Service]
+      DynamicUser=yes
+      ExecStart=/usr/local/bin/agent-host-authz {{ agent_host_authz_port }} {{ agent_host_term_owners | to_json | quote }}
+      Restart=always
+      RestartSec=2
+      NoNewPrivileges=yes
+      ProtectSystem=strict
+      ProtectHome=yes
+      PrivateTmp=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart agent-host-authz
+
+- name: The owner check runs
+  ansible.builtin.systemd_service:
+    name: agent-host-authz
+    enabled: true
+    state: started
+    daemon_reload: true
+
 # --- Firewall -------------------------------------------------------------------------------
 
 - name: Firewall rules
