@@ -40,17 +40,14 @@ scrape_configs:
     metrics_path: /metrics
 
   # ============================================================
-  # Host-level node metrics (Phase 1.4 — phoenix + rogue)
+  # Host-level node metrics (phoenix, rogue, wolverine, jf, PGX)
   #
-  # Wolverine (10.1.0.2:9100) is intentionally NOT scraped here.
-  # node_exporter is installed on wolverine and listens on *:9100,
-  # but TCP from the monitoring LXC (10.1.0.5) to wolverine over
-  # vmbr1 is asymmetrically dropped — SYN goes out, SYN+ACK is
-  # generated but never reaches the LXC's eth0. ICMP works fine,
-  # cross-site (phoenix/rogue) works fine. Diagnosed but not yet
-  # rooted; see the wolverine-LXC-intra-lab feedback memory.
-  # Wolverine basic state IS visible via the pve-exporter job
-  # below (PVE API path, which goes through pfSense, not vmbr1).
+  # Wolverine (10.1.0.2) was left out from 2026-05 to 2026-11: TCP from
+  # this LXC to wolverine's own LAB IP stalled while ping worked. Cause
+  # (fixed 2026-11-21): wolverine's policy-routing table 100 held only
+  # `default via 10.1.0.1`, so the host's replies to LAB guests went to
+  # pfSense, which dropped them (no state). Table 100 now has an on-link
+  # 10.1.0.0/16 route on vmbr1. See infrastructure-overview, wolverine.
   # ============================================================
   - job_name: 'node'
     static_configs:
@@ -62,14 +59,17 @@ scrape_configs:
         labels:
           instance: rogue
           site: x-mansion
+      - targets: ['10.1.0.2:9100']
+        labels:
+          instance: wolverine
+          site: wolverine
       # jf (VM 108): prometheus-node-exporter from apt, like phoenix and rogue.
       - targets: ['10.0.1.8:9100']
         labels:
           instance: jf
           site: x-mansion
       # ThinkStation PGX (co-owned with Emilio and Dave; installed by hand from
-      # hosts/pgx/node-exporter/, no CI). Same LAB VLAN as this LXC, reached
-      # over wolverine-sw1, not vmbr1, so the TCP drop above doesn't apply.
+      # hosts/pgx/node-exporter/, no CI).
       # Besides host metrics it carries a textfile from pgx-metrics.sh: GB10
       # GPU (pgx_gpu_*) and vLLM's own counters (vllm:*, pgx_vllm_up).
       # Being in this job, it gets the host-health alerts too (MemoryHigh is
