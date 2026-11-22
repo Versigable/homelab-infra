@@ -48,3 +48,27 @@ agent_host_packages:
   - rsync
   - tmux
   - unzip
+
+# --- The vault (tasks/vault.yml): livesync-bridge keeps a folder in step with the brain's
+# CouchDB, headless (vault: 1-Projects/wintermute/notes/vault-sync). Off unless set per host.
+agent_host_vault_sync: false
+agent_host_vault_dir: "/home/{{ agent_host_user }}/homelab-brain"
+# The agent's memory folder in the vault; Claude Code's memory path links to it.
+agent_host_memory_slug: "{{ agent_host_user }}"
+# Deno, the release zip checked against its published .sha256sum (the bridge's Dockerfile pin).
+agent_host_deno_version: "2.9.7"
+agent_host_deno_sha256: c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490
+# The bridge has no releases: pinned to a commit, bumped by MR after a scratch-db test.
+agent_host_bridge_repo: https://github.com/vrtmrz/livesync-bridge.git
+agent_host_bridge_commit: 1c252305bbddcacd200b8560d3bb786afe0906e9
+# The vault's LiveSync settings (checked 2026-11-21 in the db's milestone): no E2EE, no path
+# obfuscation, case-insensitive names, default chunking.
+agent_host_couchdb_url: https://brain.ninjaprivacy.org
+agent_host_couchdb_db: homelab-brain
+agent_host_couchdb_user: "{{ agent_host_user }}"
+# From the control node's environment: labsecret run -e AGENT_HOST_COUCHDB_PASSWORD=<item> -- iac.sh ...
+# Without it, the guest's existing config is left as it is.
+agent_host_couchdb_password: "{{ lookup('ansible.builtin.env', 'AGENT_HOST_COUCHDB_PASSWORD') }}"
+# A local history of the vault, outside it (no dot folder inside the vault), committed daily,
+# so a bad sync can be undone. Never pushed anywhere.
+agent_host_vault_snapshots: "/home/{{ agent_host_user }}/vault-snapshots.git"

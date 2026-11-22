@@ -1,0 +1,236 @@
+# The vault, headless: livesync-bridge between agent_host_vault_dir and the brain's CouchDB,
+# plus a daily local snapshot. Deletions reach CouchDB only when the bridge sees a file removed
+# while it runs, never from a folder that is merely empty (checked in its source, 2026-11-21).
+
+- name: Deno's release zip, checked, on the control node
+  ansible.builtin.get_url:
+    url: "https://github.com/denoland/deno/releases/download/v{{ agent_host_deno_version }}/deno-x86_64-unknown-linux-gnu.zip"
+    dest: "{{ agent_host_cache }}/deno-{{ agent_host_deno_version }}.zip"
+    checksum: "sha256:{{ agent_host_deno_sha256 }}"
+    mode: "0600"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
+- name: Deno's folder
+  ansible.builtin.file:
+    path: "/opt/deno-{{ agent_host_deno_version }}"
+    state: directory
+    mode: "0755"
+
+- name: Deno
+  ansible.builtin.unarchive:
+    src: "{{ agent_host_cache }}/deno-{{ agent_host_deno_version }}.zip"
+    dest: "/opt/deno-{{ agent_host_deno_version }}"
+    creates: "/opt/deno-{{ agent_host_deno_version }}/deno"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: The bridge's code, pinned (root-owned)
+  ansible.builtin.git:
+    repo: "{{ agent_host_bridge_repo }}"
+    dest: "/opt/livesync-bridge/{{ agent_host_bridge_commit }}"
+    version: "{{ agent_host_bridge_commit }}"
+    depth: 50
+    force: false
+  notify: Restart agent-host-bridge
+
+# Deno's own folder: the npm packages from deno.lock, and location_data, where the bridge keeps
+# its resume positions (localStorage). The bridge user owns it.
+- name: The bridge's Deno folder
+  ansible.builtin.file:
+    path: /var/lib/agent-host-bridge/deno-dir
+    state: directory
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+    mode: "0700"
+
+- name: The bridge's packages, exactly as deno.lock records them
+  ansible.builtin.command:
+    cmd: "/opt/deno-{{ agent_host_deno_version }}/deno install --frozen"
+    chdir: "/opt/livesync-bridge/{{ agent_host_bridge_commit }}"
+    creates: "/opt/livesync-bridge/{{ agent_host_bridge_commit }}/node_modules"
+  environment:
+    DENO_DIR: /var/lib/agent-host-bridge/deno-dir
+    DENO_NO_UPDATE_CHECK: "1"
+
+- name: The bridge's Deno folder stays the bridge user's after the install
+  ansible.builtin.file:
+    path: /var/lib/agent-host-bridge/deno-dir
+    state: directory
+    recurse: true
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+
+- name: The vault folder
+  ansible.builtin.file:
+    path: "{{ agent_host_vault_dir }}"
+    state: directory
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+    mode: "0750"
+
+- name: The bridge's config folder
+  ansible.builtin.file:
+    path: /etc/agent-host-bridge
+    state: directory
+    owner: root
+    group: "{{ agent_host_user }}"
+    mode: "0750"
+
+# Holds the CouchDB password: written only when the control node passes one, else kept.
+- name: The bridge's config
+  ansible.builtin.copy:
+    dest: /etc/agent-host-bridge/config.json
+    content: "{{ agent_host_bridge_config | to_nice_json }}\n"
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+    mode: "0600"
+  no_log: true
+  when: agent_host_couchdb_password | length > 0
+  notify: Restart agent-host-bridge
+  vars:
+    agent_host_bridge_config:
+      peers:
+        - type: couchdb
+          name: brain
+          group: main
+          url: "{{ agent_host_couchdb_url }}"
+          database: "{{ agent_host_couchdb_db }}"
+          username: "{{ agent_host_couchdb_user }}"
+          password: "{{ agent_host_couchdb_password }}"
+          passphrase: ""
+          obfuscatePassphrase: ""
+          baseDir: ""
+          useRemoteTweaks: true
+          customChunkSize: 0
+          minimumChunkSize: 20
+        - type: storage
+          name: vault
+          group: main
+          baseDir: "{{ agent_host_vault_dir }}/"
+          scanOfflineChanges: true
+          useChokidar: false
+
+- name: The bridge has a config
+  ansible.builtin.stat:
+    path: /etc/agent-host-bridge/config.json
+  register: agent_host_bridge_config_file
+
+- name: The bridge's unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/agent-host-bridge.service
+    content: |
+      # Managed by Ansible (role agent_host). livesync-bridge: {{ agent_host_vault_dir }} <-> CouchDB {{ agent_host_couchdb_db }}.
+      [Unit]
+      Description=Vault sync (livesync-bridge) for {{ agent_host_user }}
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User={{ agent_host_user }}
+      Group={{ agent_host_user }}
+      WorkingDirectory=/opt/livesync-bridge/{{ agent_host_bridge_commit }}
+      Environment=DENO_DIR=/var/lib/agent-host-bridge/deno-dir DENO_NO_UPDATE_CHECK=1
+      Environment=LSB_CONFIG=/etc/agent-host-bridge/config.json LSB_HEALTH_FILE=/run/agent-host-bridge/health.json
+      RuntimeDirectory=agent-host-bridge
+      ExecStart=/opt/deno-{{ agent_host_deno_version }}/deno run -A main.ts
+      Restart=always
+      RestartSec=10
+      NoNewPrivileges=yes
+      ProtectSystem=strict
+      ReadWritePaths={{ agent_host_vault_dir }} /var/lib/agent-host-bridge
+      PrivateTmp=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart agent-host-bridge
+
+- name: The bridge runs
+  ansible.builtin.systemd_service:
+    name: agent-host-bridge
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: agent_host_bridge_config_file.stat.exists
+
+# --- Daily snapshot, outside the vault -------------------------------------------------------
+
+- name: The snapshot script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/agent-host-vault-snapshot
+    content: |
+      #!/bin/bash
+      # Managed by Ansible (role agent_host). Commits the vault's state to a local git history
+      # kept outside the vault. Restore a file: git --git-dir=... show <rev>:<path>
+      set -euo pipefail
+      G=(git --git-dir={{ agent_host_vault_snapshots | quote }} --work-tree={{ agent_host_vault_dir | quote }})
+      if [ ! -d {{ agent_host_vault_snapshots | quote }} ]; then
+        "${G[@]}" init -q
+        "${G[@]}" config user.name "vault snapshot"
+        "${G[@]}" config user.email "snapshot@{{ inventory_hostname }}"
+      fi
+      "${G[@]}" add -A
+      "${G[@]}" diff --cached --quiet || "${G[@]}" commit -qm "snapshot $(date -u +%FT%TZ)"
+    mode: "0755"
+
+- name: The snapshot's units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: agent-host-vault-snapshot.service
+      content: |
+        # Managed by Ansible (role agent_host).
+        [Unit]
+        Description=Daily local snapshot of the vault
+        [Service]
+        Type=oneshot
+        User={{ agent_host_user }}
+        ExecStart=/usr/local/bin/agent-host-vault-snapshot
+    - name: agent-host-vault-snapshot.timer
+      content: |
+        # Managed by Ansible (role agent_host).
+        [Unit]
+        Description=Daily local snapshot of the vault
+        [Timer]
+        OnCalendar=*-*-* 03:30
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload systemd
+
+- name: The snapshot timer runs
+  ansible.builtin.systemd_service:
+    name: agent-host-vault-snapshot.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- Claude Code's memory lives in the vault -------------------------------------------------
+
+- name: Claude Code's project folder for the vault
+  ansible.builtin.file:
+    path: "/home/{{ agent_host_user }}/.claude/projects/{{ agent_host_vault_dir | replace('/', '-') }}"
+    state: directory
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
+    mode: "0700"
+
+- name: Claude Code's memory path points at the agent's memory folder in the vault
+  ansible.builtin.file:
+    src: "{{ agent_host_vault_dir }}/agent-memory/{{ agent_host_memory_slug }}"
+    dest: "/home/{{ agent_host_user }}/.claude/projects/{{ agent_host_vault_dir | replace('/', '-') }}/memory"
+    state: link
+    force: true
+    follow: false
+    owner: "{{ agent_host_user }}"
+    group: "{{ agent_host_user }}"
