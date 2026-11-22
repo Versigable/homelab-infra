@@ -5,7 +5,7 @@ pve_cluster_admin_node: phoenix
 
 # Every IaC principal gets the same rights (privilege-separated tokens need the user's too).
 pve_iac_users: ["iac@pve"]
-pve_iac_tokens: ["iac@pve!infra", "iac@pve!infra-fk"]
+pve_iac_tokens: ["iac@pve!infra", "iac@pve!wintermute"]
 
 # The game studio's network (vault: 1-Projects/game-studio-platform/design/architecture).
 # Its own zone, not the April "stretch" zone: phoenix and rogue only (wolverine never carries

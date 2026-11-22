@@ -1,0 +1,14 @@
+# Hosts that get named agent logins (playbooks/agent-logins.yml). phoenix and rogue come from
+# nodes.yml; jf, PBS and the Traefik VM aren't built by Terraform and are listed only here.
+# wolverine is left out: MetaVersig's node, MetaVersig decides.
+agent_login_hosts:
+  hosts:
+    phoenix:
+    rogue:
+    jf:
+      ansible_host: 10.0.1.8
+    pbs:
+      ansible_host: 10.0.4.1
+    traefik:
+      ansible_host: 10.0.2.5
+      ansible_port: 2022

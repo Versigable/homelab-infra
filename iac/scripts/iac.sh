@@ -30,6 +30,9 @@ IAC_SITE=${IAC_SITE:-xmansion}
 IAC_VENV=${IAC_VENV:-$HOME/.venvs/lab}
 GITLAB_TOKEN_FILE=${GITLAB_TOKEN_FILE:-}
 PVE_TOKEN_FILE=${PVE_TOKEN_FILE:-$IAC_CONF/pve-token}
+# Optional per-control-node settings, e.g. `export IAC_NODE_USER=wintermute` (nodes.yml).
+# shellcheck disable=SC1091
+[[ -r "$IAC_CONF/local.env" ]] && . "$IAC_CONF/local.env"
 export PATH="$HOME/.local/bin:$IAC_VENV/bin:$PATH"
 
 die() { echo "iac.sh: $*" >&2; exit 1; }

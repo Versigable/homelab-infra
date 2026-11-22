@@ -1,0 +1,8 @@
+# Same login as the Proxmox nodes: the shared account by default, or this control node's own
+# agent login (IAC_NODE_USER in ~/.config/homelab-iac/local.env).
+ansible_user: "{{ lookup('ansible.builtin.env', 'IAC_NODE_USER') | default('claude-agent', true) }}"
+ansible_ssh_private_key_file: ~/.ssh/claude-agent
+
+agent_login_users:
+  - name: wintermute
+    comment: "Wintermute (Firekube's Claude Code)"
