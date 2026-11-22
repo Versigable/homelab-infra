@@ -13,8 +13,11 @@
 #
 # Writes:
 #   lab_guest_connections{guest,vmid,port,peer}  established client connections
+#       guest: LXC name; "host" for the Proxmox node itself; on a VM, the VM's
+#              own short hostname (it is the service, e.g. jf)
 #       peer: traefik (10.0.2.5, proxied web), docker (172.16/12, app-internal,
-#             e.g. app <-> its database), lan (anything else)
+#             e.g. app <-> its database), lan (10/8, 192.168/16), internet (the
+#             rest, e.g. torrent peers; game and web users arrive via traefik)
 #   lab_host_logins                              interactive logins (who), agents and
 #                                                ansible left out
 #   lab_activity_textfile_last_run_timestamp_seconds
@@ -28,7 +31,9 @@ MONITORING_IP=10.1.0.5
 
 # vmid -> name (Proxmox nodes only)
 declare -A NAME=()
+HOSTGUEST=$(hostname -s)
 if command -v pct >/dev/null; then
+  HOSTGUEST=host
   while read -r id _ _ name; do NAME[$id]=$name; done < <(pct list 2>/dev/null | awk 'NR>1 {print $1, $2, $3, $NF}')
 fi
 
@@ -44,7 +49,8 @@ count_conns() {
         peer = $4; sub(/:[0-9]+$/, "", peer); gsub(/^\[|\]$/, "", peer); sub(/^::ffff:/, "", peer)
         if (!index(L, " " p " ") || p == "9100") next
         if (peer ~ /^127\./ || peer == "::1" || peer == mon) next
-        cls = (peer == "10.0.2.5") ? "traefik" : (peer ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) ? "docker" : "lan"
+        cls = (peer == "10.0.2.5") ? "traefik" : (peer ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) ? "docker" \
+            : (peer ~ /^(10\.|192\.168\.)/) ? "lan" : "internet"
         print id, p, cls
       }'
   done | sort | uniq -c
@@ -56,7 +62,7 @@ trap 'rm -f "$tmp"' EXIT
   echo "# HELP lab_guest_connections Established client connections to a listening port."
   echo "# TYPE lab_guest_connections gauge"
   while read -r n vmid port peer; do
-    if [[ $vmid == 0 ]]; then guest=host; else guest=${NAME[$vmid]:-ct$vmid}; fi
+    if [[ $vmid == 0 ]]; then guest=$HOSTGUEST; else guest=${NAME[$vmid]:-ct$vmid}; fi
     printf 'lab_guest_connections{guest="%s",vmid="%s",port="%s",peer="%s"} %d\n' "$guest" "$vmid" "$port" "$peer" "$n"
   done < <(count_conns)
   echo "# HELP lab_host_logins Interactive logins on this host (agents and ansible left out)."

@@ -528,7 +528,7 @@
         "w": 12,
         "h": 9
       },
-      "description": "Open connections into each LXC (and the Docker containers in it), counted on the Proxmox host every minute. App-internal traffic (app to its own database) is left out. traefik = proxied web clients (Traefik keeps some open itself); lan = direct, e.g. GitLab runners, game clients over TCP.",
+      "description": "Open connections into each LXC (and the Docker containers in it), counted on the Proxmox host every minute. App-internal traffic (app to its own database) and internet peers (torrents) are left out. traefik = proxied web clients (Traefik keeps some open itself); lan = direct, e.g. GitLab runners, game clients over TCP.",
       "targets": [
         {
           "refId": "A",
@@ -536,7 +536,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sort_desc(sum by (guest, peer) (lab_guest_connections{peer!=\"docker\",guest!=\"host\"}))",
+          "expr": "sort_desc(sum by (guest, peer) (lab_guest_connections{peer=~\"traefik|lan\",guest!=\"host\"}))",
           "legendFormat": "{{guest}} ({{peer}})",
           "instant": true
         }
@@ -689,7 +689,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (guest) (lab_guest_connections{peer!=\"docker\",guest!=\"host\"})",
+          "expr": "sum by (guest) (lab_guest_connections{peer=~\"traefik|lan\",guest!=\"host\"})",
           "legendFormat": "{{guest}}",
           "range": true
         }
