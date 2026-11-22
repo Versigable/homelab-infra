@@ -103,7 +103,7 @@ any other guest, and it reaches the studio through studio-gw like a control node
 ## Control node setup (once per operator)
 
 - terraform ≥ 1.9 and an Ansible venv (`ansible-galaxy collection install -r ansible/requirements.yml`)
-- `~/.config/homelab-iac/pve-token` (0600): `iac@pve!<token>=<secret>` (one token per control node: `infra` on MetaVersig's WSL, `infra-fk` on fk-claude, same ACLs)
+- `~/.config/homelab-iac/pve-token` (0600): `iac@pve!<token>=<secret>` (one token per control node: `infra` on MetaVersig's WSL, `wintermute` for Wintermute on fk-claude and LXC 120, same ACLs; `infra-fk` was revoked 2026-11-22)
 - `~/.config/homelab-iac/state.env`: `GITLAB_URL=http://10.0.1.13:8081` and `IAC_STATE_PROJECT=<id>`
 - `GITLAB_TOKEN_FILE` pointing at an env file with `GITLAB_TOKEN_IACSTATE=...` (and runner tokens)
 - your own guest key (its `.pub` committed in `iac/keys`, then `site.yml` run once by an operator who already has access) and `~/.ssh/claude-agent` (the nodes' key)

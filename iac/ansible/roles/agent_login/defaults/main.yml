@@ -1,0 +1,8 @@
+# Named logins for AI agents on hosts they administer, so each agent's actions show up under
+# its own name instead of the shared claude-agent account. One entry per agent:
+#   name:    the Linux user (also the key directory iac/keys/agents/<name>/)
+#   comment: GECOS
+# Every *.pub in iac/keys/agents/<name>/ is accepted (exclusive), and the user gets
+# passwordless sudo from /etc/sudoers.d/<name>. The password stays locked: key login only.
+agent_login_users: []
+agent_login_keys_dir: "{{ role_path }}/../../../keys/agents"

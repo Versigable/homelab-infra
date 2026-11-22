@@ -1,0 +1,8 @@
+# Named agent logins (role agent_login) on the Proxmox nodes and the hand-built hosts agents
+# administer. Run by hand from a control node: iac.sh play agent-logins.yml
+# Not part of site.yml: CI runners can't reach jf, PBS or the Traefik VM.
+- name: Agent logins
+  hosts: agent_login_hosts
+  become: true
+  roles:
+    - agent_login

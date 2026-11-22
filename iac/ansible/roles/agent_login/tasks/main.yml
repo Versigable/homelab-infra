@@ -1,0 +1,45 @@
+- name: Agent users
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    comment: "{{ item.comment }}"
+    shell: /bin/bash
+    create_home: true
+    password: "!"
+    update_password: on_create
+  loop: "{{ agent_login_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# An agent with no key files would end up with an empty authorized_keys; stop instead.
+- name: Every agent has at least one key file
+  ansible.builtin.assert:
+    that: query('ansible.builtin.fileglob', agent_login_keys_dir ~ '/' ~ item.name ~ '/*.pub') | length > 0
+    fail_msg: "No *.pub files in {{ agent_login_keys_dir }}/{{ item.name }}"
+    quiet: true
+  loop: "{{ agent_login_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Agent users' keys (exactly the files in iac/keys/agents/<name>/)
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    path: "/home/{{ item.name }}/.ssh/authorized_keys"
+    key: "{% for f in agent_login_key_files %}{{ lookup('ansible.builtin.file', f) }}\n{% endfor %}"
+    exclusive: true
+  vars:
+    agent_login_key_files: "{{ query('ansible.builtin.fileglob', agent_login_keys_dir ~ '/' ~ item.name ~ '/*.pub') | sort }}"
+  loop: "{{ agent_login_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Agent users can sudo without a password
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ item.name }}"
+    content: "{{ item.name }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  loop: "{{ agent_login_users }}"
+  loop_control:
+    label: "{{ item.name }}"
