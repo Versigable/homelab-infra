@@ -1,0 +1,16 @@
+apiVersion: 1
+
+# Dashboards kept in the repo (JSON next to this file). The compose mounts
+# provisioning/ at /etc/grafana/provisioning, so they're read from there.
+# allowUiUpdates: false -> edit the JSON here, not in the UI. Dashboards
+# made in the UI (in Grafana's database) are untouched.
+providers:
+  - name: repo
+    folder: Lab
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

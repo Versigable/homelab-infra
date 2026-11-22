@@ -135,6 +135,42 @@ scrape_configs:
           site: x-mansion
 
   # ============================================================
+  # Lab activity (counts only; vault 1-Projects/lab-activity-monitoring)
+  # ============================================================
+  # Game players via the lab-activity exporter's live status queries. Every
+  # server is probed in parallel with a 2 s timeout, so a scrape takes ~4 s.
+  - job_name: 'lab-activity'
+    scrape_interval: 60s
+    scrape_timeout: 15s
+    static_configs:
+      - targets: ['lab-activity:9469']
+
+  # cloudflared connectors: requests through each tunnel and requests in
+  # flight. org + us run on cf-tunnel-1 (117) and -2 (118); the wolverine
+  # breakglass tunnel on 305. See hosts/cf-tunnel.
+  - job_name: 'cloudflared'
+    static_configs:
+      - targets: ['10.0.1.17:20241', '10.0.1.18:20241']
+        labels: {tunnel: org}
+      - targets: ['10.0.1.17:20242', '10.0.1.18:20242']
+        labels: {tunnel: us}
+      - targets: ['10.1.0.15:20243']
+        labels: {tunnel: wolverine}
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '10\.0\.1\.17:.*'
+        target_label: instance
+        replacement: cf-tunnel-1
+      - source_labels: [__address__]
+        regex: '10\.0\.1\.18:.*'
+        target_label: instance
+        replacement: cf-tunnel-2
+      - source_labels: [__address__]
+        regex: '10\.1\.0\.15:.*'
+        target_label: instance
+        replacement: cf-tunnel-wolverine
+
+  # ============================================================
   # Proxmox VE cluster metrics via pve-exporter (Phase 1.5)
   # Cluster query: target each PVE node; results flow through the
   # pve-exporter container and are labeled with the queried node.

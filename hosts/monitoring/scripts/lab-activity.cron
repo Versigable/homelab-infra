@@ -1,0 +1,5 @@
+# Lab activity counts (connections, logins) for node_exporter's textfile collector.
+# Install: /usr/local/bin/lab-activity-textfile.sh + this file as /etc/cron.d/lab-activity
+# on phoenix, rogue, wolverine and jf. Vault: 1-Projects/lab-activity-monitoring.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root /usr/local/bin/lab-activity-textfile.sh >/dev/null 2>>/var/log/lab-activity.err

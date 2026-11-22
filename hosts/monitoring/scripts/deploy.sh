@@ -99,6 +99,7 @@ sync_compose() {
 }
 
 # -------- Sync static configs (prometheus.yml + alert rules) --------
+GRAFANA_RESTART=0
 sync_static_configs() {
   log_info "Syncing static configs"
   sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/prometheus"
@@ -117,6 +118,15 @@ sync_static_configs() {
   shopt -u nullglob
 
   # ---- Grafana provisioning (datasources, dashboards) ----
+  # lab-activity exporter: script + server list
+  sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/lab-activity"
+  shopt -s nullglob
+  for f in "${REPO_CONFIG_DIR}/lab-activity/"*.{py,json}; do
+    sudo /usr/bin/install -m 0644 -o root -g root "$f" \
+      "${LIVE_CONFIG_DIR}/lab-activity/$(basename "$f")"
+  done
+  shopt -u nullglob
+
   if [[ -d "${REPO_CONFIG_DIR}/grafana/provisioning" ]]; then
     log_info "Syncing grafana provisioning"
     sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/grafana"
@@ -126,6 +136,11 @@ sync_static_configs() {
         sudo /usr/bin/install -d -m 0755 -o root -g root "${LIVE_CONFIG_DIR}/grafana/provisioning/${subdir}"
         shopt -s nullglob
         for f in "${REPO_CONFIG_DIR}/grafana/provisioning/${subdir}"/*.{yaml,yml,json}; do
+          # Grafana reads provider/datasource YAML only at startup (dashboard JSON is
+          # rescanned every minute), so a changed YAML means a Grafana restart.
+          if [[ "$f" == *.y*ml ]] && ! cmp -s "$f" "${LIVE_CONFIG_DIR}/grafana/provisioning/${subdir}/$(basename "$f")"; then
+            GRAFANA_RESTART=1
+          fi
           sudo /usr/bin/install -m 0644 -o root -g root "$f" \
             "${LIVE_CONFIG_DIR}/grafana/provisioning/${subdir}/$(basename "$f")"
         done
@@ -237,5 +252,10 @@ compose_up
 log_info "Post-deploy SIGHUP reload"
 reload_via_sighup prometheus
 reload_via_sighup alertmanager
+if [[ "${GRAFANA_RESTART:-0}" == 1 ]]; then
+  sudo /usr/bin/docker restart grafana >/dev/null && log_success "  ✓ grafana restarted (provisioning YAML changed)"
+fi
+# lab-activity has no reload; it's stateless, so a restart picks up script edits.
+sudo /usr/bin/docker restart lab-activity >/dev/null && log_success "  ✓ lab-activity restarted"
 
 log_success "🎉 Monitoring stack deployed successfully"

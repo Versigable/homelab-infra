@@ -107,6 +107,21 @@ services:
     networks: [monitoring-net]
     logging: *logging
 
+  # Lab activity (counts only): game players now, via live status queries.
+  # Script + server list in ../config/lab-activity (stdlib Python, no build).
+  # deploy.sh restarts it after syncing, so a script edit takes effect.
+  # Vault: 1-Projects/lab-activity-monitoring.
+  lab-activity:
+    image: python:3.13.13-alpine3.23
+    container_name: lab-activity
+    restart: unless-stopped
+    user: "65534:65534"
+    command: ["python", "/app/exporter.py"]
+    volumes:
+      - ../config/lab-activity:/app:ro
+    networks: [monitoring-net]
+    logging: *logging
+
   # External heartbeat sidecar — the "monitor of last resort". See
   # 5-Decisions/2026-05-02_monitoring-stack-shape for the rationale.
   #
