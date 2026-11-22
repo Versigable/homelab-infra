@@ -6,7 +6,7 @@ locals {
   # Every Terraform-managed LXC on wolverine. Same fields as terraform/xmansion; `iac.sh
   # inventory` (IAC_SITE=wolverine) writes them to ansible/inventory/guests-wolverine.yml.
   # VMIDs are cluster-wide; wolverine's guests use the 30x series (300 pfSense, 301 openclaw,
-  # 302 monitoring).
+  # 302 monitoring, 305 cf-tunnel-wolverine).
   # mac_address: required here. Both control nodes reach these guests through pfSense, so a
   # rebuild has to keep the MAC (see modules/lxc, variable mac_address). Pick one in Proxmox's
   # BC:24:11 range that no other guest uses.
@@ -44,6 +44,24 @@ locals {
       tags        = ["game-servers"]
       groups      = ["docker_hosts", "game_hosts"]
       description = "Public game servers (Enshrouded first), forwarded by pfSense VM 300. App: homelab-infra hosts/wolverine-games (GitOps). Vault: 1-Projects/enshrouded-server."
+    }
+
+    # Wolverine's own cloudflared tunnel, ninjaprivacy_wolverine: the Proxmox breakglass
+    # name proxmox-wolverine.ninjaprivacy.us, so wolverine's UI stays reachable when
+    # X-Mansion, Traefik or the site-to-site WireGuard is down. Its own tunnel, not a replica
+    # of the X-Mansion ones: a replica here would carry their hostnames over WireGuard.
+    # Same size and layout as cf-tunnel-1/-2 (terraform/xmansion).
+    "cf-tunnel-wolverine" = {
+      vmid        = 305
+      ip          = "10.1.0.15"
+      mac_address = "BC:24:11:5E:3C:A7"
+      cores       = 1
+      memory      = 512
+      swap        = 256
+      disk        = 8
+      tags        = ["cloudflared"]
+      groups      = ["docker_hosts", "cf_tunnel"]
+      description = "cloudflared for ninjaprivacy_wolverine (Proxmox breakglass for wolverine). App: homelab-infra hosts/cf-tunnel (GitOps). Vault: 1-Projects/tunnel-redundancy."
     }
   }
 }
