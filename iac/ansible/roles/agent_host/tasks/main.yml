@@ -165,7 +165,11 @@
 # `claude remote-control` waits for "new session" from the app and starts each one as its own
 # Claude in the vault folder (--spawn same-dir). Those chats live inside this process, not in
 # tmux: reach them from the app, or later with `claude --resume`. In its own tmux session
-# ({{ agent_host_session }}-rc) so its status and prompts can be seen and answered from SSH.
+# ({{ agent_host_session }}-rc) so its status and prompts can be seen and answered from SSH:
+#   tmux -L {{ agent_host_session }}-rc attach
+# It has its own tmux server (-L): on the default socket the session would be created inside
+# agent-host-claude's tmux server, this unit would see its process exit at once, and its
+# ExecStop would kill the new session (found 2026-11-22, right after !273).
 # --no-create-session-in-dir: the main session above is already the "somewhere to type".
 - name: The Remote Control server's loop
   ansible.builtin.copy:
@@ -201,8 +205,8 @@
       Group={{ agent_host_user }}
       WorkingDirectory=/home/{{ agent_host_user }}
       Environment=HOME=/home/{{ agent_host_user }} TERM=xterm-256color LANG=C.UTF-8
-      ExecStart=/usr/bin/tmux new-session -d -s {{ agent_host_session }}-rc /usr/local/bin/agent-host-rc-server
-      ExecStop=/usr/bin/tmux kill-session -t {{ agent_host_session }}-rc
+      ExecStart=/usr/bin/tmux -L {{ agent_host_session }}-rc new-session -d -s {{ agent_host_session }}-rc /usr/local/bin/agent-host-rc-server
+      ExecStop=/usr/bin/tmux -L {{ agent_host_session }}-rc kill-session -t {{ agent_host_session }}-rc
       Restart=on-failure
       RestartSec=10
 
