@@ -7,5 +7,6 @@ agent_host_user: wintermute
 agent_host_session: wintermute
 agent_host_rc_name: Wintermute
 # Keys that may log in as the agent user (and so attach to its tmux session). Firekube's own
-# key goes here once he sends the .pub; until then he uses the browser terminal or Remote Control.
-agent_host_login_keys: []
+# key (Bitwarden "[pubkey] Firekube · ssh", the same key jf accepts for him).
+agent_host_login_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFLWlBZkFzikUXvgP6lQkEyuF5Cc5bY6TLCMIQPsZt9t pm"
