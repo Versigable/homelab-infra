@@ -76,6 +76,19 @@ grep -qE '^[A-Za-z_][A-Za-z0-9_]*=' "${TMP_ENV}" \
 # left out of the hash, so editing only those doesn't cause that.
 echo "TRAEFIK_STATIC_SHA=$(grep -vE '^[[:space:]]*(#|$)' "${REPO_CFG_DIR}/static/traefik.yml" | sha256sum | cut -d' ' -f1)" >> "${TMP_ENV}"
 
+# who (who.ninjaprivacy.org): its own env file, so neither its secrets nor its code
+# hash touch traefik1's .env. Log dir for Traefik's minimal access log (read-only
+# for who); created now so the mount exists before the access log is turned on.
+WHO_SOPS="${REPO_DIR}/hosts/traefik/secrets/who.env.sops"
+[[ -f "${WHO_SOPS}" ]] || die "missing encrypted env: ${WHO_SOPS}"
+WHO_TMP="$(mktemp)"
+trap 'rm -f "${TMP_ENV}" "${WHO_TMP}"' EXIT
+sops -d --input-type dotenv --output-type dotenv "${WHO_SOPS}" > "${WHO_TMP}"
+grep -qE '^AUTHENTIK_TOKEN=' "${WHO_TMP}" || die "decrypted who env empty/invalid"
+echo "WHO_CODE_SHA=$(cat "${REPO_CFG_DIR}/who/"* | sha256sum | cut -d' ' -f1)" >> "${WHO_TMP}"
+sudo /usr/bin/install -m 0600 -o root -g root "${WHO_TMP}" "${LIVE_STACK_DIR}/who.env"
+sudo /usr/bin/install -d -m 0755 -o root -g root "$(dirname "${LIVE_STACK_DIR}")/data/traefik-logs"
+
 log "Installing live env: ${LIVE_ENV_FILE}"
 sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"
 
