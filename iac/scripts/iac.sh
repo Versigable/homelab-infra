@@ -10,7 +10,8 @@
 #   iac.sh bootstrap <guest>      first contact with a new guest (as root, once)
 #
 # Secrets are read from files and only ever exported into the tool's environment:
-#   $IAC_CONF/pve-token    iac@pve!infra=<secret>                      (0600)
+#   $PVE_TOKEN_FILE        iac@pve!infra=<secret>                      (0600)
+#                          default $IAC_CONF/pve-token; e.g. a labsecret -f temp file
 #   $GITLAB_TOKEN_FILE     env file with GITLAB_TOKEN_IACSTATE (Maintainer on the
 #                          state project), any GITLAB_RUNNER_TOKEN_<GUEST>, and any
 #                          GITLAB_TOKEN_STUDIO_AGENT_<OWNER> (a studio cell's agent account),
@@ -28,6 +29,7 @@ IAC_CONF=${IAC_CONF:-$HOME/.config/homelab-iac}
 IAC_SITE=${IAC_SITE:-xmansion}
 IAC_VENV=${IAC_VENV:-$HOME/.venvs/lab}
 GITLAB_TOKEN_FILE=${GITLAB_TOKEN_FILE:-}
+PVE_TOKEN_FILE=${PVE_TOKEN_FILE:-$IAC_CONF/pve-token}
 export PATH="$HOME/.local/bin:$IAC_VENV/bin:$PATH"
 
 die() { echo "iac.sh: $*" >&2; exit 1; }
@@ -38,13 +40,13 @@ token_from_file() {
 }
 
 tf_env() {
-  [[ -r "$IAC_CONF/pve-token" ]] || die "missing $IAC_CONF/pve-token"
+  [[ -r "$PVE_TOKEN_FILE" ]] || die "missing $PVE_TOKEN_FILE"
   [[ -r "$IAC_CONF/state.env" ]] || die "missing $IAC_CONF/state.env"
   # shellcheck disable=SC1091
   . "$IAC_CONF/state.env"
   : "${GITLAB_URL:?state.env must set GITLAB_URL}" "${IAC_STATE_PROJECT:?state.env must set IAC_STATE_PROJECT}"
 
-  PROXMOX_VE_API_TOKEN=$(cat "$IAC_CONF/pve-token")
+  PROXMOX_VE_API_TOKEN=$(cat "$PVE_TOKEN_FILE")
   export PROXMOX_VE_API_TOKEN
 
   local state_token user address
