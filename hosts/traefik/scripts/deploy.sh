@@ -88,6 +88,7 @@ grep -qE '^AUTHENTIK_TOKEN=' "${WHO_TMP}" || die "decrypted who env empty/invali
 echo "WHO_CODE_SHA=$(cat "${REPO_CFG_DIR}/who/"* | sha256sum | cut -d' ' -f1)" >> "${WHO_TMP}"
 sudo /usr/bin/install -m 0600 -o root -g root "${WHO_TMP}" "${LIVE_STACK_DIR}/who.env"
 sudo /usr/bin/install -d -m 0755 -o root -g root "$(dirname "${LIVE_STACK_DIR}")/data/traefik-logs"
+sudo /usr/bin/install -m 0644 -o root -g root "${REPO_DIR}/hosts/traefik/scripts/traefik-access.logrotate" /etc/logrotate.d/traefik-access
 
 log "Installing live env: ${LIVE_ENV_FILE}"
 sudo /usr/bin/install -m 0600 -o root -g root "${TMP_ENV}" "${LIVE_ENV_FILE}"

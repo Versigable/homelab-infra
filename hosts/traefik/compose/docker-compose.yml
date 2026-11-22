@@ -61,6 +61,8 @@ services:
       - ../config/dynamic:/etc/traefik/dynamic:ro
       - ../config/static/traefik.yml:/etc/traefik/traefik.yml:ro
       - ../data/acme:/etc/traefik/acme
+      # Minimal access log (static accessLog); read-only by the who container.
+      - ../data/traefik-logs:/var/log/traefik
     env_file:
       - ./.env
     networks:

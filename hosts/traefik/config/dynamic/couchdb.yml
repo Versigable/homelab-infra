@@ -17,6 +17,9 @@ http:
         - websecure
       tls: {}
       priority: 1
+      # Constant background traffic: kept out of the access log (who page).
+      observability:
+        accessLogs: false
 
   services:
     couchdb-svc:

@@ -72,6 +72,28 @@ serversTransport:
 log:
   level: ERROR
 
+# Minimal access log for who.ninjaprivacy.org (vault 1-Projects/lab-activity-monitoring):
+# time, site, router and the Authentik username, nothing else. No paths, no
+# client IPs, no other headers. The username header is only set on routers
+# using authentik-forward, and who.py trusts it only from those routers.
+# Rotated daily, 7 days kept (/etc/logrotate.d/traefik-access, from deploy.sh).
+# gitlab and couchdb-api (runners, LiveSync: constant background) opt out per
+# router with observability.accessLogs: false.
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+  bufferingSize: 20
+  fields:
+    defaultMode: drop
+    names:
+      StartUTC: keep
+      RequestHost: keep
+      RouterName: keep
+    headers:
+      defaultMode: drop
+      names:
+        X-Authentik-Username: keep
+
 api:
   dashboard: true
 
