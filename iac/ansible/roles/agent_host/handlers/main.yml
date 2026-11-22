@@ -12,6 +12,13 @@
     name: agent-host-authz
     state: restarted
 
+# The bridge picks up from its saved positions, so a restart is safe. Not before it has a config.
+- name: Restart agent-host-bridge
+  ansible.builtin.systemd_service:
+    name: agent-host-bridge
+    state: restarted
+  when: agent_host_bridge_config_file.stat.exists | default(false)
+
 - name: Restart agent-host-term
   ansible.builtin.systemd_service:
     name: agent-host-term

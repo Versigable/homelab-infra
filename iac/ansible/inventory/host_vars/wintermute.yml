@@ -19,3 +19,9 @@ agent_host_ssh_from: [10.0.0.0/16, 192.168.77.0/24]
 # Authentik usernames allowed into the browser terminal (agent_host's owner check, after
 # Authentik's WintermuteForwardAuth provider). Firekube only.
 agent_host_term_owners: [firekube]
+
+# The vault on this guest (role agent_host, tasks/vault.yml), synced with livesync-bridge as the
+# CouchDB user wintermute. Apply with the password from Bitwarden:
+#   labsecret run -e AGENT_HOST_COUCHDB_PASSWORD="[token] CouchDB (brain) · wintermute" -f PVE_TOKEN_FILE=... -- iac.sh play site.yml --limit wintermute
+agent_host_vault_sync: true
+agent_host_memory_slug: wintermute

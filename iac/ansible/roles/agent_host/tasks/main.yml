@@ -280,6 +280,12 @@
     state: started
     daemon_reload: true
 
+# --- The vault --------------------------------------------------------------------------------
+
+- name: The vault (livesync-bridge, snapshots, Claude's memory path)
+  ansible.builtin.import_tasks: vault.yml
+  when: agent_host_vault_sync | bool
+
 # --- Firewall -------------------------------------------------------------------------------
 
 - name: Firewall rules
