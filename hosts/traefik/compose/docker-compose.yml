@@ -83,8 +83,8 @@ services:
       - ../data/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
       - ../data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/etc/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
       - ../data/cloudflared/creds/37111c6c-064b-4381-9065-9313b50dffb3.json:/root/.cloudflared/37111c6c-064b-4381-9065-9313b50dffb3.json:ro
-      - ../data/cloudflared/creds/cert.pem:/etc/cloudflared/cert.pem:ro
-      - ../data/cloudflared/creds/cert.pem:/root/.cloudflared/cert.pem:ro
+      # No cert.pem: `tunnel run` needs only the creds JSON. The account-wide origin
+      # cert lives in Bitwarden (Lab: admin) for tunnel create/route (2026-11-21).
     networks:
       - traefik-net1
 
