@@ -25,3 +25,8 @@ agent_host_term_owners: [firekube]
 #   labsecret run -e AGENT_HOST_COUCHDB_PASSWORD="[token] CouchDB (brain) · wintermute" -f PVE_TOKEN_FILE=... -- iac.sh play site.yml --limit wintermute
 agent_host_vault_sync: true
 agent_host_memory_slug: wintermute
+
+# The bw CLI and labsecret talk to Bitwarden on LXC 101 directly (pinned self-signed cert), as
+# on fk-claude; the public name goes through Cloudflare instead.
+agent_host_extra_hosts:
+  - "10.0.1.3 bitwarden.ninjaprivacy.org  # bw CLI direct to LXC 101 (agent-secrets-bitwarden)"
