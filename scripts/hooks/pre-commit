@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# gitleaks pre-commit hook: blocks a commit whose staged changes contain a secret.
+# Install once per clone:  ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+# Needs gitleaks v8.30+ on PATH. Findings are redacted, so the secret is not printed.
+# Skip in an emergency with `git commit --no-verify` (and tell the other operator).
+set -euo pipefail
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not installed, secret scan skipped" >&2
+  exit 0
+fi
+root=$(git rev-parse --show-toplevel)
+exec gitleaks git --pre-commit --staged --redact --no-banner --log-level warn \
+  --config "$root/.gitleaks.toml" "$root"
