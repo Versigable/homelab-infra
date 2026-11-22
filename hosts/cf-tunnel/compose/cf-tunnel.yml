@@ -1,6 +1,6 @@
 # cf-tunnel: cloudflared replicas on LXC 117 cf-tunnel-1 (phoenix) and LXC 118
 # cf-tunnel-2 (rogue), so WARP and the Proxmox breakglass path survive either node
-# going down. Cloudflare spreads each tunnel's traffic across all its connected
+# going down; plus wolverine's own tunnel (cf-wv) on LXC 305. Cloudflare spreads each tunnel's traffic across all its connected
 # replicas. Deployed by scripts/deploy.sh, which starts only the services whose
 # secret exists. Vault: 1-Projects/tunnel-redundancy.
 name: cf-tunnel
@@ -58,3 +58,19 @@ services:
         required: false
     ports:
       - "127.0.0.1:20242:20242"
+
+  # wolverine's own tunnel, ninjaprivacy_wolverine (cloud managed): the Proxmox breakglass
+  # proxmox-wolverine.ninjaprivacy.us -> https://10.1.0.2:8006. Runs only on LXC 305 on
+  # wolverine (CF_TUNNELS=wolverine), never on 117/118: a connector serves all of its
+  # tunnel's hostnames, so each site keeps its own tunnel.
+  cf-wv:
+    <<: *cloudflared
+    container_name: cf-wv
+    command: ["tunnel", "--no-autoupdate", "--edge-ip-version", "4",
+              "--metrics", "0.0.0.0:20243", "run"]
+    env_file:
+      # TUNNEL_TOKEN, from secrets/wolverine.env.sops.
+      - path: wolverine.env
+        required: false
+    ports:
+      - "127.0.0.1:20243:20243"

@@ -636,6 +636,13 @@ deploy-cf-tunnel-2:
   extends: .cf-tunnel-deploy
   tags: ["cf-tunnel-2"]
 
+# LXC 305 on wolverine (runner 23): only wolverine's own tunnel.
+deploy-cf-tunnel-wolverine:
+  extends: .cf-tunnel-deploy
+  tags: ["cf-tunnel-wolverine"]
+  variables:
+    CF_TUNNELS: wolverine
+
 # ============================================================
 # Secret scan (gitleaks) on every push to main
 # ============================================================
