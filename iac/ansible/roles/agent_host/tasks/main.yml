@@ -83,7 +83,7 @@
 - name: Managed settings
   ansible.builtin.copy:
     dest: /etc/claude-code/managed-settings.json
-    content: "{{ {'env': {'DISABLE_AUTOUPDATER': '1'}} | to_nice_json }}\n"
+    content: "{{ agent_host_managed_settings | to_nice_json }}\n"
     mode: "0644"
 
 - name: Claude Code runs
@@ -160,6 +160,65 @@
     enabled: true
     state: started
     daemon_reload: true
+
+# --- New chats from the Claude app (Remote Control server mode) -----------------------------
+# `claude remote-control` waits for "new session" from the app and starts each one as its own
+# Claude in the vault folder (--spawn same-dir). Those chats live inside this process, not in
+# tmux: reach them from the app, or later with `claude --resume`. In its own tmux session
+# ({{ agent_host_session }}-rc) so its status and prompts can be seen and answered from SSH.
+# --no-create-session-in-dir: the main session above is already the "somewhere to type".
+- name: The Remote Control server's loop
+  ansible.builtin.copy:
+    dest: /usr/local/bin/agent-host-rc-server
+    content: |
+      #!/bin/bash
+      # Managed by Ansible (role agent_host). Runs inside tmux session {{ agent_host_session }}-rc.
+      cd "$HOME/homelab-brain" 2>/dev/null || cd "$HOME"
+      while :; do
+        claude remote-control --spawn same-dir --capacity {{ agent_host_rc_capacity }} \
+          --no-create-session-in-dir \
+          --remote-control-session-name-prefix {{ agent_host_rc_name | quote }}
+        echo "remote-control exited at $(date -u +%FT%TZ); starting again in 10 s (Ctrl-C twice to stop)"
+        sleep 10
+      done
+    mode: "0755"
+  when: agent_host_rc_server
+
+- name: The Remote Control server's unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/agent-host-rc-server.service
+    content: |
+      # Managed by Ansible (role agent_host). Not restarted by Ansible: a restart ends every
+      # chat started from the app (they can be resumed). Restart by hand when they're idle.
+      [Unit]
+      Description=Remote Control server for {{ agent_host_user }}: new chats from the Claude app
+      After=network-online.target agent-host-claude.service
+      Wants=network-online.target
+
+      [Service]
+      Type=forking
+      User={{ agent_host_user }}
+      Group={{ agent_host_user }}
+      WorkingDirectory=/home/{{ agent_host_user }}
+      Environment=HOME=/home/{{ agent_host_user }} TERM=xterm-256color LANG=C.UTF-8
+      ExecStart=/usr/bin/tmux new-session -d -s {{ agent_host_session }}-rc /usr/local/bin/agent-host-rc-server
+      ExecStop=/usr/bin/tmux kill-session -t {{ agent_host_session }}-rc
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify: Reload systemd
+  when: agent_host_rc_server
+
+- name: The Remote Control server runs
+  ansible.builtin.systemd_service:
+    name: agent-host-rc-server
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: agent_host_rc_server
 
 # --- The browser terminal -------------------------------------------------------------------
 
