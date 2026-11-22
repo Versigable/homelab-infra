@@ -1,37 +1,67 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":disableDependencyDashboard"],
-  "enabledManagers": ["docker-compose"],
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "docker-compose"
+  ],
   "docker-compose": {
-    "managerFilePatterns": ["/^hosts/[^/]+/compose/[^/]+\\.ya?ml$/"]
+    "managerFilePatterns": [
+      "/^hosts/[^/]+/compose/[^/]+\\.ya?ml$/"
+    ]
   },
-  "schedule": ["before 6am on monday"],
+  "schedule": [
+    "before 6am on monday"
+  ],
   "automerge": false,
   "prConcurrentLimit": 5,
   "prHourlyLimit": 0,
-  "labels": ["renovate", "needs-agent-review"],
+  "labels": [
+    "renovate",
+    "needs-agent-review"
+  ],
   "packageRules": [
     {
       "description": "One weekly MR for every non-major update. Wintermute reviews it and posts a recommendation before a human merges.",
-      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pinDigest"
+      ],
       "groupName": "weekly non-major updates",
       "groupSlug": "weekly-non-major"
     },
     {
-      "description": "Major versions: one MR each, never grouped.",
-      "matchUpdateTypes": ["major"],
-      "addLabels": ["major"]
+      "description": "Major versions never open an MR on their own: they wait on the dashboard issue until someone ticks them (after Wintermute's review). Database majors (postgres, mariadb, redis) need a dump/restore plan first.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "addLabels": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
     },
     {
       "description": "Authentik is far behind (2025.2.4 on 2026-11-22): step through one release at a time, each in its own MR.",
-      "matchPackageNames": ["ghcr.io/goauthentik/server"],
+      "matchPackageNames": [
+        "ghcr.io/goauthentik/server"
+      ],
       "separateMultipleMajor": true,
-      "addLabels": ["authentik"]
+      "addLabels": [
+        "authentik"
+      ]
     },
     {
       "description": "Game servers: off for now. Merging a compose change runs `docker compose up -d`, which starts a stopped server. Enable once the deploy skips stopped stacks.",
-      "matchFileNames": ["hosts/gaminghub/compose/**", "hosts/wolverine-games/compose/**"],
+      "matchFileNames": [
+        "hosts/gaminghub/compose/**",
+        "hosts/wolverine-games/compose/**"
+      ],
       "enabled": false
     }
-  ]
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate: pending updates (majors need approval)"
 }
