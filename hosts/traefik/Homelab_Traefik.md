@@ -24,7 +24,8 @@
 - `config/dynamic/` → `/etc/traefik/dynamic` (ro)
 - `data/acme` → `/etc/traefik/acme`
 - `data/cloudflared/config.yml` → `/etc/cloudflared/config.yml` (ro)
-- `data/cloudflared/creds/` → `/etc/cloudflared/creds/` + `/root/.cloudflared/` (ro)
+- `data/cloudflared/creds/<tunnel-id>.json` → `/etc/cloudflared/creds/` + `/root/.cloudflared/` (ro)
+- No `cert.pem` on this host (moved to Bitwarden Lab: admin, `[token] Cloudflare · cloudflared origin cert (cert.pem)`, 2026-11-21). Get it from there only to create or route tunnels, and don't leave a copy behind.
 
 ## Ownership & Permissions
 - Tree owned by **traefik:traefik**.
