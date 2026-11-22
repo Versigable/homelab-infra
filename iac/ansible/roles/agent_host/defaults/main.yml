@@ -10,6 +10,17 @@ agent_host_user: agent
 agent_host_session: agent
 # The session's name in the Claude app's list.
 agent_host_rc_name: "{{ inventory_hostname }}"
+# Managed Claude Code settings (/etc/claude-code/managed-settings.json; users can't override).
+# remoteControlAtStartup: every Claude started on this guest (a second tmux window, an SSH
+# shell, VS Code) shows up in the Claude app too, not just the main session.
+agent_host_managed_settings:
+  env:
+    DISABLE_AUTOUPDATER: "1"
+  remoteControlAtStartup: true
+# Remote Control server mode (tasks/main.yml): "new session" in the Claude app starts a fresh
+# Claude here, in the vault folder. Capacity caps how many run at once (~270 MB each).
+agent_host_rc_server: true
+agent_host_rc_capacity: 4
 # Public keys that may log in as the agent user. Exact list; empty means SSH as the agent user
 # is closed (operators still reach the guest as `ansible`).
 agent_host_login_keys: []

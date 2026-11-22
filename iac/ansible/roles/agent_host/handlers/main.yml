@@ -27,3 +27,4 @@
 # No handler restarts agent-host-claude: that would end the agent's live session mid-task.
 # After a change to its unit or script, restart it by hand when the agent is idle:
 #   sudo systemctl restart agent-host-claude
+# Same for agent-host-rc-server (ends chats started from the app; they can be resumed).
