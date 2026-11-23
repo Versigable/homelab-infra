@@ -1,0 +1,13 @@
+# Traefik's minimal access log (who.ninjaprivacy.org). Installed by deploy.sh as
+# /etc/logrotate.d/traefik-access. 7 days, then gone. copytruncate: Traefik keeps
+# writing to the same file, no signal needed.
+/home/traefik/traefik-hub/data/traefik-logs/access.log {
+    daily
+    rotate 6
+    maxage 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
