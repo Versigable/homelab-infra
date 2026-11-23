@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""lab-activity: is anyone using the lab right now? Counts only.
+
+Run before a reboot, restart or other disruptive change. It reads the
+monitoring stack's Prometheus (10.1.0.5:9090, LAN only) and logs in nowhere,
+so it is instant and needs no SSH keys. The same numbers are on the Grafana
+"Lab activity" dashboard; names are only on who.ninjaprivacy.org (Hokagis).
+
+  lab-activity              summary now
+  lab-activity --prom URL   another Prometheus (default $LAB_PROM or 10.1.0.5)
+
+Exit code: 0 = quiet, 1 = someone looks active, 2 = Prometheus unreachable.
+Vault: 3-Resources/runbooks/before-taking-something-down.md
+"""
+import json, os, sys, time, urllib.parse, urllib.request
+
+PROM = os.environ.get("LAB_PROM", "http://10.1.0.5:9090")
+if "--prom" in sys.argv:
+    PROM = sys.argv[sys.argv.index("--prom") + 1]
+BACKGROUND = "gitlab-router@file|couchdb-api-router@file"  # runners, Obsidian LiveSync
+
+
+def q(expr):
+    url = PROM.rstrip("/") + "/api/v1/query?" + urllib.parse.urlencode({"query": expr})
+    with urllib.request.urlopen(url, timeout=10) as r:
+        d = json.load(r)
+    return [(x["metric"], float(x["value"][1])) for x in d["data"]["result"]]
+
+
+def section(title):
+    print("\n" + title)
+
+
+def main():
+    try:
+        q("vector(1)")
+    except Exception as e:
+        print(f"Prometheus at {PROM} unreachable ({type(e).__name__}).")
+        print("Fallback: lab-activity-direct (logs into each host, slower).")
+        return 2
+    busy = []
+    print(f"Lab activity at {time.strftime('%Y-%m-%d %H:%M %Z')} (from Prometheus)")
+
+    section("Game servers (players now):")
+    up = {m["server"]: (m["host"], v) for m, v in q("lab_game_up")}
+    pl = {m["server"]: int(v) for m, v in q("lab_game_players")}
+    mx = {m["server"]: int(v) for m, v in q("lab_game_max_players")}
+    running = [s for s, (_, v) in sorted(up.items()) if v == 1]
+    for s in running:
+        print(f"  {s:20} {pl.get(s, 0):>3} / {mx.get(s, '?')}   ({up[s][0]})")
+        if pl.get(s, 0):
+            busy.append(f"{pl[s]} on {s}")
+    if not running:
+        print("  none running")
+    else:
+        print("  (names: Enshrouded doesn't share them; see who.ninjaprivacy.org for the rest)")
+
+    section("Jellyfin:")
+    j = dict((m.get("__name__") + m.get("method", ""), v) for m, v in q('{__name__=~"lab_jellyfin_.*"}'))
+    if j.get("lab_jellyfin_up") == 1:
+        n = int(j.get("lab_jellyfin_streamsdirect", 0) + j.get("lab_jellyfin_streamstranscode", 0))
+        print(f"  {n} playing ({int(j.get('lab_jellyfin_streamstranscode', 0))} transcoding, "
+              f"{int(j.get('lab_jellyfin_streams_paused', 0))} paused); "
+              f"{int(j.get('lab_jellyfin_active_users', 0))} people with an app open (5 min)")
+        if n:
+            busy.append(f"{n} Jellyfin stream(s)")
+    else:
+        print("  ? (Jellyfin didn't answer the counter)")
+
+    section("Web sites via Traefik (req/min, last 10 min, background left out):")
+    sites = q(f'sort_desc(sum by (router) (rate(traefik_router_requests_total{{router!~"{BACKGROUND}"}}[10m])) * 60 > 0.05)')
+    for m, v in sites:
+        print(f"  {m.get('router', '?').replace('-router@file', ''):28} {v:7.1f}")
+        if v >= 3:  # below that it is usually an app syncing in the background
+            busy.append(f"{m['router'].replace('-router@file', '')} web")
+    if not sites:
+        print("  none")
+
+    section("Public traffic (Cloudflare tunnels, req/min over 5 min, in flight; includes background):")
+    rpm = {m["tunnel"]: v for m, v in q("sum by (tunnel) (rate(cloudflared_tunnel_total_requests[5m])) * 60")}
+    fl = {m["tunnel"]: v for m, v in q("sum by (tunnel) (cloudflared_tunnel_concurrent_requests_per_tunnel)")}
+    for t in sorted(rpm):
+        print(f"  {t:28} {rpm[t]:7.1f}   {fl.get(t, 0):.0f} in flight")
+
+    section("Client connections by guest (via Traefik / from the LAN):")
+    conns = q('sort_desc(sum by (guest, peer) (lab_guest_connections{peer=~"traefik|lan",guest!="host"}))')
+    for m, v in conns:
+        print(f"  {m['guest']:22} {m['peer']:8} {int(v)}")
+    if not conns:
+        print("  none")
+    print("  (GitLab lan = its runners; wintermute lan = me)")
+
+    section("Interactive logins (SSH, console; agents left out):")
+    logins = q("lab_host_logins")
+    print("  " + ", ".join(f"{m['instance']}: {int(v)}" for m, v in sorted(logins, key=lambda x: x[0]["instance"])))
+    busy += [f"login on {m['instance']}" for m, v in logins if v]
+
+    stale = q("time() - lab_activity_textfile_last_run_timestamp_seconds > 180")
+    down = q('up{job=~"node|lab-activity|cloudflared|traefik.*"} == 0')
+    if stale or down:
+        section("Warnings (counts may be incomplete):")
+        for m, v in stale:
+            print(f"  connection counter on {m['instance']} last ran {int(v)} s ago")
+        for m, _ in down:
+            print(f"  scrape target down: {m.get('job')} {m.get('instance')}")
+
+    print("\n" + ("Looks busy: " + "; ".join(busy) if busy else "Looks quiet."))
+    return 1 if busy else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
