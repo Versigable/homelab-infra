@@ -9,7 +9,8 @@ set -euo pipefail
 # to /home/monitoring/monitoring-hub/.
 #
 # Secrets: monitoring.env.sops + ntfy.env.sops are decrypted and concatenated
-# into the live compose .env (root 0600).
+# into the live compose .env (root 0600). lab-activity.env.sops is kept out of
+# .env: its Jellyfin key becomes a 0400 file for the lab-activity container.
 #
 # Usage:
 #   deploy.sh             — Deploy the monitoring stack
@@ -58,6 +59,7 @@ REPO_COMPOSE="${REPO_DIR}/hosts/monitoring/compose/monitoring.yml"
 REPO_CONFIG_DIR="${REPO_DIR}/hosts/monitoring/config"
 REPO_SOPS_ENV="${REPO_DIR}/hosts/monitoring/secrets/monitoring.env.sops"
 REPO_NTFY_SOPS_ENV="${REPO_DIR}/hosts/monitoring/secrets/ntfy.env.sops"
+REPO_LA_SOPS_ENV="${REPO_DIR}/hosts/monitoring/secrets/lab-activity.env.sops"
 REPO_AMGR_TMPL="${REPO_CONFIG_DIR}/alertmanager/alertmanager.yml.tmpl"
 
 log_info "REPO_DIR=${REPO_DIR}"
@@ -73,6 +75,7 @@ sudo -n /usr/bin/install --version >/dev/null 2>&1 || die "runner needs NOPASSWD
 [[ -f "${REPO_COMPOSE}" ]]   || die "missing compose: ${REPO_COMPOSE}"
 [[ -f "${REPO_SOPS_ENV}" ]]  || die "missing encrypted env: ${REPO_SOPS_ENV}"
 [[ -f "${REPO_NTFY_SOPS_ENV}" ]] || die "missing encrypted env: ${REPO_NTFY_SOPS_ENV}"
+[[ -f "${REPO_LA_SOPS_ENV}" ]] || die "missing encrypted env: ${REPO_LA_SOPS_ENV}"
 [[ -f "${REPO_AMGR_TMPL}" ]] || die "missing alertmanager template: ${REPO_AMGR_TMPL}"
 [[ -d "${LIVE_HUB}" ]]       || die "missing live hub: ${LIVE_HUB} (run one-time bootstrap on the LXC)"
 
@@ -188,6 +191,16 @@ decrypt_and_render() {
     sudo /usr/bin/install -d -m 0500 -o 65534 -g 65534 "${LIVE_HUB}/secrets/alertmanager"
     sudo /usr/bin/install -m 0400 -o 65534 -g 65534 "${tmp_dc}" "${LIVE_HUB}/secrets/alertmanager/discord_slack_url"
     sudo /usr/bin/install -m 0400 -o 65534 -g 65534 "${tmp_nt}" "${LIVE_HUB}/secrets/alertmanager/ntfy_token"
+
+    # lab-activity: Jellyfin API key (read /Sessions for counts), not in .env
+    local tmp_jf
+    tmp_jf="$(mktemp)"
+    trap 'rm -f "${tmp_env}" "${tmp_amgr}" "${tmp_dc}" "${tmp_nt}" "${tmp_jf}"' EXIT
+    sops -d --input-type dotenv --output-type dotenv "${REPO_LA_SOPS_ENV}" \
+      | sed -n 's/^JELLYFIN_KEY=//p' | tr -d '\n' > "${tmp_jf}"
+    [[ -s "${tmp_jf}" ]] || die "JELLYFIN_KEY missing in lab-activity.env.sops"
+    sudo /usr/bin/install -d -m 0500 -o 65534 -g 65534 "${LIVE_HUB}/secrets/lab-activity"
+    sudo /usr/bin/install -m 0400 -o 65534 -g 65534 "${tmp_jf}" "${LIVE_HUB}/secrets/lab-activity/jellyfin_key"
 
     sudo /usr/bin/install -m 0600 -o root -g root "${tmp_env}"  "${LIVE_COMPOSE_DIR}/.env"
     sudo /usr/bin/install -m 0644 -o root -g root "${REPO_AMGR_TMPL}" "${LIVE_CONFIG_DIR}/alertmanager/alertmanager.yml"

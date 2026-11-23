@@ -6,13 +6,17 @@ servers live (Steam A2S and Minecraft Bedrock pings, UDP, no credentials),
 in parallel, with a 2 s timeout per server. A server that doesn't answer
 is reported as lab_game_up 0 (usually: not running).
 
+It also asks Jellyfin's /Sessions how many people are watching (needs
+JELLYFIN_URL and an API key in the file at JELLYFIN_KEY_FILE; with
+neither set, the Jellyfin metrics are simply left out).
+
 Never exports names, titles or IPs: only counts. Plan and privacy rules:
 vault 1-Projects/lab-activity-monitoring.
 
 Servers come from servers.json next to this file, so adding a game is a
 config edit, not a code change.
 """
-import concurrent.futures as cf, json, os, socket, time
+import concurrent.futures as cf, json, os, socket, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +70,61 @@ def probe(srv):
     return srv, None, None
 
 
+def jellyfin():
+    """Counts from Jellyfin's /Sessions, or None when it isn't configured.
+
+    Raises on failure so the caller can report lab_jellyfin_up 0. Nothing
+    about the person or the title leaves this function, only counts.
+    """
+    url, key_file = os.environ.get("JELLYFIN_URL"), os.environ.get("JELLYFIN_KEY_FILE")
+    if not (url and key_file):
+        return None
+    with open(key_file) as f:
+        key = f.read().strip()
+    req = urllib.request.Request(
+        url.rstrip("/") + "/Sessions?activeWithinSeconds=300",
+        headers={"Authorization": 'MediaBrowser Token="%s"' % key},
+    )
+    with urllib.request.urlopen(req, timeout=5) as r:
+        sessions = json.load(r)
+    streams = {"direct": 0, "transcode": 0}
+    paused = 0
+    for s in sessions:
+        if not s.get("NowPlayingItem"):
+            continue
+        method = (s.get("PlayState") or {}).get("PlayMethod") or ""
+        streams["transcode" if method == "Transcode" else "direct"] += 1
+        paused += bool((s.get("PlayState") or {}).get("IsPaused"))
+    people = len({s.get("UserId") for s in sessions if s.get("UserId")})
+    return {"streams": streams, "paused": paused, "users": people}
+
+
+def jellyfin_metrics():
+    try:
+        j = jellyfin()
+    except Exception:
+        return ["# TYPE lab_jellyfin_up gauge", "lab_jellyfin_up 0"]
+    if j is None:
+        return []
+    out = [
+        "# HELP lab_jellyfin_up 1 if Jellyfin answered the sessions query.",
+        "# TYPE lab_jellyfin_up gauge",
+        "lab_jellyfin_up 1",
+        "# HELP lab_jellyfin_streams Videos or songs playing now (paused ones included).",
+        "# TYPE lab_jellyfin_streams gauge",
+    ]
+    out += ['lab_jellyfin_streams{method="%s"} %d' % kv for kv in sorted(j["streams"].items())]
+    out += [
+        "# HELP lab_jellyfin_streams_paused Streams that are paused right now.",
+        "# TYPE lab_jellyfin_streams_paused gauge",
+        "lab_jellyfin_streams_paused %d" % j["paused"],
+        "# HELP lab_jellyfin_active_users Different people with an app open in the last 5 minutes.",
+        "# TYPE lab_jellyfin_active_users gauge",
+        "lab_jellyfin_active_users %d" % j["users"],
+    ]
+    return out
+
+
 def load_servers():
     with open(os.path.join(HERE, "servers.json")) as f:
         return json.load(f)["servers"]
@@ -78,8 +137,10 @@ def lbl(srv):
 def render():
     t0 = time.time()
     servers = load_servers()
-    with cf.ThreadPoolExecutor(max(1, len(servers))) as ex:
+    with cf.ThreadPoolExecutor(max(1, len(servers)) + 1) as ex:
+        jf = ex.submit(jellyfin_metrics)
         results = list(ex.map(probe, servers))
+        jf = jf.result()
     out = [
         "# HELP lab_game_up 1 if the game server answered its status query.",
         "# TYPE lab_game_up gauge",
@@ -89,6 +150,7 @@ def render():
     out += ["lab_game_players{%s} %d" % (lbl(s), n) for s, n, _ in results if n is not None]
     out += ["# HELP lab_game_max_players Player slots.", "# TYPE lab_game_max_players gauge"]
     out += ["lab_game_max_players{%s} %d" % (lbl(s), m) for s, n, m in results if n is not None]
+    out += jf
     out += [
         "# HELP lab_activity_scrape_duration_seconds Time to query every source.",
         "# TYPE lab_activity_scrape_duration_seconds gauge",

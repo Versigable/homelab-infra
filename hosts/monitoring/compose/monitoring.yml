@@ -119,8 +119,13 @@ services:
     restart: unless-stopped
     user: "65534:65534"
     command: ["python", "/app/exporter.py"]
+    environment:
+      JELLYFIN_URL: http://10.0.1.8:8096
+      JELLYFIN_KEY_FILE: /run/secrets/lab-activity/jellyfin_key
     volumes:
       - ../config/lab-activity:/app:ro
+      # Jellyfin API key (counts only), 0400 for uid 65534; see deploy.sh
+      - ../secrets/lab-activity:/run/secrets/lab-activity:ro
     networks: [monitoring-net]
     logging: *logging
 
