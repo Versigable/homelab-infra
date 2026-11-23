@@ -13,7 +13,7 @@
     "to": "now"
   },
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "graphTooltip": 1,
   "templating": {
@@ -58,7 +58,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -102,9 +102,9 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 1,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -148,9 +148,9 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 1,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "targets": [
@@ -172,6 +172,62 @@
           },
           "expr": "count(lab_game_up == 1)",
           "legendFormat": "servers running",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Jellyfin streams now",
+      "description": "Videos or songs playing on Jellyfin (paused included), and how many people had an app open in the last 5 min. Counts only. Blank = Jellyfin didn't answer.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(lab_jellyfin_streams) and on() lab_jellyfin_up == 1",
+          "legendFormat": "playing",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "lab_jellyfin_active_users and on() lab_jellyfin_up == 1",
+          "legendFormat": "people",
           "instant": true
         }
       ],
@@ -420,7 +476,7 @@
       "gridPos": {
         "x": 0,
         "y": 25,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "targets": [
@@ -465,9 +521,9 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 25,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "targets": [
@@ -479,6 +535,57 @@
           },
           "expr": "sum by (server) (lab_game_players)",
           "legendFormat": "{{server}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Jellyfin streams",
+      "description": "Streams playing, split by direct play and transcode (transcodes use jf's GPU).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 25,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (method) (lab_jellyfin_streams)",
+          "legendFormat": "{{method}}",
           "range": true
         }
       ],
