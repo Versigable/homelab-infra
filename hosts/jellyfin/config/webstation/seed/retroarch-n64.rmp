@@ -1,0 +1,19 @@
+# Xbox-pad controls for every N64 game on RetroArch's mupen64plus_next, players 1-4.
+# Installed as config/remaps/Mupen64Plus-Next/Mupen64Plus-Next.rmp (50-seed-emulators).
+# Each line sends one RetroPad input to another, by RetroPad id:
+#   b 0, y 1, select 2, start 3, up 4, down 5, left 6, right 7,
+#   a 8, x 9, l 10, r 11, l2 12, r2 13, l3 14, r3 15.
+# Selkies' virtual Xbox 360 pad maps by position (Xbox A = RetroPad B, Xbox B = RetroPad A),
+# and the core reads RetroPad B as N64 A, Y as N64 B, L2 as Z, L as L, R as R.
+# - btn_r2 -> r: the core makes R2 a "C-button mode" key. While RT is held, N64 A and B
+#   stop working and the face buttons turn into C buttons. RT now acts as N64 R, like RB.
+#   C buttons stay on the right stick.
+# - btn_a -> y: Xbox B is N64 B (back in menus, as the games label it), alongside Xbox X.
+input_player1_btn_a = "1"
+input_player1_btn_r2 = "11"
+input_player2_btn_a = "1"
+input_player2_btn_r2 = "11"
+input_player3_btn_a = "1"
+input_player3_btn_r2 = "11"
+input_player4_btn_a = "1"
+input_player4_btn_r2 = "11"
