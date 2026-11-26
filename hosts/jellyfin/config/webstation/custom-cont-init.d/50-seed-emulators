@@ -348,6 +348,39 @@ for ra_dir in autoconfig assets; do
   fi
 done
 
+# RetroArch N64 controls for an Xbox pad (every browser pad reaches the container as
+# an Xbox 360 pad). mupen64plus_next makes R2 a "C-button mode" key: while RT is held,
+# N64 A and B stop working, so a player who squeezes RT loses the gas in Mario Kart 64.
+# The N64-wide remap sends RT to N64 R and Xbox B to N64 B; Mario Kart 64's adds LB as
+# item and Back as music volume, under each dump's name in the library. RetroArch loads
+# only the most specific remap (game, then content dir, then core), so the game file
+# repeats the N64-wide lines. Missing files only, so a remap saved from the Quick Menu
+# stays. The broker resets core options on every launch, so remaps are the only
+# per-game controls that last.
+RA_REMAPS=/config/.config/retroarch/config/remaps/Mupen64Plus-Next
+seed /seed/retroarch-n64.rmp "$RA_REMAPS/Mupen64Plus-Next.rmp"
+for mk64 in "Mario Kart 64 (USA)" "Mario Kart 64 (USA) (LodgeNet)" "Mario Kart 64 (Europe)" \
+    "Mario Kart 64 (Europe) (Rev 1)" "Mario Kart 64 (Japan)" "Mario Kart 64 (Japan) (Rev 1)"; do
+  seed /seed/retroarch-n64-mario-kart-64.rmp "$RA_REMAPS/$mk64.rmp"
+done
+# RetroArch rewrites the active remap file when a game closes (remap_save_on_exit
+# defaults to true), so one player's in-game remap would become everyone's default on
+# that webstation. Saving from Manage Remap Files still works. A "true" already in the
+# file is RetroArch's own first-run dump of every default (the Forge's has one), not a
+# choice: the broker hides the Configuration page that holds this setting.
+RA_CFG=/config/.config/retroarch/retroarch.cfg
+if grep -q '^remap_save_on_exit = "true"' "$RA_CFG" 2>/dev/null; then
+  sed -i 's/^remap_save_on_exit = "true"/remap_save_on_exit = "false"/' "$RA_CFG"
+  chown abc:abc "$RA_CFG"
+  echo "[seed-emulators] set RetroArch remap_save_on_exit = false"
+elif ! grep -q '^remap_save_on_exit' "$RA_CFG" 2>/dev/null; then
+  mkdir_abc "${RA_CFG%/*}"
+  [[ -s "$RA_CFG" && -n "$(tail -c1 "$RA_CFG")" ]] && echo >>"$RA_CFG"
+  printf 'remap_save_on_exit = "false"\n' >>"$RA_CFG"
+  chown abc:abc "$RA_CFG"
+  echo "[seed-emulators] set RetroArch remap_save_on_exit = false"
+fi
+
 # Selkies page scripts, loaded from index.html ahead of the client's own bundle. The
 # web root sits in the container layer, so this runs on every start.
 # - gamepad-shim.js: Chrome gives some controllers no standard layout, and for those
