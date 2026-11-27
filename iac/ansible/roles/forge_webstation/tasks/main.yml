@@ -26,6 +26,18 @@
 - name: Running
   when: forge_webstation_enabled
   block:
+    # The vCPU count is Terraform's (studio.tf), applied by hand. A cpuset past it makes
+    # compose remove the running container and then fail to create the new one, so stop first.
+    - name: The Forge has every CPU in the cpuset
+      ansible.builtin.assert:
+        that: >-
+          (forge_webstation_cpuset.split(',') | map('split', '-') | flatten
+          | map('int') | max) < (ansible_facts['processor_vcpus'] | int)
+        fail_msg: >-
+          cpuset {{ forge_webstation_cpuset }} needs more than the Forge's
+          {{ ansible_facts['processor_vcpus'] }} vCPUs: apply Terraform (studio.tf cores) first.
+        quiet: true
+
     # LinuxServer runs custom-cont-init.d and custom-services.d only if root owns them and
     # nobody else can write them. /config belongs to the container's user (PUID 1000).
     - name: Directories
