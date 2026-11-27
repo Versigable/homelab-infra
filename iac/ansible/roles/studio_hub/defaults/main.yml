@@ -13,6 +13,10 @@ studio_hub_depot_device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
 # MR builds expire this many days after upload; an object goes with the last build using it.
 studio_hub_build_days: 30
 studio_hub_max_object_bytes: 4294967296
+# A play session's files (its recording, player log and timeline, uploaded by the Forge) are
+# kept this many days from the session. The Forge may upload nothing larger than this.
+studio_hub_session_days: 30
+studio_hub_max_session_file_bytes: 3221225472
 
 # The hub's clients, from the inventory: every cell (with its person, studio_cell_owner) and
 # the Forge. A client is its certificate's name plus this address; a host that leaves the

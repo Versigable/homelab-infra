@@ -21,8 +21,13 @@ the Studio Kit. The portal offers Play (the game), the Stage, and each asset; th
 records which, and the Forge starts the player with -studio-open. The numbers the person tunes
 on the Stage come back from the Forge when the session ends and travel with the play evidence.
 
+Recordings (vault notes/step-3c-watch-plan): the Forge records every session and, when it
+ends, uploads the recording, the player log and the Studio Kit's timeline, then names them in
+its sync. An ended session's page plays the recording to anyone on the portal, with the
+timeline's events as links into it. Session files are kept session_days, then removed.
+
 State on the depot disk (/srv/depot): objects/<ab>/<sha256>, tmp/, and depot.db (SQLite).
-MR builds expire after build_days; an object goes once no build refers to it.
+MR builds expire after build_days; an object goes once no build and no session refers to it.
 """
 
 import datetime as dt
@@ -44,7 +49,7 @@ import traceback
 import urllib.parse
 
 from . import VERSION
-from .hub import SHA_RE, catalog_ids, check_catalog, check_open, check_tweaks
+from .hub import SHA_RE, catalog_ids, check_catalog, check_files, check_open, check_tweaks, read_timeline
 
 CONFIG_FILE = os.environ.get("STUDIO_HUB_CONFIG", "/etc/studio-hub/hub.json")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -80,8 +85,15 @@ CREATE INDEX IF NOT EXISTS sessions_state ON sessions (state);
 #   sessions.open_target   what the session opened: game, stage or stage:<id>
 #   sessions.tweaks        the numbers tuned on the Stage (JSON), collected by the Forge at the end
 #   sessions.collected     1 once the Forge has collected the session's tweaks (or found none)
+#   sessions.recording, .log, .timeline   the session's files in the depot (objects), from the Forge
+#   sessions.recording_seconds, .recording_start   the recording's length, and when it began (epoch)
+#   sessions.files_at      when the Forge named the files; .files_note: why there's no recording
 COLUMNS = {"builds": [("catalog", "TEXT")],
-           "sessions": [("open_target", "TEXT"), ("tweaks", "TEXT"), ("collected", "INTEGER NOT NULL DEFAULT 0")]}
+           "sessions": [("open_target", "TEXT"), ("tweaks", "TEXT"), ("collected", "INTEGER NOT NULL DEFAULT 0"),
+                        ("recording", "TEXT"), ("log", "TEXT"), ("timeline", "TEXT"),
+                        ("recording_seconds", "REAL"), ("recording_start", "REAL"),
+                        ("files_at", "TEXT"), ("files_note", "TEXT")]}
+SESSION_FILES = ("recording", "log", "timeline")
 ACTIVE = ("requested", "starting", "live")
 COLLECT_WAIT = dt.timedelta(seconds=120)   # a play is reported without its tweaks after this
 
@@ -113,6 +125,8 @@ class Depot:
         self.root = cfg["depot"]
         self.build_days = int(cfg.get("build_days", 30))
         self.max_bytes = int(cfg.get("max_object_bytes", 4 << 30))
+        self.session_days = int(cfg.get("session_days", 30))
+        self.max_session_bytes = int(cfg.get("max_session_file_bytes", 3 << 30))
         for d in ("objects", "tmp"):
             os.makedirs(os.path.join(self.root, d), mode=0o750, exist_ok=True)
         self.db_path = os.path.join(self.root, "depot.db")
@@ -138,10 +152,11 @@ class Depot:
     def has(self, sha):
         return os.path.isfile(self.path(sha))
 
-    def receive(self, sha, rfile, length, by):
+    def receive(self, sha, rfile, length, by, limit=None):
         """Stream length bytes into the depot as object sha; refuse if the hash differs."""
-        if length > self.max_bytes:
-            raise BadRequest(f"object larger than {self.max_bytes} bytes")
+        limit = self.max_bytes if limit is None else limit
+        if length > limit:
+            raise BadRequest(f"object larger than {limit} bytes")
         if self.has(sha):
             # Drain the body so the client sees a clean answer.
             while length > 0:
@@ -230,13 +245,21 @@ class Depot:
         return n
 
     def gc(self):
-        """Expired builds go; then objects no build refers to (an hour's grace for an upload
-        whose manifest is on its way); then stale temporary files."""
+        """Expired builds go, and sessions older than session_days let go of their files; then
+        objects no build and no session refers to (an hour's grace for an upload whose manifest
+        or sync is on its way); then stale temporary files."""
         t = now()
         with self.db() as db:
             gone = db.execute("DELETE FROM builds WHERE expires IS NOT NULL AND expires < ?", (iso(t),)).rowcount
+            old = db.execute(
+                "UPDATE sessions SET recording=NULL, log=NULL, timeline=NULL WHERE ended_at < ? "
+                "AND (recording IS NOT NULL OR log IS NOT NULL OR timeline IS NOT NULL)",
+                (iso(t - dt.timedelta(days=self.session_days)),)).rowcount
+            if old:
+                log(f"gc: {old} session(s) past {self.session_days} days let go of their files")
             orphans = [r["sha256"] for r in db.execute(
-                "SELECT sha256 FROM objects WHERE at < ? AND sha256 NOT IN (SELECT object FROM builds)",
+                "SELECT sha256 FROM objects WHERE at < ? AND sha256 NOT IN (SELECT object FROM builds) "
+                + "".join(f"AND sha256 NOT IN (SELECT {c} FROM sessions WHERE {c} IS NOT NULL) " for c in SESSION_FILES),
                 (iso(t - dt.timedelta(hours=1)),))]
             for sha in orphans:
                 try:
@@ -347,8 +370,9 @@ class Broker:
         running = report.get("running") or {}
         failed = report.get("failed") or {}
         collected = report.get("collected") or {}
-        if not all(isinstance(x, dict) for x in (running, failed, collected)):
-            raise BadRequest("running, failed and collected are objects")
+        files = report.get("files") or {}
+        if not all(isinstance(x, dict) for x in (running, failed, collected, files)):
+            raise BadRequest("running, failed, collected and files are objects")
         t = now()
         step = min((t - self.last_sync).total_seconds(), 10) if self.last_sync else 0
         self.last_sync = t
@@ -367,6 +391,27 @@ class Broker:
                     log(f"broker: {sid}: the Forge's tweaks for it aren't tweaks; dropped")
                 db.execute("UPDATE sessions SET tweaks=?, collected=1 WHERE id=?",
                            (json.dumps(tw) if tw and tw["assets"] else None, str(sid)))
+            # A session's files, named once, after it ended: the recording, the player log and
+            # the timeline, each an object the Forge has already uploaded. One that isn't in the
+            # depot is dropped from the record, never trusted.
+            for sid, raw in files.items():
+                s = db.execute("SELECT state, files_at FROM sessions WHERE id=?", (str(sid),)).fetchone()
+                if not s or s["state"] in ACTIVE or s["files_at"]:
+                    continue
+                f = check_files(raw)
+                if f is None:
+                    log(f"broker: {sid}: the Forge's files for it aren't a files report; dropped")
+                    continue
+                for k in SESSION_FILES:
+                    if f[k] and not self.depot.has(f[k]):
+                        log(f"broker: {sid}: its {k} {f[k][:12]} isn't in the depot; dropped")
+                        f[k] = None
+                db.execute("UPDATE sessions SET recording=?, log=?, timeline=?, recording_seconds=?, "
+                           "recording_start=?, files_note=?, files_at=? WHERE id=?",
+                           (f["recording"], f["log"], f["timeline"], f["recording_seconds"] if f["recording"] else None,
+                            f["recording_start"] if f["recording"] else None, f["note"], iso(t), str(sid)))
+                log(f"broker: {sid} files: " + (", ".join(k for k in SESSION_FILES if f[k]) or "none")
+                    + (f" ({f['note']})" if f["note"] else ""))
             for sid, st in running.items():
                 s = db.execute("SELECT * FROM sessions WHERE id=?", (str(sid),)).fetchone()
                 if not s or s["state"] not in ACTIVE:
@@ -511,12 +556,15 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
 
     def do_PUT(self):
         def go(cn, c):
-            if c["kind"] != "cell":
-                raise Forbidden("only cells upload")
+            # Cells upload builds; the Forge uploads sessions' files, to its own smaller limit.
+            if c["kind"] not in ("cell", "forge"):
+                raise Forbidden("only cells and the Forge upload")
+            depot = self.server.depot
             sha = self.object_sha()
             if "Content-Length" not in self.headers:
                 raise BadRequest("Content-Length required")
-            new = self.server.depot.receive(sha, self.rfile, int(self.headers["Content-Length"]), cn)
+            new = depot.receive(sha, self.rfile, int(self.headers["Content-Length"]), cn,
+                                limit=depot.max_session_bytes if c["kind"] == "forge" else None)
             log(f"depot: {sha[:12]} from {cn}" + ("" if new else " (already held)"))
             self.reply(201 if new else 200, {"object": sha})
         self.run(go)
@@ -584,7 +632,7 @@ code{{font:13px ui-monospace,monospace}} .tag{{padding:1px 8px;border-radius:9px
 form{{display:inline;margin:0}} button{{font:inherit;padding:2px 14px;border-radius:6px;border:1px solid #3b82c4;
 background:#1f4f7a;color:#fff;cursor:pointer}} button.end{{background:#5a2a2a;border-color:#8a3a3a}}
 button.stage{{background:#26323d;border-color:#4a5a6a;margin:2px 4px 2px 0}} .new{{color:#ffd166;font-size:12px}}
-td.stage{{padding-top:0;color:#9aa4ae}}
+td.stage{{padding-top:0;color:#9aa4ae}} video{{width:100%;max-height:70vh;background:#000;border-radius:6px}}
 </style>{head}</head><body><header><a href="/">Studio</a><span>{who}</span></header><main>{body}</main></body></html>"""
 
 
@@ -599,6 +647,11 @@ def size(n):
 def age(at):
     s = (now() - dt.datetime.fromisoformat(at)).total_seconds()
     return f"{int(s // 60)} min ago" if s < 3600 else f"{int(s // 3600)} h ago" if s < 86400 else f"{int(s // 86400)} d ago"
+
+
+def clock(seconds):
+    s = int(seconds or 0)
+    return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
 
 
 def opened_text(s):
@@ -637,7 +690,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'")
         self.end_headers()
         self.wfile.write(raw)
 
@@ -682,10 +736,62 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             m = re.fullmatch(r"/s/([0-9a-f]{16})", path)
             if m:
                 return self.session_page(m.group(1))
+            m = re.fullmatch(r"/s/([0-9a-f]{16})/(recording\.mp4|player\.log)", path)
+            if m:
+                return self.session_file(m.group(1), m.group(2))
             self.page("Not found", "<h1>Not found</h1>", 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                # a player that stopped loading: not an error
         except Exception:  # noqa: BLE001
             log("portal error:\n" + traceback.format_exc())
             self.page("Error", "<h1>Something broke</h1><p class=dim>It's in the hub's journal.</p>", 500)
+
+    def session_file(self, sid, name):
+        """An ended session's recording or player log, for anyone on the portal. The recording
+        answers byte ranges, which is how a browser seeks."""
+        s = self.server.broker.session(sid)
+        col, ctype = ("recording", "video/mp4") if name == "recording.mp4" else ("log", "text/plain; charset=utf-8")
+        sha = s[col] if s and s["state"] not in ACTIVE else None
+        if not sha or not self.server.depot.has(sha):
+            return self.page("Not found", "<h1>No such file</h1>", 404)
+        p = self.server.depot.path(sha)
+        total = os.path.getsize(p)
+        start, end, code = 0, total - 1, 200
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", "").strip())
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start, end = int(m.group(1)), min(int(m.group(2)) if m.group(2) else total - 1, total - 1)
+            else:
+                start = max(total - int(m.group(2)), 0)
+            if start > end or start >= total:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{total}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return None
+            code = 206
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Accept-Ranges", "bytes")
+        if code == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if col == "log":
+            # The build wrote this text: shown as text, and never run as anything.
+            self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+        self.end_headers()
+        left = end - start + 1
+        with open(p, "rb") as f:
+            f.seek(start)
+            while left > 0:
+                chunk = f.read(min(left, 1 << 20))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
+        return None
 
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
@@ -777,9 +883,79 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         out.append("</table>")
         return "".join(out)
 
+    def past_sessions(self, where, args):
+        """Ended sessions someone watched, newest first: who, when, how long, and the recording."""
+        ss = self.rows(f"SELECT * FROM sessions WHERE state='ended' AND viewer_seconds > 0 AND {where} "
+                       "ORDER BY at DESC LIMIT 50", args)
+        if not ss:
+            return ""
+        out = ["<h2>Sessions</h2><table><tr><th>Person</th><th>Played</th><th>Revision</th><th>Opened</th>"
+               "<th>Watched</th><th>Recording</th></tr>"]
+        for s in ss:
+            rec = (f'<a href="/s/{s["id"]}">watch ({clock(s["recording_seconds"])})</a>' if s["recording"]
+                   else f'<a href="/s/{s["id"]}" class="dim">no recording</a>')
+            out.append(f'<tr><td>{e(s["person"])}</td><td>{age(s["at"])}</td><td><code>{e(s["revision"][:10])}</code></td>'
+                       f'<td>{e(opened_text(s).strip() or "the game")}</td><td>{s["viewer_seconds"] // 60} min</td>'
+                       f"<td>{rec}</td></tr>")
+        out.append("</table>")
+        return "".join(out)
+
+    def timeline_table(self, s, sid):
+        """The kit's timeline, each event a link to its moment in the recording when the
+        timeline says when the player started."""
+        if not s["timeline"] or not self.server.depot.has(s["timeline"]):
+            return ""
+        with open(self.server.depot.path(s["timeline"]), "rb") as f:
+            tl = read_timeline(f.read())
+        if not tl["events"]:
+            return ""
+        # The player starts before the session is ready, and the recording when it's ready.
+        shift = tl["wall"] - s["recording_start"] if tl["wall"] and s["recording"] and s["recording_start"] else None
+        out = ["<h2>What happened</h2><table><tr><th>Recording</th><th>Event</th><th></th></tr>"]
+        for ev in tl["events"][:1000]:
+            at = ev["t"] + shift if shift is not None else None
+            if at is not None and 0 <= at <= (s["recording_seconds"] or 0):
+                when = f'<a href="/s/{sid}?t={int(at)}">{clock(at)}</a>'
+            else:
+                when = f'<span class="dim">{clock(ev["t"])} in</span>'
+            detail = " · ".join(f"{e(k)}: {e(v)}" for k, v in ev["fields"].items())
+            out.append(f'<tr><td>{when}</td><td>{e(ev["kind"])}</td><td>{detail}</td></tr>')
+        out.append("</table>")
+        if len(tl["events"]) > 1000:
+            out.append(f'<p class=dim>The first 1000 of {len(tl["events"])} events.</p>')
+        return "".join(out)
+
+    def ended_page(self, s, sid, what):
+        mine = s["person"] == self.person
+        err = f'<pre class=dim>{e(s["error"])}</pre>' if s["error"] and mine else ""
+        head, parts = "", [f"<h1>{what}: session ended</h1>",
+                           f'<p>Played by {e(s["person"])}, {age(s["at"])} · {e(s["end_reason"])} · '
+                           f'watched {s["viewer_seconds"] // 60} min</p>{err}']
+        if s["recording"]:
+            try:
+                t = max(int(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("t", ["0"])[0]), 0)
+            except ValueError:
+                t = 0
+            src = f"/s/{sid}/recording.mp4" + (f"#t={t}" if t else "")
+            parts.append(f'<video controls preload="metadata"{" autoplay" if t else ""} src="{src}"></video>'
+                         f'<p class=dim>{clock(s["recording_seconds"])} of the game&#39;s screen and sound. '
+                         f"Kept {self.server.depot.session_days} days from the session.</p>")
+        elif not s["files_at"] and s["ended_at"] and \
+                (now() - dt.datetime.fromisoformat(s["ended_at"])).total_seconds() < 600:
+            parts.append("<p class=dim>The recording is on its way from the Forge. This page refreshes itself.</p>")
+            head = '<meta http-equiv="refresh" content="5">'
+        else:
+            parts.append(f'<p class=dim>No recording{": " + e(s["files_note"]) if s["files_note"] else "."}</p>')
+        parts.append(self.timeline_table(s, sid))
+        if s["log"]:
+            parts.append(f'<p><a href="/s/{sid}/player.log">The player log</a></p>')
+        parts.append(f'<p><a href="/g/{e(s["game"])}/r/{e(s["revision"])}">Back to the build</a></p>')
+        return self.page(f"{s['game']} ended", "".join(parts), head=head)
+
     def session_page(self, sid):
         s = self.server.broker.session(sid)
-        if not s or s["person"] != self.person:
+        # A running session is its person's alone; an ended one, with its recording, is the studio's.
+        if not s or (s["person"] != self.person and s["state"] in ACTIVE):
             return self.page("Not found", "<h1>No such session of yours</h1>", 404)
         what = f'{e(s["game"])} <code>{e(s["revision"][:10])}</code>{e(opened_text(s))}'
         end = f'<form method="post" action="/s/{sid}/end"><button class="end">End the session</button></form>'
@@ -794,10 +970,7 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             return self.page(f"Starting {s['game']}", f"<h1>Starting {what} on the Forge…</h1>"
                              f'<p class=dim>Slot s{s["slot"]}, {e(s["state"])}. This page refreshes itself.</p>'
                              f"<p>{end}</p>", head='<meta http-equiv="refresh" content="2">')
-        err = f'<pre class=dim>{e(s["error"])}</pre>' if s["error"] else ""
-        return self.page(f"{s['game']} ended", f"<h1>{what}: session ended</h1>"
-                         f'<p>{e(s["end_reason"])} · watched {s["viewer_seconds"] // 60} min</p>{err}'
-                         f'<p><a href="/g/{e(s["game"])}/r/{e(s["revision"])}">Back to the build</a></p>')
+        return self.ended_page(s, sid, what)
 
     def home(self):
         builds = self.rows("SELECT * FROM builds ORDER BY at DESC")
@@ -870,7 +1043,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         b = bs[0]
         head = (f'<h1>{e(game)} <a href="{e(b["mr_url"])}">!{iid}</a> {e(b["mr_title"])}</h1>'
                 f'<p><span class="tag">{e(b["mr_state"] or "-")}</span></p>')
-        self.page(f"{game} !{iid}", head + self.build_table(bs))
+        self.page(f"{game} !{iid}", head + self.build_table(bs)
+                  + self.past_sessions("game=? AND mr_iid=?", (game, iid)))
 
     def revision(self, game, rev):
         bs = self.rows("SELECT * FROM builds WHERE game=? AND revision=? ORDER BY at DESC", (game, rev))
@@ -880,7 +1054,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         b = bs[0]
         mr = (f' · <a href="/g/{e(game)}/mr/{b["mr_iid"]}">!{b["mr_iid"]} {e(b["mr_title"])}</a>'
               if b["mr_iid"] else "")
-        self.page(f"{game} {rev[:10]}", f"<h1>{e(game)} <code>{e(rev[:10])}</code>{mr}</h1>" + self.build_table(bs))
+        self.page(f"{game} {rev[:10]}", f"<h1>{e(game)} <code>{e(rev[:10])}</code>{mr}</h1>" + self.build_table(bs)
+                  + self.past_sessions("game=? AND revision=?", (game, rev)))
 
 
 class PortalServer(socketserver.ThreadingMixIn, http.server.HTTPServer):

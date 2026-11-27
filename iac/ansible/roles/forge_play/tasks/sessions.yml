@@ -71,6 +71,11 @@
       height: "{{ forge_play_height | int }}"
       player_args: "{{ forge_play_sessions_player_args }}"
       devices: [/dev/nvidia-modeset, /dev/nvidiactl, /dev/nvidia0, /dev/nvidia-uvm, /dev/dri]
+      record:
+        enabled: "{{ forge_play_record | bool }}"
+        fps: "{{ forge_play_record_fps | int }}"
+        cq: "{{ forge_play_record_cq | int }}"
+        max_bytes: "{{ forge_play_record_max_bytes | int }}"
       poll_seconds: 2
   notify: Restart forge-playd
 

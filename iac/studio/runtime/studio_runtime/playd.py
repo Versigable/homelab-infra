@@ -16,17 +16,28 @@ run, then makes it so:
 A session opens the game, its Stage, or one asset on its Stage: the player gets
 -studio-open <game|stage|stage:id>, which the hub chose from the build's own catalogue.
 
+Every session is recorded (vault notes/step-3c-watch-plan): once it's ready, wf-recorder inside
+the container captures the session's screen (labwc, wayland-0) and the game's sound into a named
+pipe in the session's own tmpfs, and this daemon reads the pipe from outside and writes it to
+the Forge's disk, up to a size cap. The container gets no writable path on the host. When the
+session ends, the recording is remuxed to MP4 in a throwaway container with no network, and it,
+the player log and the Studio Kit's timeline ($STUDIO_OUT/timeline.jsonl) go to the depot; the
+hub hears of them at the next sync. No microphone, no camera: what the game shows and plays.
+
 Viewers are the established connections to the container's web port (Selkies' nginx, 3000)
 from outside the container, read from the container's own /proc/<pid>/net/tcp.
 """
 
+import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 import traceback
 import urllib.request
@@ -37,6 +48,12 @@ CONFIG_FILE = os.environ.get("FORGE_PLAYD_CONFIG", "/etc/forge-playd/playd.json"
 LABEL = "studio.session"
 WEB_PORT = 3000
 STUDIO_OUT = "/config/studio"     # in the session's tmpfs home: where the Studio Kit writes tweaks.json
+REC_FIFO = "/config/.studio-rec.fifo"
+# The session's desktop user in the play image, and labwc's socket (wayland-1 is the stream's
+# own compositor socket, which refuses screen capture).
+REC_USER, REC_ENV = "abc", {"XDG_RUNTIME_DIR": "/config/.XDG", "WAYLAND_DISPLAY": "wayland-0", "HOME": "/config"}
+REC_DEFAULTS = {"enabled": True, "fps": 30, "cq": 30, "max_bytes": 3 << 30, "audio": "output.monitor",
+                "uid": 1000, "gid": 1000}
 
 
 def log(msg):
@@ -61,6 +78,14 @@ class Playd:
         self.failed = {}          # session id -> why, reported at the next sync
         self.dead = set()         # sessions reported failed; never started again
         self.collected = {}       # session id -> its tweaks (or None), until a sync takes them
+        self.recorders = {}       # session id -> the processes reading its recording out of the container
+        self.capped = set()       # sessions whose recording ended early (the size cap)
+        self.files = {}           # session id -> its files in the depot, until a sync takes them
+        self.files_lock = threading.Lock()
+        self.rec = {**REC_DEFAULTS, **(cfg.get("record") or {})}
+        self.rec_root = os.path.join(self.state, "rec")
+        os.makedirs(self.rec_root, mode=0o700, exist_ok=True)
+        self.leftovers_done = False
 
     # --- what runs ------------------------------------------------------------------------------
 
@@ -187,6 +212,176 @@ class Playd:
         docker(*argv, c["image"])
         log(f"{sid}: started {s['game']}@{s['revision'][:10]} on slot {slot}")
 
+    # --- recordings -----------------------------------------------------------------------------
+
+    def rec_dir(self, sid):
+        return os.path.join(self.rec_root, sid)
+
+    def recorder_argv(self, name):
+        """docker exec: wf-recorder writes Matroska (readable even if it's cut short) into a
+        named pipe, and cat hands the pipe to this daemon as the exec's standard output.
+        wf-recorder's own messages go to a file in the session, because it prints to stdout."""
+        r = self.rec
+        rec = ["wf-recorder", "-y", "-c", "h264_nvenc", "-x", "yuv420p", "-p", "preset=p4", "-p", "rc=vbr",
+               "-p", f"cq={int(r['cq'])}", "-p", f"g={int(r['fps']) * 2}", "-r", str(int(r["fps"])),
+               f"--audio={r['audio']}", "-m", "matroska", "-f", REC_FIFO]
+        script = (f"rm -f {REC_FIFO}; mkfifo {REC_FIFO} || exit 1; "
+                  f"{' '.join(shlex.quote(a) for a in rec)} >/config/.studio-rec.log 2>&1 & exec cat {REC_FIFO}")
+        argv = ["docker", "exec", "-u", REC_USER]
+        for k, v in REC_ENV.items():
+            argv += ["-e", f"{k}={v}"]
+        return argv + [name, "sh", "-c", script]
+
+    def start_recording(self, sid, name):
+        """Once per session: a session whose recording was cut (this daemon restarted) keeps
+        what it has."""
+        d = self.rec_dir(sid)
+        if not self.rec["enabled"] or sid in self.recorders or os.path.exists(os.path.join(d, "rec.mkv")):
+            return
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump({"start": time.time()}, f)
+        with open(os.path.join(d, "rec.mkv"), "wb") as out:
+            src = subprocess.Popen(self.recorder_argv(name), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   stdin=subprocess.DEVNULL)
+            # head stops at the cap. Docker goes on draining the exec's output, so the recorder
+            # never meets a closed pipe: recording_capped() tells it to stop.
+            cap = subprocess.Popen(["head", "-c", str(int(self.rec["max_bytes"]))], stdin=src.stdout, stdout=out,
+                                   stderr=subprocess.DEVNULL)
+            src.stdout.close()
+        self.recorders[sid] = (src, cap)
+        log(f"{sid}: recording")
+
+    def recording_capped(self, sid, name):
+        """A recording that reached its size cap (or whose reader ended any other way while the
+        session runs on): the recorder inside stops too, instead of encoding into nothing."""
+        procs = self.recorders.get(sid)
+        if not procs or procs[1].poll() is None or sid in self.capped:
+            return
+        self.capped.add(sid)
+        subprocess.run(["docker", "exec", name, "pkill", "-INT", "-x", "wf-recorder"],
+                       capture_output=True, check=False, timeout=20)
+        log(f"{sid}: the recording stopped before the session did (its size cap is {int(self.rec['max_bytes'])} bytes)")
+
+    def stop_recording(self, sid, name, running):
+        """Ask the recorder to finish its file, then wait for the reader to see the end."""
+        procs = self.recorders.pop(sid, None)
+        self.capped.discard(sid)
+        if running:
+            subprocess.run(["docker", "exec", name, "pkill", "-INT", "-x", "wf-recorder"],
+                           capture_output=True, check=False, timeout=20)
+        for p in procs or ():
+            try:
+                p.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+    @staticmethod
+    def read_out(name, path, limit):
+        """A file from the session's tmpfs home (docker cp can't see a tmpfs), at most limit
+        bytes, or None."""
+        try:
+            r = subprocess.run(["docker", "exec", name, "head", "-c", str(limit), path],
+                               capture_output=True, timeout=30, check=False)
+        except subprocess.TimeoutExpired:
+            return None
+        return r.stdout if r.returncode == 0 and r.stdout else None
+
+    def keep_session_files(self, sid, name):
+        """Before the container goes: its player log and the kit's timeline, beside the recording."""
+        d = self.rec_dir(sid)
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        for src, dest, limit in (("/config/player.log", "player.log", hubmod.MAX_LOG_BYTES),
+                                 (f"{STUDIO_OUT}/timeline.jsonl", "timeline.jsonl", hubmod.MAX_TIMELINE_BYTES)):
+            raw = self.read_out(name, src, limit)
+            if raw:
+                with open(os.path.join(d, dest), "wb") as f:
+                    f.write(raw)
+
+    def remux(self, d):
+        """rec.mkv -> out/rec.mp4 (no re-encode, index first so a browser can seek), in a
+        container from the play image with no network, no capabilities and the recording
+        read-only. Returns (path, seconds), or (None, why)."""
+        r = self.rec
+        out = os.path.join(d, "out")
+        os.makedirs(out, mode=0o700, exist_ok=True)
+        os.chown(out, r["uid"], r["gid"])
+        os.chmod(os.path.join(d, "rec.mkv"), 0o644)
+        base = ["docker", "run", "--rm", "--network", "none", "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges", "--memory", "1g", "--cpus", "2",
+                "--user", f"{r['uid']}:{r['gid']}", "-v", f"{d}/rec.mkv:/in/rec.mkv:ro", "-v", f"{out}:/out"]
+        x = subprocess.run(base + ["--entrypoint", "ffmpeg", self.cfg["image"], "-v", "error", "-y", "-i",
+                                   "/in/rec.mkv", "-c", "copy", "-movflags", "+faststart", "/out/rec.mp4"],
+                           capture_output=True, text=True, timeout=900, check=False)
+        mp4 = os.path.join(out, "rec.mp4")
+        if x.returncode != 0 or not os.path.isfile(mp4) or not os.path.getsize(mp4):
+            return None, (x.stderr.strip() or "no output")[-300:]
+        p = subprocess.run(base + ["--entrypoint", "ffprobe", self.cfg["image"], "-v", "error", "-show_entries",
+                                   "format=duration", "-of", "csv=p=0", "/out/rec.mp4"],
+                           capture_output=True, text=True, timeout=120, check=False)
+        try:
+            seconds = round(float(p.stdout.strip()), 1)
+        except ValueError:
+            seconds = None
+        return mp4, seconds
+
+    @staticmethod
+    def sha256(path):
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            while chunk := f.read(1 << 20):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def finish_files(self, sid):
+        """In its own thread, after the container is gone: the recording as MP4, the player log
+        and the timeline go to the depot, and the next sync tells the hub. The session's
+        directory goes once the depot has them; a failure leaves it for the daemon's next start."""
+        d = self.rec_dir(sid)
+        files = {}
+        try:
+            mkv = os.path.join(d, "rec.mkv")
+            if os.path.isfile(mkv) and os.path.getsize(mkv):
+                mp4, seconds = self.remux(d)
+                if mp4:
+                    sha = self.sha256(mp4)
+                    self.hub.put(mp4, sha)
+                    start = None
+                    try:
+                        with open(os.path.join(d, "meta.json"), encoding="utf-8") as f:
+                            start = float(json.load(f)["start"])
+                    except (OSError, ValueError, KeyError, TypeError):
+                        pass
+                    files.update(recording=sha, recording_seconds=seconds, recording_start=start)
+                    log(f"{sid}: recording {sha[:12]} in the depot ({os.path.getsize(mp4) / 1e6:.1f} MB, {seconds} s)")
+                else:
+                    files["note"] = f"the recording couldn't be read: {seconds}"[:200]
+                    log(f"{sid}: {files['note']}")
+            for fn, key in (("player.log", "log"), ("timeline.jsonl", "timeline")):
+                p = os.path.join(d, fn)
+                if os.path.isfile(p) and os.path.getsize(p):
+                    sha = self.sha256(p)
+                    self.hub.put(p, sha)
+                    files[key] = sha
+        except Exception as e:  # noqa: BLE001 - kept on disk; the daemon's next start tries again
+            log(f"{sid}: its files didn't reach the depot: {e}")
+            return
+        if files:
+            with self.files_lock:
+                self.files[sid] = files
+        shutil.rmtree(d, ignore_errors=True)
+
+    def finish_leftovers(self, have):
+        """Once, at the first tick: sessions whose files were still here when the daemon last
+        stopped, and whose containers are gone."""
+        self.leftovers_done = True
+        for sid in os.listdir(self.rec_root):
+            if sid not in have and re.fullmatch(r"[0-9a-f]{16}", sid):
+                shutil.rmtree(os.path.join(self.rec_root, sid, "out"), ignore_errors=True)
+                log(f"{sid}: files left from before; sending them")
+                threading.Thread(target=self.finish_files, args=(sid,), daemon=True).start()
+
     @staticmethod
     def collect_tweaks(name):
         """The session's tweaks.json, read inside the container before it goes: its home is a
@@ -207,15 +402,25 @@ class Playd:
         return t if t and t["assets"] else None
 
     def stop(self, sid, info, why):
-        """Collect the Stage tweaks and keep the player log, then remove the container and the
-        session's files."""
+        """End the recording, collect the Stage tweaks, keep the player log and the timeline,
+        then remove the container and the session's files. The recording and the kept files go
+        to the depot from a thread of their own."""
+        self.stop_recording(sid, info["name"], info.get("running"))
         self.collected[sid] = self.collect_tweaks(info["name"]) if info.get("running") else None
         if self.collected[sid]:
             log(f"{sid}: collected tweaks for {len(self.collected[sid]['assets'])} asset(s)")
-        dest = os.path.join(self.state, "logs", f"{sid}.log")
-        subprocess.run(["docker", "cp", f"{info['name']}:/config/player.log", dest],
-                       capture_output=True, check=False, timeout=30)
+        if info.get("running"):
+            self.keep_session_files(sid, info["name"])
+        # The Forge's own copy of the log, for a failed session's report. (Until 2026-11 this
+        # was `docker cp`, which can't read the session's tmpfs home, so no log was ever kept.)
+        try:
+            shutil.copyfile(os.path.join(self.rec_dir(sid), "player.log"),
+                            os.path.join(self.state, "logs", f"{sid}.log"))
+        except OSError:
+            pass
         docker("rm", "-f", info["name"], check=False)
+        if os.path.isdir(self.rec_dir(sid)):
+            threading.Thread(target=self.finish_files, args=(sid,), daemon=True).start()
         shutil.rmtree(os.path.join(self.state, "sessions", sid), ignore_errors=True)
         logs = sorted(os.listdir(os.path.join(self.state, "logs")),
                       key=lambda f: os.path.getmtime(os.path.join(self.state, "logs", f)))
@@ -234,10 +439,18 @@ class Playd:
 
     def tick(self):
         have = self.containers()
+        if not self.leftovers_done:
+            self.finish_leftovers(have)
         running, gone = {}, {}
         for sid, info in have.items():
             if info["running"]:
                 running[sid] = {"ready": self.ready(info["slot"]), "viewers": self.viewers(info["pid"])}
+                if running[sid]["ready"]:
+                    try:
+                        self.start_recording(sid, info["name"])
+                        self.recording_capped(sid, info["name"])
+                    except Exception as e:  # noqa: BLE001 - a session plays on without a recording
+                        log(f"{sid}: couldn't start recording: {e}")
             else:
                 gone[sid] = info
         for sid, info in gone.items():           # a container that died: its session failed
@@ -245,12 +458,17 @@ class Playd:
             if sid not in self.dead:
                 self.failed[sid] = f"the play container exited ({info['exit']})\n{self.tail(sid)}"
         collected = dict(self.collected)
-        report = {"running": running, "failed": self.failed, "collected": collected}
+        with self.files_lock:
+            files = dict(self.files)
+        report = {"running": running, "failed": self.failed, "collected": collected, "files": files}
         want = self.hub.call("POST", "/v1/forge/sync", report, timeout=15)["sessions"]
         self.dead |= set(self.failed)
         self.failed = {}
         for sid in collected:                    # taken; anything collected since waits for the next
             self.collected.pop(sid, None)
+        with self.files_lock:
+            for sid in files:
+                self.files.pop(sid, None)
         self.want = want
         wanted = {s["id"] for s in want}
         for sid, info in have.items():
