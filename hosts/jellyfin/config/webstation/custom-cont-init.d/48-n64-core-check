@@ -1,0 +1,24 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d). Logs which N64
+# core (mupen64plus-next) this webstation has. Never installs or removes anything.
+#
+# The webstations run a homelab build of the core: libretro's source plus five upstream
+# GLideN64 fixes, among them Mario Kart 64's split-screen item box, minimap and lap/time
+# HUD (hosts/jellyfin/n64-core/README.md). The broker downloads libretro's nightly only
+# when no core is installed and never replaces one, so a fresh /config would quietly get
+# the unpatched nightly at its first N64 launch. This makes that visible in the log.
+#
+# Remove this together with hosts/jellyfin/n64-core/ once libretro's core carries the fixes.
+
+so=/config/.config/retroarch/cores/mupen64plus_next_libretro.so
+if [[ ! -e $so ]]; then
+  echo "[n64-core-check] no N64 core yet: the broker will download libretro's nightly at the first N64 launch, without the homelab fixes (hosts/jellyfin/n64-core/README.md)"
+  exit 0
+fi
+ver=$(grep -a -o -m1 -E '3\.[0-9]+-[A-Za-z]+ [0-9a-f]{7}[-a-z0-9]*' "$so" | head -1)
+if [[ $ver == *-homelab* ]]; then
+  echo "[n64-core-check] N64 core: homelab build ($ver)"
+else
+  echo "[n64-core-check] WARNING: the N64 core is not the homelab build (${ver:-version unknown}); Mario Kart 64's split-screen HUD and the other fixes are missing (hosts/jellyfin/n64-core/README.md)"
+fi
+exit 0
