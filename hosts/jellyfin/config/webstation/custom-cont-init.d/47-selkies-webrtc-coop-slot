@@ -1,0 +1,96 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d), before
+# svc-selkies starts. Patches Selkies 2.0.0's WebRTC signaling server, in the container
+# layer, so that a co-op player joining a session no longer kicks the host off.
+#
+# Why: in WebRTC mode the Selkies page picks its player slot from the URL hash, and with
+# no "#playerN" (RomM's join link has none) it claims slot 1. The signaling server keeps
+# one peer per slot and treats a second claim as a reconnect, so the joiner evicted the
+# host: the host's screen went black, the host's reload evicted the joiner, and so on.
+# Seen 2026-11-26 on the Forge ("Evicting peer ... holding slot 1 for reconnect") and on
+# jf webstation 1. Websockets mode never had it: there the slot comes from the token.
+#
+# The fix: under a session token (the broker always sets one), the page's slot claim is
+# ignored and the peer registers with no slot (-1, Selkies' "unassigned"). Nothing else
+# reads that registry slot under a token: the engine takes each player's gamepad slot
+# from the token, which RomM's room panel assigns. Each WebRTC peer is still superseded
+# by a reconnect of its own: a controller by the next controller (Selkies' own rule) and
+# a viewer by a new socket with the same token (added here, with Selkies' takeover-storm
+# limit).
+#
+# Remove this once upstream Selkies takes the slot from the token in WebRTC mode.
+# If the signaling server's line changes in a new image, this logs and leaves it as it is.
+# Optional $1: the file to patch (for testing on a copy).
+
+/lsiopy/bin/python3 -I - "${1:-/lsiopy/lib/python3.14/site-packages/selkies/webrtc_signaling_server.py}" <<'PY'
+import py_compile
+import sys
+from pathlib import Path
+
+MARK = "homelab-infra 47-selkies-webrtc-coop-slot"
+TAG = "[selkies-webrtc-coop-slot]"
+target = Path(sys.argv[1])
+anchor = "                        allowed_slots = self.allowed_client_slots()\n"
+patch = f"""\
+                        # {MARK}: under a session token the token holds the
+                        # player's slot, so the page's claim (slot 1 when the URL has no
+                        # #playerN) must not evict the host. Register no slot; a viewer is
+                        # superseded only by a new socket with its own token.
+                        if app_settings.master_token:
+                            client_slot = -1
+                            if client_type == "viewer":
+                                same_token = [
+                                    (pid, peer)
+                                    for pid, peer in self.peers.items()
+                                    if getattr(peer, "peer_type", None) == "client"
+                                    and getattr(peer, "client_token", None) == client_token
+                                    and getattr(peer, "display_id", "primary") == display_id
+                                ]
+                                if same_token and self._eviction_storm(("token", display_id, client_token)):
+                                    await ws.close(
+                                        code=4000,
+                                        message=b"Session takeover loop detected; another page holds this seat.",
+                                    )
+                                    raise Exception(
+                                        "Rejecting viewer from {{!r}}: takeover storm".format(raddr)
+                                    )
+                                for pid, peer in same_token:
+                                    evict_peer_locked(
+                                        pid, peer, b"Superseded by a new connection.",
+                                        storm_key=("token", display_id, client_token),
+                                    )
+                                    logger.info(
+                                        "Evicting peer {{!r}} for its own reconnect from {{!r}}".format(
+                                            pid, raddr
+                                        )
+                                    )
+"""
+
+try:
+    src = target.read_text()
+except OSError as exc:
+    print(f"{TAG} cannot read {target}: {exc}; Selkies left as it is")
+    raise SystemExit(0)
+if MARK in src:
+    print(f"{TAG} already patched")
+    raise SystemExit(0)
+if src.count(anchor) != 1 or "if client_slot != -1:" not in src or "def evict_peer_locked(" not in src:
+    print(f"{TAG} expected code not found in {target}; Selkies left as it is")
+    raise SystemExit(0)
+new = src.replace(anchor, patch + anchor)
+try:
+    compile(new, str(target), "exec")
+except SyntaxError as exc:
+    print(f"{TAG} patched source does not compile ({exc}); Selkies left as it is")
+    raise SystemExit(0)
+target.write_text(new)
+try:
+    # Selkies runs as abc and can't rewrite the root-owned .pyc, so refresh it here.
+    py_compile.compile(str(target), doraise=True)
+except Exception as exc:
+    target.write_text(src)
+    py_compile.compile(str(target))
+    print(f"{TAG} could not compile the patched file ({exc}); restored the original")
+    raise SystemExit(0)
+print(f"{TAG} patched: co-op joiners no longer take the host's player slot")
+PY
