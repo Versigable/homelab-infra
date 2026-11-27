@@ -49,6 +49,7 @@ LABEL = "studio.session"
 WEB_PORT = 3000
 STUDIO_OUT = "/config/studio"     # in the session's tmpfs home: where the Studio Kit writes tweaks.json
 REC_FIFO = "/config/.studio-rec.fifo"
+REC_LOG, REC_START = "/config/.studio-rec.log", "/config/.studio-rec.start"
 # The session's desktop user in the play image, and labwc's socket (wayland-1 is the stream's
 # own compositor socket, which refuses screen capture).
 REC_USER, REC_ENV = "abc", {"XDG_RUNTIME_DIR": "/config/.XDG", "WAYLAND_DISPLAY": "wayland-0", "HOME": "/config"}
@@ -220,13 +221,23 @@ class Playd:
     def recorder_argv(self, name):
         """docker exec: wf-recorder writes Matroska (readable even if it's cut short) into a
         named pipe, and cat hands the pipe to this daemon as the exec's standard output.
-        wf-recorder's own messages go to a file in the session, because it prints to stdout."""
+        wf-recorder's own messages go to a file in the session, because it prints to stdout.
+
+        The session's web port answers before labwc is up, so the recorder waits for labwc's
+        socket and is started again if it quits at once (no display yet); the first one that
+        runs is the recording. The pipe is held open meanwhile, so cat sees its end only when
+        that recorder is done. Each start writes the time to a file: the recording's clock."""
         r = self.rec
         rec = ["wf-recorder", "-y", "-c", "h264_nvenc", "-x", "yuv420p", "-p", "preset=p4", "-p", "rc=vbr",
                "-p", f"cq={int(r['cq'])}", "-p", f"g={int(r['fps']) * 2}", "-r", str(int(r["fps"])),
                f"--audio={r['audio']}", "-m", "matroska", "-f", REC_FIFO]
-        script = (f"rm -f {REC_FIFO}; mkfifo {REC_FIFO} || exit 1; "
-                  f"{' '.join(shlex.quote(a) for a in rec)} >/config/.studio-rec.log 2>&1 & exec cat {REC_FIFO}")
+        script = (f"rm -f {REC_FIFO} {REC_START}; : >{REC_LOG}; mkfifo {REC_FIFO} || exit 1; "
+                  f"( exec 3>{REC_FIFO}; i=0; while [ $i -lt 90 ]; do i=$((i+1)); "
+                  'if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then '
+                  f"s=$(date +%s); date +%s.%N >{REC_START}; "
+                  f"{' '.join(shlex.quote(a) for a in rec)} >>{REC_LOG} 2>&1; rc=$?; "
+                  '[ $rc -eq 0 ] && break; [ $(( $(date +%s) - s )) -ge 5 ] && break; fi; '
+                  f"sleep 1; done ) & exec cat {REC_FIFO}")
         argv = ["docker", "exec", "-u", REC_USER]
         for k, v in REC_ENV.items():
             argv += ["-e", f"{k}={v}"]
@@ -293,7 +304,8 @@ class Playd:
         d = self.rec_dir(sid)
         os.makedirs(d, mode=0o700, exist_ok=True)
         for src, dest, limit in (("/config/player.log", "player.log", hubmod.MAX_LOG_BYTES),
-                                 (f"{STUDIO_OUT}/timeline.jsonl", "timeline.jsonl", hubmod.MAX_TIMELINE_BYTES)):
+                                 (f"{STUDIO_OUT}/timeline.jsonl", "timeline.jsonl", hubmod.MAX_TIMELINE_BYTES),
+                                 (REC_START, "rec.start", 64), (REC_LOG, "rec.log", 64 << 10)):
             raw = self.read_out(name, src, limit)
             if raw:
                 with open(os.path.join(d, dest), "wb") as f:
@@ -347,17 +359,15 @@ class Playd:
                 if mp4:
                     sha = self.sha256(mp4)
                     self.hub.put(mp4, sha)
-                    start = None
-                    try:
-                        with open(os.path.join(d, "meta.json"), encoding="utf-8") as f:
-                            start = float(json.load(f)["start"])
-                    except (OSError, ValueError, KeyError, TypeError):
-                        pass
+                    start = self.recording_start(d)
                     files.update(recording=sha, recording_seconds=seconds, recording_start=start)
                     log(f"{sid}: recording {sha[:12]} in the depot ({os.path.getsize(mp4) / 1e6:.1f} MB, {seconds} s)")
                 else:
                     files["note"] = f"the recording couldn't be read: {seconds}"[:200]
                     log(f"{sid}: {files['note']}")
+            elif os.path.isfile(mkv):
+                files["note"] = f"the recorder wrote nothing: {self.recorder_said(d)}"[:200]
+                log(f"{sid}: {files['note']}")
             for fn, key in (("player.log", "log"), ("timeline.jsonl", "timeline")):
                 p = os.path.join(d, fn)
                 if os.path.isfile(p) and os.path.getsize(p):
@@ -371,6 +381,32 @@ class Playd:
             with self.files_lock:
                 self.files[sid] = files
         shutil.rmtree(d, ignore_errors=True)
+
+    @staticmethod
+    def recording_start(d):
+        """When the recording began (epoch seconds): the recorder's own note of its start, kept
+        from the session; failing that (a container that died), when this daemon started it,
+        which is a few seconds early."""
+        try:
+            with open(os.path.join(d, "rec.start"), encoding="ascii") as f:
+                return float(f.read().strip())
+        except (OSError, ValueError):
+            pass
+        try:
+            with open(os.path.join(d, "meta.json"), encoding="utf-8") as f:
+                return float(json.load(f)["start"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    @staticmethod
+    def recorder_said(d):
+        """The recorder's last line, for a session that got no recording."""
+        try:
+            with open(os.path.join(d, "rec.log"), encoding="utf-8", errors="replace") as f:
+                lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
+            return lines[-1] if lines else "it said nothing"
+        except OSError:
+            return "its messages weren't kept"
 
     def finish_leftovers(self, have):
         """Once, at the first tick: sessions whose files were still here when the daemon last
