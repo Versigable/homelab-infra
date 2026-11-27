@@ -24,7 +24,7 @@
 		"MAIL_DOMAIN": "agents.ninjaprivacy.org",
 		// Local-parts this Worker accepts. Each one also needs its own Email Routing
 		// rule (catch-all rules are apex-only) and a token hash to read with.
-		"AGENTS": "mv-agent,drclawbotnik,merquery",
+		"AGENTS": "mv-agent,esquie,drclawbotnik,merquery",
 		"RETENTION_DAYS": "30"
 	},
 	// Secret, set with `wrangler secret put AGENT_TOKEN_HASHES` (never committed):
