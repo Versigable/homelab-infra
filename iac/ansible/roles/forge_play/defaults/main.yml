@@ -52,5 +52,15 @@ forge_play_sessions_state: /var/lib/forge-playd
 # Only Traefik's requests, which studio-gw forwards keeping Traefik's address, may open a
 # session's port; anyone else on the studio network is dropped before Docker's DNAT.
 forge_play_stream_from: [10.0.2.5]
-# Unity player flags for every session (as the standing session's).
-forge_play_sessions_player_args: -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -force-glcore
+# Every session is recorded by forge-playd (vault notes/step-3c-watch-plan): the session's
+# screen and the game's sound, never a microphone. NVENC at this frame rate and quality (cq:
+# lower is better and larger), cut off at max_bytes, which stays under the hub's
+# studio_hub_max_session_file_bytes. The recording, the player log and the Studio Kit's
+# timeline go to the depot when the session ends.
+forge_play_record: true
+forge_play_record_fps: 30
+forge_play_record_cq: 30
+forge_play_record_max_bytes: 3000000000
+# Unity player flags for every session (as the standing session's). -timestamps puts the time
+# on each line of the player log, which places its lines on the session's recording.
+forge_play_sessions_player_args: -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -force-glcore -timestamps

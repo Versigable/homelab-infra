@@ -1,6 +1,8 @@
 # Studio play image: the Selkies base plus what a Unity Linux player loads. The game itself
 # is mounted read-only at /game; the session's autostart (mounted per game) launches it.
 # Built on the Forge by Ansible (role forge_play); the tag is a hash of this file and BASE.
+# wf-recorder and ffmpeg record a session's screen and sound for forge-playd (which reads the
+# recording out through a pipe) and remux it afterwards; nothing in a session starts them itself.
 ARG BASE
 FROM ${BASE}
 
@@ -19,6 +21,8 @@ RUN apt-get update \
       libxkbcommon0 \
       libxrandr2 \
       libxss1 \
+      wf-recorder \
+      ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 # Wayland session (labwc); X11 apps such as the Unity player run under XWayland.

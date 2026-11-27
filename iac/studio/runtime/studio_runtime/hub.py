@@ -10,6 +10,7 @@ owners, plain modes, gzip without a timestamp or file name), so the same build a
 same sha256 and the depot keeps it once.
 """
 
+import datetime as dt
 import gzip
 import hashlib
 import http.client
@@ -104,6 +105,81 @@ def check_open(value, catalog=None):
     if value.startswith("stage:") and catalog is not None and value[6:] not in catalog_ids(catalog):
         return None
     return value
+
+
+# --- a session's files: its recording, its player log, the kit's timeline ---------------------
+# forge-playd records every session and, when it ends, puts the recording (MP4), the player log
+# and $STUDIO_OUT/timeline.jsonl in the depot, then names them in its sync. The timeline is the
+# game's own account of the session, one JSON object per line: "t" (seconds since the player
+# started) and "kind", plus a few short fields; the first line is kind "start" with "wall", the
+# wall-clock time at t = 0, which places the events on the recording's clock.
+MAX_LOG_BYTES, MAX_TIMELINE_BYTES, MAX_EVENTS = 5 << 20, 1 << 20, 5000
+KIND_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+MAX_FIELDS, MAX_FIELD_TEXT = 8, 300
+
+
+def _number(v, low, high):
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and v == v and low <= v < high
+
+
+def check_files(f):
+    """The Forge's report of a session's files, normalised, or None if it isn't one."""
+    if not isinstance(f, dict):
+        return None
+    out = {}
+    for k in ("recording", "log", "timeline"):
+        v = f.get(k)
+        if v is not None and (not isinstance(v, str) or not SHA_RE.match(v)):
+            return None
+        out[k] = v
+    secs, start, note = f.get("recording_seconds"), f.get("recording_start"), f.get("note")
+    out["recording_seconds"] = float(secs) if _number(secs, 0, 1e6) else None
+    out["recording_start"] = float(start) if _number(start, 1, 1e11) else None
+    out["note"] = note[:200] if isinstance(note, str) and note else None
+    return out
+
+
+def _wall(v):
+    """An ISO time as epoch seconds, or None."""
+    if not isinstance(v, str) or len(v) > 40:
+        return None
+    try:
+        t = dt.datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    return (t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)).timestamp()
+
+
+def read_timeline(raw):
+    """A timeline from its file's bytes: {"wall": epoch seconds at t = 0 or None, "events":
+    [{"t", "kind", "fields"}]}. Lines that aren't events are skipped (a session that was cut
+    leaves a half-written last line); at most 5000 events, and short text only."""
+    wall, events = None, []
+    for line in raw[:MAX_TIMELINE_BYTES].decode("utf-8", errors="replace").splitlines():
+        if len(events) >= MAX_EVENTS:
+            break
+        try:
+            ev = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(ev, dict) or not _number(ev.get("t"), 0, 1e6):
+            continue
+        kind = ev.get("kind")
+        if not isinstance(kind, str) or not KIND_RE.match(kind):
+            continue
+        if kind == "start" and wall is None:
+            wall = _wall(ev.get("wall"))
+        fields = {}
+        for k, v in ev.items():
+            if k in ("t", "kind", "wall") or not isinstance(k, str) or not FIELD_RE.match(k) or len(fields) >= MAX_FIELDS:
+                continue
+            if isinstance(v, str):
+                fields[k] = v[:MAX_FIELD_TEXT]
+            elif _scalar(v):
+                fields[k] = v
+        events.append({"t": float(ev["t"]), "kind": kind, "fields": fields})
+    return {"wall": wall, "events": events}
 
 
 class HubError(Exception):
