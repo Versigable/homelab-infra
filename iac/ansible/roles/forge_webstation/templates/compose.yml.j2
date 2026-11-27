@@ -53,6 +53,10 @@ services:
       SELKIES_FRAMERATE: "60-60"
       PCSX2_PATCHES_FETCH: "false"
       AZAHAR_BIN: /opt/webstation-bin/azahar-xcb
+{% if forge_webstation_xenia_build %}
+      # Newer Xenia Edge than the image's (role defaults: forge_webstation_xenia_build).
+      XENIA_BIN: /config/xenia-edge-{{ forge_webstation_xenia_build }}/squashfs-root/AppRun
+{% endif %}
       SUBFOLDER: "{{ forge_webstation_path }}"
       # WebRTC (UDP), jf's x-webrtc-env (hosts/jellyfin/compose/webstation.yml) with this
       # instance's port and the .studio name for the public IP.

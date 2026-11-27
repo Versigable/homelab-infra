@@ -51,3 +51,16 @@ forge_webstation_bridge: br-romm
 #                                     or Ansible's copy put a new file there, and the container,
 #                                     which mounts the old one, sees it only after a restart.
 #                                     Refreshed from jf 2026-11-07, after the 10-25 copy.
+
+# Xenia Edge (Xbox 360) build the broker runs (XENIA_BIN), newer than the image's. The image's
+# edge@9a84c1d3c (2026-10-10) crashed Halo 3 at its first campaign autosave, twice (host-side
+# crash on a fiber thread after cache1:\autosave writes and \Device\Harddisk0\partition0
+# opens). 20261127.1 (edge@19a9d5b27) ran Sierra 117 past four autosaves without a crash.
+# Copied by hand, since the container can't download: fetch
+# github.com/has207/xenia-edge/releases/download/<build>/xenia_edge_<build>_linux.AppImage,
+# check its sha256 against the release's digest, put it in config/xenia-edge-<build>/ and run
+# `./xenia_edge_<build>_linux.AppImage --appimage-extract` there as the container's user (1000).
+# The role checks that config/xenia-edge-<build>/squashfs-root/AppRun is in place. A newer build
+# can rewrite config/xenia/xenia-edge.config.toml, so copy it first to go back. Empty: the
+# image's own build. ps3 and xbox360 stream from the Forge only, so jf has no override.
+forge_webstation_xenia_build: "20261127.1"
