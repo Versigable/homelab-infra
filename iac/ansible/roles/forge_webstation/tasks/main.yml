@@ -91,6 +91,21 @@
           Copy them from jf's webstation stack first (role defaults).
         quiet: true
 
+    - name: The Xenia Edge build
+      ansible.builtin.stat:
+        path: "{{ forge_webstation_root }}/config/xenia-edge-{{ forge_webstation_xenia_build }}/squashfs-root/AppRun"
+      register: forge_webstation_xenia
+      when: forge_webstation_xenia_build | length > 0
+
+    - name: The Xenia Edge build is in place
+      ansible.builtin.assert:
+        that: forge_webstation_xenia.stat.exists
+        fail_msg: >-
+          Missing {{ forge_webstation_root }}/config/xenia-edge-{{ forge_webstation_xenia_build }}/squashfs-root/AppRun.
+          Download and extract that build first (role defaults: forge_webstation_xenia_build).
+        quiet: true
+      when: forge_webstation_xenia_build | length > 0
+
     - name: Compose file
       ansible.builtin.template:
         src: compose.yml.j2
