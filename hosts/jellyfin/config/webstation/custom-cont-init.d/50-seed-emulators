@@ -427,6 +427,13 @@ print("[seed-emulators] RPCS3: players 2-4 on Selkies pads 2-4")
 PY
 fi
 
+# RPCS3's first-run "Welcome to RPCS3" dialog opens beside the game on every launch,
+# --no-gui included, until it's switched off, and its Continue button stays disabled
+# until a box is ticked. On the stream it sits over the game. Off here: [main_window]
+# infoBoxEnabledWelcome (rpcs3qt/gui_settings.h). RPCS3 reads "key = value" and rewrites
+# it as "key=value" (checked 2026-11-27: no dialog on the next launch).
+set_defaults /config/.config/rpcs3/GuiConfigs/CurrentSettings.ini main_window infoBoxEnabledWelcome false
+
 # Selkies page scripts, loaded from index.html ahead of the client's own bundle. The
 # web root sits in the container layer, so this runs on every start.
 # - gamepad-shim.js: Chrome gives some controllers no standard layout, and for those
