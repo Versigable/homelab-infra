@@ -30,9 +30,11 @@ forge_webstation_webrtc_host: webstation-udp.studio
 forge_webstation_path: /streaming-forge/
 # The ROM library, mounted read-only from TrueNAS by nfs_client (host_vars/studio-forge.yml).
 forge_webstation_library: /mnt/gameroom
-# 4 of the Forge's 8 vCPUs, as each jf instance has 4 of jf's 12.
-forge_webstation_cpuset: "4-7"
-forge_webstation_mem_limit: 3g
+# 8 of the Forge's 12 vCPUs and 8 GiB, for PS3 (RPCS3) and Xbox 360 (Xenia), which want 6+
+# threads and more than 3 GiB while they compile a game's code. The jf instances keep 4 and
+# 3 GiB. mem_limit is a ceiling, not a reservation: the play lane shares the Forge's 16 GiB.
+forge_webstation_cpuset: "4-11"
+forge_webstation_mem_limit: 8g
 # Locked by the host firewall (forge_play_locked_bridges in group_vars/studio_forge.yml).
 forge_webstation_bridge: br-romm
 
