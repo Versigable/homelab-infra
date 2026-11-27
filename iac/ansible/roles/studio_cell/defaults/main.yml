@@ -23,6 +23,9 @@ studio_cell_packages:
   - nodejs
   - npm
   - build-essential
+  # `studio watch` cuts filmstrips from session recordings (as the agent), with times burned in.
+  - ffmpeg
+  - fonts-dejavu-core
   - libasound2t64
   - libegl1
   - libgbm1

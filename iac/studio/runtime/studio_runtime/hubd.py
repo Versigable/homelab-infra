@@ -456,6 +456,34 @@ class Broker:
             out.append(p)
         return out
 
+    def sessions_of(self, cell, game, mr=None):
+        """Ended sessions of this cell's builds of a game that someone watched, newest first,
+        with their files: what `studio watch` lists. Whoever played them, the build is the
+        cell's, so its agents may look."""
+        sql = "SELECT * FROM sessions WHERE cell=? AND game=? AND state='ended' AND viewer_seconds > 0"
+        args = [cell, game]
+        if mr is not None:
+            sql += " AND mr_iid=?"
+            args.append(mr)
+        with self.depot.db() as db:
+            rows = db.execute(sql + " ORDER BY at DESC LIMIT 50", args).fetchall()
+        out = []
+        for s in rows:
+            p = {k: s[k] for k in ("id", "game", "revision", "project_id", "mr_iid", "person", "viewer_seconds", "at",
+                                   "ended_at", "end_reason", "recording", "recording_seconds", "recording_start",
+                                   "log", "timeline")}
+            p["open"] = s["open_target"] or "game"
+            p["tweaks"] = json.loads(s["tweaks"]) if s["tweaks"] else None
+            p["note"] = s["files_note"]
+            out.append(p)
+        return out
+
+    def session_file_of(self, cell, sha):
+        """Is this object a file of a session of one of the cell's builds?"""
+        with self.depot.db() as db:
+            return bool(db.execute("SELECT 1 FROM sessions WHERE cell=? AND (recording=? OR log=? OR timeline=?) LIMIT 1",
+                                   (cell, sha, sha, sha)).fetchone())
+
     def reported(self, sid, cell):
         with self.depot.db() as db:
             n = db.execute("UPDATE sessions SET reported=1 WHERE id=? AND cell=?", (sid, cell)).rowcount
@@ -535,9 +563,19 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 if c["kind"] != "cell":
                     raise Forbidden("plays are reported to the cells that uploaded the builds")
                 return self.reply(200, self.server.broker.plays(cn))
+            u = urllib.parse.urlsplit(self.path)
+            if u.path == "/v1/sessions":
+                if c["kind"] != "cell":
+                    raise Forbidden("sessions are listed for the cells that uploaded the builds")
+                q = urllib.parse.parse_qs(u.query, max_num_fields=4)
+                game, mr = (q.get("game") or [""])[0], (q.get("mr") or [None])[0]
+                if not NAME_RE.match(game) or (mr is not None and not mr.isdigit()):
+                    raise BadRequest("needs game, and mr as a number if given")
+                return self.reply(200, self.server.broker.sessions_of(cn, game, int(mr) if mr is not None else None))
             sha = self.object_sha()
-            if c["kind"] != "forge":
-                raise Forbidden("only the Forge downloads objects")
+            # The Forge downloads builds. A cell downloads only the files of sessions of its own builds.
+            if c["kind"] != "forge" and not (c["kind"] == "cell" and self.server.broker.session_file_of(cn, sha)):
+                raise Forbidden("only the Forge downloads objects, and a cell its own builds' session files")
             if not depot.has(sha):
                 return self.reply(404, {"error": "no such object"})
             p = depot.path(sha)

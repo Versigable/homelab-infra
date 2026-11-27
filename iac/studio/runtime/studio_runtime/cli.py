@@ -27,6 +27,14 @@ USAGE = """usage: studio <verb> [args]
   studio gate [quick|full]          cold gates on the committed HEAD: quick = EditMode
                                     tests; full = + PlayMode tests + a Linux build
   studio build linux|windows        a cold build of the committed HEAD
+  studio watch [--mr N]             the recorded play sessions of this game's builds
+  studio watch <session>            what happened in one: its timeline, the numbers tuned
+                                    on the Stage, the player log's warnings and errors,
+                                    each with its time on the recording
+  studio watch <session> --from 4:00 --to 4:20 [--frames N]
+                                    a filmstrip of that stretch (a PNG path): N frames,
+                                    evenly spaced, each stamped with its time
+  studio watch <session> --at 4:10  one frame, full size (a PNG path)
   studio docs [--manual] <name>     Unity's docs for the pinned Editor, offline, as text
                                     (studio docs Mathf.Sin; studio docs --manual Prefabs);
                                     a partial name lists the matching pages
@@ -69,22 +77,69 @@ LATER = {
 }
 
 
-def call(path, verb, args):
+def request(path, verb, args):
+    """One request to a daemon: (exit code, result). Its progress lines go to stderr."""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         s.connect(path)
     except OSError as e:
         print(f"studio: can't reach {path}: {e}", file=sys.stderr)
-        return 69
+        return 69, None
     common.send(s, {"verb": verb, "args": args})
-    rc = 1
+    rc, result = 1, None
     for msg in common.read_lines(s):
         if "out" in msg:
             print(f"studio: {msg['out']}", file=sys.stderr, flush=True)
         if "rc" in msg:
-            rc = msg["rc"]
-            print(json.dumps(msg.get("result"), indent=2))
+            rc, result = msg["rc"], msg.get("result")
+    return rc, result
+
+
+def call(path, verb, args):
+    rc, result = request(path, verb, args)
+    if rc != 69:
+        print(json.dumps(result, indent=2))
     return rc
+
+
+def watch_main(args):
+    """`studio watch`: the daemon lists sessions, fetches one and says what happened; a picture
+    of a moment is cut here, as the caller, into the worktree's Logs/watch/."""
+    from . import watch
+    rest, look, it = [], {}, iter(args)
+    for a in it:
+        if a in ("--from", "--to", "--at", "--frames"):
+            look[a[2:]] = next(it, "")
+        else:
+            rest.append(a)
+    if not look:
+        return call(common.AGENTD_SOCKET, "watch", rest)
+    try:
+        if "at" in look and ("from" in look or "to" in look):
+            raise ValueError("--at is one frame; --from and --to are a filmstrip: use one or the other")
+        if "at" not in look and not ("from" in look and "to" in look):
+            raise ValueError("a filmstrip needs both --from and --to")
+        t = {k: watch.parse_time(look[k]) for k in ("from", "to", "at") if k in look}
+        frames = int(look.get("frames") or 8)
+    except ValueError as e:
+        print(json.dumps({"error": str(e)}, indent=2))
+        return 2
+    rc, res = request(common.AGENTD_SOCKET, "watch", rest)
+    if rc != 0 or not isinstance(res, dict) or not res.get("recording"):
+        if rc != 69:
+            print(json.dumps(res if rc else {"error": (res or {}).get("no_recording") or "give a session's id"}, indent=2))
+        return rc or 2
+    out_dir = os.path.join(os.getcwd(), "Logs", "watch", res["session"]["id"])
+    try:
+        if "at" in t:
+            pic = watch.frame(res["recording"], res.get("seconds"), t["at"], out_dir)
+        else:
+            pic = watch.filmstrip(res["recording"], res.get("seconds"), t["from"], t["to"], out_dir, frames)
+    except (ValueError, RuntimeError, OSError) as e:
+        print(json.dumps({"error": str(e)}, indent=2))
+        return 1
+    print(json.dumps({"session": res["session"]["id"], **pic}, indent=2))
+    return 0
 
 
 def main(argv=None):
@@ -100,6 +155,8 @@ def main(argv=None):
         # Local and read-only: the pages are on disk, readable by everyone; no daemon involved.
         from . import docs
         return docs.main(args)
+    if verb == "watch":
+        return watch_main(args)
     if verb in ("done", "jobs", "attach", "detach", "vendor"):
         if verb == "done" and len(args) == 2:
             # Read here, inside the job: its /tmp is private to its unit, so the daemon couldn't.
