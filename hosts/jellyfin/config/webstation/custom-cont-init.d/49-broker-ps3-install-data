@@ -1,0 +1,81 @@
+#!/usr/bin/with-contenv bash
+# Runs as root on every container start (LinuxServer custom-cont-init.d), before
+# svc-broker starts. Patches the romm-broker, in the container layer, so that RPCS3's
+# installed game data is not treated as a save.
+#
+# Why: many PS3 games install data to dev_hdd0/game/ on first boot (LittleBigPlanet 2
+# writes 1.2 GB to game/BCUS98245, PARAM.SFO category GD, no EBOOT.BIN). The broker's
+# _gamedata_dirs() counts every game/ dir without a bootable EBOOT.BIN as cellGameData
+# save data, which feeds three places:
+#   - _clear_stale_save_data deletes it before every restore, so the game reinstalls on
+#     every launch;
+#   - save_subtrees puts it in the exit dump, which then exceeds SAVE_FILE_MAX_BYTES
+#     (256 MiB) and uploads nothing, the player's real save included (2026-11-27: LBP2's
+#     80 KB profile, game/BCUS98245_USER1, was lost that way);
+#   - _session_save_dirs restamps it as a session save dir.
+# The patch leaves out any such dir of 128 MiB or more: too big to ship as a save in any
+# case, so treating it as one only wipes it and blocks the real saves. Smaller dirs sync
+# as before. Installed data stays on this container, which is fine while ps3 streams from
+# one container only (RomM config.yml: the Forge).
+#
+# Remove this once upstream tells installed game data from saves. If the broker's lines
+# change in a new image, this logs and leaves the broker as it is.
+
+/lsiopy/bin/python3 -I - <<'PY'
+import os
+from pathlib import Path
+
+MARK = "homelab-infra 49-broker-ps3-install-data"
+target = Path(os.environ.get("HOMELAB_PATCH_TARGET",
+              "/lsiopy/lib/python3.14/site-packages/webstation_broker/emulators/rpcs3.py"))
+def_anchor = "def _gamedata_dirs() -> list[Path]:\n"
+loop_anchor = (
+    '            if (d / "USRDIR" / "EBOOT.BIN").is_file():\n'
+    "                continue\n"
+    "            dirs.append(d)\n"
+)
+helper = f'''# {MARK}: installed game data is not a save
+_HOMELAB_INSTALL_MIN_BYTES = 128 * 1024 * 1024
+
+
+def _homelab_is_install_data(d: Path) -> bool:
+    """A game/ dir of 128 MiB or more: a disc's installed data, not a save."""
+    total = 0
+    try:
+        for p in d.rglob("*"):
+            try:
+                if p.is_file() and not p.is_symlink():
+                    total += p.stat().st_size
+            except OSError:
+                continue
+            if total >= _HOMELAB_INSTALL_MIN_BYTES:
+                log.info("rpcs3: game/%s is installed game data (128 MiB or more), not a save: kept, not synced", d.name)
+                return True
+    except OSError as exc:
+        log.warning("rpcs3: could not size game/%s, treating it as save data: %s", d.name, exc)
+    return False
+
+
+'''
+loop_patch = (
+    '            if (d / "USRDIR" / "EBOOT.BIN").is_file():\n'
+    "                continue\n"
+    f"            if _homelab_is_install_data(d):  # {MARK}\n"
+    "                continue\n"
+    "            dirs.append(d)\n"
+)
+try:
+    src = target.read_text()
+except OSError as exc:
+    print(f"[broker-ps3-install-data] cannot read {target}: {exc}; broker left as it is")
+    raise SystemExit(0)
+if MARK in src:
+    print("[broker-ps3-install-data] already patched")
+elif src.count(def_anchor) != 1 or src.count(loop_anchor) != 1:
+    print(f"[broker-ps3-install-data] expected lines not found exactly once in {target}; broker left as it is")
+else:
+    src = src.replace(def_anchor, helper + def_anchor).replace(loop_anchor, loop_patch)
+    compile(src, str(target), "exec")  # a syntax error leaves the file untouched
+    target.write_text(src)
+    print("[broker-ps3-install-data] patched: game/ dirs of 128 MiB or more are installed data, not saves")
+PY
