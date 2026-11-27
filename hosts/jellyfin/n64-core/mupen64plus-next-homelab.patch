@@ -1,0 +1,89 @@
+--- a/GLideN64/src/GBI.cpp
++++ b/GLideN64/src/GBI.cpp
+@@ -95,6 +95,7 @@
+     { F3D,          false,  false,  false,  true,   0xe01e14be }, // Eikou no Saint Andrews
+     { F3DEX2ACCLAIM,true,   true,   false,  true,   0xe44df568 }, // Acclaim games: Turok2 & 3, Armories and South park
+     { F3D,          false,  true,   false,  true,   0xe62a706d }, // Fast3D
++    { F3DEX095,     false,  false,  true,   true,   0xf89248e1 }, // Mario Kart 64, F3DLX 0.95 (gonetz/GLideN64@5256259)
+     { F3D,          false,  true,   false,  false,  0xfff0637d }, // Caribbean Nights
+ };
+ 
+--- a/GLideN64/src/RSP.cpp
++++ b/GLideN64/src/RSP.cpp
+@@ -139,6 +139,8 @@
+ 		gSP.matrix.modelViewi = 0;
+ 		gSP.status[0] = gSP.status[1] = gSP.status[2] = gSP.status[3] = 0;
+ 		gSP.geometryMode = 0U;
++		memset(&gSP.lookat, 0, sizeof(gSPInfo::lookat));
++		gSP.lookat.xyz[0][Y] = gSP.lookat.xyz[1][X] = 1.0f;
+ 		gSP.changed |= CHANGED_MATRIX | CHANGED_LIGHT | CHANGED_LOOKAT | CHANGED_GEOMETRYMODE;
+ 		gSP.tri_num = 0;
+ 		gSP.cbfd.advancedLighting = false;
+--- a/custom/GLideN64/GLideN64.custom.ini.h
++++ b/custom/GLideN64/GLideN64.custom.ini.h
+@@ -18,6 +18,10 @@
+ "Good_Name=Baku Bomberman (J) [!]\n"
+ "generalEmulation\\enableLegacyBlending=0\n"
+ "\n"
++"[BANJO-KAZOOIE]\n"
++"Good_Name=Banjo-Kazooie (U) [!]\n"
++"frameBufferEmulation\\copyToRDRAM=1\n"
++"\n"
+ "[BIOFREAKS]\n"
+ "Good_Name=Bio F.R.E.A.K.S. (E)(U)\n"
+ "frameBufferEmulation\\copyToRDRAM=1\n"
+@@ -87,6 +91,10 @@
+ "frameBufferEmulation\\copyFromRDRAM=1\n"
+ "frameBufferEmulation\\copyToRDRAM=0\n"
+ "\n"
++"[ELTAIL]\n"
++"Good_Name=Eltale Monsters (J)\n"
++"texture\\enableHalosRemoval=1\n"
++"\n"
+ "[EXTREME_G]\n"
+ "Good_Name=Extreme-G (E)\n"
+ "frameBufferEmulation\\N64DepthCompare=1\n"
+@@ -136,6 +144,10 @@
+ "[HEXEN]\n"
+ "Good_Name=Hexen (E)(F)(G)(J)(U)\n"
+ "frameBufferEmulation\\copyToRDRAM=1\n"
++"\n"
++"[HOLY%20MAGIC%20CENTURY]\n"
++"Good_Name=Holy Magic Century (E)(F)(G)\n"
++"texture\\enableHalosRemoval=1\n"
+ "\n"
+ "[HUMAN%20GRAND%20PRIX]\n"
+ "Good_Name=Human Grand Prix - New Generation (J)\n"
+@@ -269,6 +281,10 @@
+ "Good_Name=Pokemon Puzzle League (E)(F)(G)(U)\n"
+ "texture\\enableHalosRemoval=1\n"
+ "\n"
++"[QUEST%2064]\n"
++"Good_Name=Quest 64 (U)\n"
++"texture\\enableHalosRemoval=1\n"
++"\n"
+ "[RAT%20ATTACK]\n"
+ "Good_Name=Rat Attack\n"
+ "frameBufferEmulation\\fbInfoDisabled=0\n"
+@@ -330,6 +346,10 @@
+ "[TETRISPHERE]\n"
+ "Good_Name=Tetrisphere (E)(U)\n"
+ "graphics2D\\correctTexrectCoords=2\n"
++"\n"
++"[THE%20MASK%20OF%20MUJURA]\n"
++"Good_Name=Zelda no Densetsu - Mujura no Kamen (J)\n"
++"frameBufferEmulation\\copyAuxToRDRAM=1\n"
+ "\n"
+ "[TIGGER%27S%20HONEY%20HUNT]\n"
+ "Good_Name=Tiggers Honey Hunt (E)(U)\n"
+@@ -358,6 +378,10 @@
+ "[W.G.%203DHOCKEY]\n"
+ "Good_Name=Wayne Gretzky's 3D Hockey (E)(U)\n"
+ "frameBufferEmulation\\bufferSwapMode=1\n"
++"\n"
++"[ZELDA%20MAJORA%27S%20MASK]\n"
++"Good_Name=Legend of Zelda, The - Majora's Mask (E)(U)\n"
++"frameBufferEmulation\\copyAuxToRDRAM=1\n"
+ "\n"
+ "[WGHOCKEY]\n"
+ "Good_Name=Wayne Gretzky's 3D Hockey (J)\n"
