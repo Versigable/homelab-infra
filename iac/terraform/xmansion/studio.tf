@@ -97,6 +97,9 @@ module "studio_gw" {
 # TrueNAS and GitLab: Ansible sets that (affinity is root-only; host_vars/studio-forge.yml),
 # and it takes effect at the VM's next start. q35 + OVMF without Secure Boot keys is the
 # recipe jf used on this card.
+# 12 vCPUs (was 8) so the RomM webstation can have 8 for PS3 and Xbox 360 (RPCS3 and Xenia
+# want 6+ threads); they still fit in the CCD's 16 threads. No CPU hotplug: changing this
+# restarts the VM.
 module "studio_forge" {
   source = "../modules/vm"
 
@@ -105,7 +108,7 @@ module "studio_forge" {
   vmid          = 155
   template_vmid = var.vm_template_vmids["phoenix"]
   description   = "Studio Forge: RTX 5070 Ti, lanes gen/play/render/seat. Ansible roles forge_gpu, forge_play. Vault: 1-Projects/game-studio-platform/design/architecture."
-  cores         = 8
+  cores         = 12
   memory        = 16384
   disk          = 100
 
