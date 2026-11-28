@@ -112,6 +112,14 @@ for f in dc_boot dc_flash; do
   seed "$BIOS/dc/$f.bin" "/config/.config/retroarch/system/dc/$f.bin"
 done
 
+# Saturn BIOS pair for RetroArch's Beetle Saturn core (mednafen_saturn), which picks
+# the BIOS by the disc's region: sega_101.bin (JP v1.01) and mpr-17933.bin (US/EU v1.00).
+# Both are in the library's bios/saturn since 2026-11-28. The browser's yabause keeps
+# using saturn_bios.bin through RomM's own config.
+for f in sega_101 mpr-17933; do
+  seed "$BIOS/saturn/$f.bin" "/config/.config/retroarch/system/$f.bin"
+done
+
 # PS2 BIOS for PCSX2, whose data root is $XDG_CONFIG_HOME/PCSX2 (BIOS folder
 # bios/). Pin the USA SCPH-39001 image, as the library's PS2 games are USA.
 # A fresh PCSX2.ini starts the way the broker seeds one (SettingsVersion = 1),
