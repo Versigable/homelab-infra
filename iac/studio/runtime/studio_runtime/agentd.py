@@ -10,7 +10,8 @@ daemon's own, as the agent account, after the job:
 
   implement   issue -> branch agent/<iid>, MR, gate status, ledger, then a review job
   review      MR -> review notes from the next vendor in the person's order, or, on a cell
-              with one vendor, from a fresh session of the same one
+              with one vendor, from a fresh session of the same one. A reviewer isn't shown
+              who or what wrote the change (blind_text, blind_history)
   prototype   issue labelled `prototype` -> branch proto/<iid>, a small web page of the one
               mechanic (proto.py), on the portal; no Unity, no gates, no MR. The issue gets
               the link, and the person's comments and another approval make the next version
@@ -53,6 +54,10 @@ REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
 # On an issue, beside agent-request: try the idea as a web prototype instead of building it.
 PROTOTYPE = "prototype"
+# The ledger's line in an MR's description names the job's vendor, model and effort.
+LEDGER_AUTHOR_RE = re.compile(r"(?m)^(\*\*Ledger for `[^`\n]{1,60}`\*\* \(job `[^`\n]{1,80}`), [^\n]*$")
+# Lines a vendor's tool adds to its commits and descriptions to sign them.
+SIGNATURE_RE = re.compile(r"(?mi)^[ \t>]*(co-authored-by:.*|(?:\U0001F916\s*)?generated (?:with|by) \[?(?:claude|codex|openai|chatgpt|gpt|gemini|copilot|cursor)\b.*)$\n?")
 PROTOTYPE_COLOR = "#1F75CB"
 # An added vendor's command, for its job's process to read (root:agent 0640, one per job).
 VENDOR_RUN_DIR = os.path.join(os.path.dirname(common.RUN_DIR), "studio-jobs")
@@ -76,6 +81,13 @@ def ts(s):
 
 def log(msg):
     print(msg, flush=True)
+
+
+def blind_text(text):
+    """An MR's text as a reviewer is shown it: without the ledger's note of which vendor, model
+    and effort did the work, and without the lines a vendor's tool signs its work with. A
+    reviewer should judge the change, not its author."""
+    return SIGNATURE_RE.sub("", LEDGER_AUTHOR_RE.sub(r"\1)", text or ""))
 
 
 def md_text(s):
@@ -232,7 +244,8 @@ class Agentd:
         lines = [f"# {item['title']}", "", item.get("description") or "(no description)", ""]
         for n in notes:
             lines += [f"--- comment by {n['author']['username']} at {n['created_at']}", n["body"], ""]
-        return "\n".join(lines), void
+        text = "\n".join(lines)
+        return (blind_text(text) if kind == "mr" else text), void
 
     def claim(self, kind, item, approval):
         ref = item["references"]["full"]
@@ -453,6 +466,8 @@ class Agentd:
             # Where the branch stood on GitLab as the job began ("" = it didn't exist): the push's
             # lease. Kept in the journal, which the job can't touch.
             job.set(lease=self.remote_head(wt, branch))
+            if job["kind"] == "review":
+                self.blind_history(job, wt, branch)
             with open(os.path.join(job.dir, "prompt.md"), "w", encoding="utf-8") as f:
                 f.write(self.prompt(job, branch))
         home = pwd.getpwnam(self.cfg["agent_user"]).pw_dir
@@ -494,12 +509,51 @@ class Agentd:
                  "--property=KillMode=control-group", "--property=TimeoutStopSec=30",
                  f"--property=StandardOutput=file:{job.dir}/stream.jsonl",
                  f"--property=StandardError=file:{job.dir}/stderr.log"]
+        # The model and effort the person set for this vendor (`studio vendor set`), if any.
+        asked = self.vendors.settings(job["vendor"]) if job["vendor"] in vendors.BUILTIN else {}
+        if asked.get("model"):
+            env["STUDIO_MODEL"] = asked["model"]
+        if asked.get("effort"):
+            env["STUDIO_EFFORT"] = asked["effort"]
+        job.set(asked=asked)
         argv += [f"--setenv={k}={v}" for k, v in env.items()]
         argv += ["--", JOB_RUN, job["vendor"], job["kind"]]
         subprocess.run(["systemctl", "reset-failed", job.unit], capture_output=True, check=False)
         subprocess.run(argv, check=True)
         job.set(state="running", branch=branch, worktree=wt, started_at=now().isoformat(), resume=False)
         log(f"{job.id}: started ({job['vendor']} {job['kind']} on {branch})")
+
+    def blind_history(self, job, wt, branch):
+        """A review job's worktree shows the change as one commit with no author to read: the
+        branch's own commits carry their writer's name (Claude signs each with a
+        Co-Authored-By line). The files are untouched and `git diff origin/<target>...HEAD` is
+        the same change; only this clone's history is folded, as agent. The real branch on
+        GitLab keeps every commit and line, and a review job never pushes (push). If the
+        folding can't be done the review still runs, on the branch as it is."""
+        agent, target = self.cfg["agent_user"], job["item"].get("target_branch")
+        g = ["git", "-C", wt, "-c", "core.hooksPath=/dev/null"]
+        who = {"GIT_AUTHOR_NAME": "studio", "GIT_AUTHOR_EMAIL": "studio@studio.invalid",
+               "GIT_COMMITTER_NAME": "studio", "GIT_COMMITTER_EMAIL": "studio@studio.invalid"}
+
+        def git(*a):
+            r = common.run_as(agent, g + list(a), env=who, timeout=120)
+            if r.returncode != 0:
+                raise RuntimeError(f"git {a[0]}: {(r.stderr or r.stdout).strip()[-300:]}")
+            return r.stdout.strip()
+
+        try:
+            if not target:
+                raise RuntimeError("the MR names no target branch")
+            base = git("merge-base", "HEAD", f"refs/remotes/origin/{target}")
+            folded = git("commit-tree", "HEAD^{tree}", "-p", base, "-m",
+                         "The change under review (its history is left out of a review's worktree)")
+            git("update-ref", f"refs/heads/{branch}", folded)
+            git("update-ref", "-d", f"refs/remotes/origin/{branch}")
+            git("reflog", "expire", "--expire=now", "--all")
+            job.set(blind=True)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            log(f"{job.id}: the review's worktree keeps the branch's history ({e})")
+            job.set(blind=False)
 
     def prompt(self, job, branch):
         with open(os.path.join(job.dir, "snapshot.md"), encoding="utf-8") as f:
@@ -557,7 +611,9 @@ class Agentd:
                 "and run `studio done --review <file>`. Open it with a sentence or two giving your verdict. "
                 "Give each finding a line of its own that starts with its severity in brackets, `[P1]` for "
                 "what must be fixed down to `[P3]` for what's minor, then a short title, with the details "
-                "under it: the people's chat shows the verdict and those titles." + brain)
+                "under it: the people's chat shows the verdict and those titles. Who or what wrote this "
+                "change is left out on purpose: its description has no author, and the branch is one commit "
+                "here. Judge the change itself, and point at files and lines rather than commits." + brain)
 
     def brain_note(self, job):
         """Where the studio brain's read-only copy is (studio-brain-sync), if this cell has one."""
@@ -608,7 +664,7 @@ class Agentd:
     def scan_stream(self, job):
         """Session id and the vendor's usage from the job's event stream."""
         path = os.path.join(job.dir, "stream.jsonl")
-        sid, rli, final, plain = None, None, None, []
+        sid, rli, final, plain, model = None, None, None, [], None
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 for line in f:
@@ -620,6 +676,8 @@ class Agentd:
                     if not isinstance(e, dict):
                         continue
                     sid = e.get("session_id") or e.get("thread_id") or sid
+                    if e.get("type") == "system" and e.get("subtype") == "init" and isinstance(e.get("model"), str):
+                        model = e["model"][:80]             # Claude says which model it runs
                     if e.get("type") == "rate_limit_event":
                         rli = e.get("rate_limit_info") or rli
                     if e.get("type") == "result":
@@ -631,7 +689,18 @@ class Agentd:
             pass
         if final is None and plain:
             final = "".join(plain)
-        job.set(session_id=sid, rate_limit_info=rli, final_message=(final or "")[-20000:])
+        job.set(session_id=sid, rate_limit_info=rli, final_message=(final or "")[-20000:],
+                ran=self.vendors.ran(job["vendor"], model, sid) if job.get("vendor") else None)
+
+    @staticmethod
+    def ran_text(job):
+        """Who did a job's work, for its result: "claude (claude-opus-5-5, effort xhigh)". The
+        effort says where it came from unless the person set it for the cell."""
+        ran = job.get("ran") or {}
+        parts = [ran["model"]] if ran.get("model") else []
+        if ran.get("effort"):
+            parts.append(f"effort {ran['effort']}" + (f", {ran['effort_from']}" if ran.get("effort_from") not in (None, "set") else ""))
+        return job["vendor"] + (f" ({', '.join(parts)})" if parts else "")
 
     # --- studio done -----------------------------------------------------------------------------
 
@@ -712,13 +781,13 @@ class Agentd:
                 self.push(job)
                 self.gl.relabel(item["kind"], item["project_id"], item["iid"], add=[BLOCKED], remove=[RUNNING])
                 self.gl.note(item["kind"], item["project_id"], item["iid"],
-                             f"Blocked (job `{job.id}`):\n\n{res['text']}")
+                             f"Blocked (job `{job.id}`, {self.ran_text(job)}):\n\n{res['text']}")
                 job.set(state="blocked", finished_at=now().isoformat())
                 self.event("blocked", item, job=job, text=res["text"])
             elif job["kind"] == "review" and res.get("kind") == "review":
                 fresh = "; a fresh session, not the one that wrote the change" if job.get("same_vendor") else ""
                 note = self.gl.note("mr", item["project_id"], item["iid"],
-                                    f"**Review by {job['vendor']}** (job `{job.id}`{fresh})\n\n{res['text']}")
+                                    f"**Review by {self.ran_text(job)}** (job `{job.id}`{fresh})\n\n{res['text']}")
                 self.gl.relabel("mr", item["project_id"], item["iid"], add=[REVIEW], remove=[RUNNING])
                 job.set(state="done", finished_at=now().isoformat())
                 # The builds channel shows the review's opening words and its findings' titles,
@@ -762,6 +831,8 @@ class Agentd:
         approval on the same issue) moves on from its MR's head, but nobody else's push in the
         meantime is ever overwritten. A bare --force-with-lease can't do this: pushing to a
         URL, git has no remote-tracking ref to compare, and refuses any branch that exists."""
+        if job["kind"] == "review":
+            return None                       # a review changes nothing; its worktree's history is folded
         wt = job["worktree"]
         ahead = subprocess.run(["git", "-C", wt, "rev-list", "--count", "origin/HEAD..HEAD"],
                                capture_output=True, text=True).stdout.strip()
@@ -788,7 +859,7 @@ class Agentd:
     def unpushed(self, job):
         """A failed job whose commits never reached GitLab: its worktree is kept, for republish."""
         wt = job.get("worktree")
-        if job.get("state") != "failed" or not wt or not os.path.isdir(wt):
+        if job.get("state") != "failed" or job.get("kind") == "review" or not wt or not os.path.isdir(wt):
             return False
         head = subprocess.run(["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         if not head or head == job.get("pushed"):
@@ -822,7 +893,7 @@ class Agentd:
         rows = "\n".join(f"| {s['step']} | {'passed' if s.get('passed') else 'FAILED'} | "
                          f"{(s.get('tests') or {}).get('passed', '')}/{(s.get('tests') or {}).get('total', '')} |"
                          for s in steps)
-        body = (f"{res['text']}\n\n---\n\n**Ledger for `{head[:10]}`** (job `{job.id}`, {job['vendor']})\n\n"
+        body = (f"{res['text']}\n\n---\n\n**Ledger for `{head[:10]}`** (job `{job.id}`, {self.ran_text(job)})\n\n"
                 f"| Gate (cold) | Result | Tests |\n|---|---|---|\n{rows}\n\n"
                 f"Play evidence: {ledger['play']}.{stage}\n\nCloses {item['ref']}. Approved by @{job['approval']['by']}.")
         mr = self.gl.mr_for_branch(pid, job["branch"])
@@ -865,14 +936,15 @@ class Agentd:
         self.hub.put(page, sha)
         got = self.hub.call("POST", "/v1/prototypes", {
             "game": job["game"], "issue": item["iid"], "revision": head, "object": sha, "title": item["title"],
-            "note": res["text"][:4000], "issue_url": item.get("web_url"), "job": job.id})
+            "note": res["text"][:4000], "issue_url": item.get("web_url"), "job": job.id,
+            "made_with": self.ran_text(job)})
         url, v = got["url"], got["version"]
         self.gl.relabel("issue", pid, item["iid"], add=[REVIEW], remove=[RUNNING])
         self.gl.note("issue", pid, item["iid"],
                      f"**Prototype v{v}: {url}**\n\n{res['text']}\n\n---\n\n"
                      f"Play it in your browser; the sliders change its numbers as you play, and the line of text "
                      f"under them is the tuning, to paste here. To change it, comment and add `{REQUEST}` again. "
-                     f"Its code is on branch `{job['branch']}` (`{head[:10]}`, job `{job.id}`, {job['vendor']}); "
+                     f"Its code is on branch `{job['branch']}` (`{head[:10]}`, job `{job.id}`, {self.ran_text(job)}); "
                      "it isn't the game's code and nothing merges it.")
         job.set(state="done", prototype={"version": v, "url": url, "object": sha}, finished_at=now().isoformat())
         log(f"{job.id}: prototype v{v} published {url}")
@@ -1057,7 +1129,9 @@ class Agentd:
                        "approval": job["approval"], "claimed_at": now().isoformat(), "after": job.id})
         rj.save()
         with open(os.path.join(rj.dir, "snapshot.md"), "w", encoding="utf-8") as f:
-            f.write(f"# {mr['title']}\n\n{mr.get('description') or ''}\n")
+            # The description was written a moment ago by publish(), ledger and all: the
+            # reviewer gets it without who did the work.
+            f.write(blind_text(f"# {mr['title']}\n\n{mr.get('description') or ''}\n"))
         self.gl.relabel("mr", mr["project_id"], mr["iid"], add=[RUNNING])
         log(f"{jid}: review queued ({vendor})")
 
@@ -1171,7 +1245,8 @@ class Agentd:
 
     def v_jobs(self, caller, args, out):
         return [{"id": j.id, "kind": j["kind"], "vendor": j["vendor"], "state": j["state"],
-                 "item": j["item"]["ref"], "mr": j.get("mr_url"), "session": j.get("session_id")}
+                 "item": j["item"]["ref"], "mr": j.get("mr_url"), "session": j.get("session_id"),
+                 "ran": j.get("ran")}
                 for j in Job.all()[-20:]]
 
     def v_attach(self, caller, args, out):
@@ -1202,7 +1277,8 @@ class Agentd:
 
     def v_vendor(self, caller, args, out):
         """studio vendor [list] | add <name> [-- <command...>] | resume <name> -- <command...> |
-        remove <name> | order <name>...: the AI vendors this cell's jobs may run. Changes are the
+        remove <name> | order <name>... | set <name> [--model M] [--effort E]: the AI vendors this
+        cell's jobs may run, and the model and effort of the built-in ones. Changes are the
         person's: in their own shell, or as agent outside a job; never a job's."""
         sub, rest = (args[0], args[1:]) if args else ("list", [])
         if sub == "list":
@@ -1228,9 +1304,16 @@ class Agentd:
             self.vendors.remove(name)
         elif sub == "order":
             self.vendors.reorder(rest)
+        elif sub == "set":
+            opts = dict(zip(rest[1::2], rest[2::2]))
+            if len(rest) not in (3, 5) or not set(opts) <= {"--model", "--effort"}:
+                raise ValueError("usage: studio vendor set <claude|codex> [--model <name>|default] [--effort <level>|default]")
+            self.vendors.set(name, opts.get("--model"), opts.get("--effort"))
+            note.append("new jobs use it; a job that's running keeps what it started with")
         else:
             raise ValueError("usage: studio vendor [list] | add <name> [-- <command...>] | "
-                             "resume <name> -- <command...> | remove <name> | order <name>...")
+                             "resume <name> -- <command...> | remove <name> | order <name>... | "
+                             "set <name> [--model M] [--effort E]")
         log(f"vendors: {caller.user} {sub} {' '.join(rest)[:200]}")
         return {"vendors": self.vendors.describe(fresh=False), **({"note": note} if note else {})}
 

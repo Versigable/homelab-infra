@@ -21,6 +21,13 @@ case "$vendor" in
     if [ -n "${STUDIO_RESUME:-}" ]; then
       set -- "$@" --resume "$STUDIO_RESUME"
     fi
+    # The person's choice for this cell (`studio vendor set`); unset, Claude's own default.
+    if [ -n "${STUDIO_MODEL:-}" ]; then
+      set -- "$@" --model "$STUDIO_MODEL"
+    fi
+    if [ -n "${STUDIO_EFFORT:-}" ]; then
+      set -- "$@" --effort "$STUDIO_EFFORT"
+    fi
     exec claude "$@" </dev/null
     ;;
   codex)
@@ -29,6 +36,12 @@ case "$vendor" in
     # and the like); the sign-in still comes from ~/.codex.
     set -- --json -s workspace-write -c sandbox_workspace_write.network_access=true \
       --skip-git-repo-check --ignore-user-config
+    if [ -n "${STUDIO_MODEL:-}" ]; then
+      set -- "$@" -m "$STUDIO_MODEL"
+    fi
+    if [ -n "${STUDIO_EFFORT:-}" ]; then
+      set -- "$@" -c "model_reasoning_effort=\"$STUDIO_EFFORT\""
+    fi
     if [ -n "${STUDIO_RESUME:-}" ]; then
       exec codex exec resume "$STUDIO_RESUME" "$@" "$prompt" </dev/null
     fi

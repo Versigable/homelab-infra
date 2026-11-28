@@ -72,6 +72,13 @@ For the person (from your own shell):
   studio vendor resume <name> -- <command with {session}...>
                                     how an added vendor carries on a session handed back
   studio vendor remove <name>       stop using it (built-ins: until `add` again)
+  studio vendor set claude|codex [--model <name>|default] [--effort <level>|default]
+                                    the model a built-in runs and how hard it thinks, for
+                                    new jobs (claude: fable, opus, sonnet, haiku or a full
+                                    id; efforts low, medium, high, xhigh, max. codex: a
+                                    model id such as gpt-6.2-sol; efforts minimal, low,
+                                    medium, high, xhigh). Unset, the tool's own default.
+                                    Each job's result says what it ran with
   studio vendor order <name>...     your preference, first to last (Claude first until
                                     you change it)
 
