@@ -1004,17 +1004,21 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             return self.page("Not found", "<h1>No such session of yours</h1>", 404)
         what = f'{e(s["game"])} <code>{e(s["revision"][:10])}</code>{e(opened_text(s))}'
         end = f'<form method="post" action="/s/{sid}/end"><button class="end">End the session</button></form>'
+        # Said while the session starts, before anyone speaks: where the switch is, and that it's kept.
+        mic = ("<p>The session is recorded: the game's screen and sound. To talk while you play, turn the "
+               "microphone on in the stream's side menu; your voice is then recorded with the session. "
+               "It's off until you do.</p>")
         if s["state"] == "live":
             stream = f'/play/s{s["slot"]}/'
             return self.page(f"Playing {s['game']}", f'<h1>{what} is live on slot s{s["slot"]}</h1>'
-                             f'<p><a href="{stream}">Open the stream</a> (opening now) · {end}</p>'
+                             f'<p><a href="{stream}">Open the stream</a> (opening now) · {end}</p>{mic}'
                              f'<p class=dim>It ends after {int(self.server.broker.idle.total_seconds() // 60)} '
                              'minutes with nobody watching. Come back here to end it sooner.</p>',
                              head=f'<meta http-equiv="refresh" content="1;url={stream}">')
         if s["state"] in ACTIVE:
             return self.page(f"Starting {s['game']}", f"<h1>Starting {what} on the Forge…</h1>"
                              f'<p class=dim>Slot s{s["slot"]}, {e(s["state"])}. This page refreshes itself.</p>'
-                             f"<p>{end}</p>", head='<meta http-equiv="refresh" content="2">')
+                             f"{mic}<p>{end}</p>", head='<meta http-equiv="refresh" content="2">')
         return self.ended_page(s, sid, what)
 
     def home(self):
