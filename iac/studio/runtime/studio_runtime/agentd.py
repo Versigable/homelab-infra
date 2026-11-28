@@ -531,7 +531,7 @@ class Agentd:
                     "what this job is for. Keep the rules in plain functions you can check with `node` before you "
                     "finish (`node --test` works here).\n\n"
                     "`studio proto build` bundles it and tells you what's wrong if it doesn't bundle. Commit your "
-                    "work on this branch as you go; don't push (the daemon does). When it works and is committed, "
+                    "work on this branch as you go; don't push (the daemon does). If `git` can't write here (your own sandbox may keep `.git` read-only), `studio commit -m \"<message>\"` commits everything in the worktree for you. When it works and is committed, "
                     "run `studio done --prototype <file>`, where the file is a short note for the person: what "
                     "you built, the controls, each knob and what it does, and what to try. If you can't make it, "
                     "write why to a file and run `studio done --blocked <file>`." + brain)
@@ -543,7 +543,7 @@ class Agentd:
                     "People's play sessions of this game's builds are recorded: `studio watch` lists them, and "
                     "when the item or a comment points at a session or a moment in one, `studio watch <id>` "
                     "shows you what happened and lets you look at that moment. "
-                    "Commit your work on this branch as you go; don't push (the daemon does). When the work "
+                    "Commit your work on this branch as you go; don't push (the daemon does). If `git` can't write here (your own sandbox may keep `.git` read-only), `studio commit -m \"<message>\"` commits everything in the worktree for you. When the work "
                     "is complete and committed, run `studio done --summary <file>`, where the file holds a "
                     "short MR description: what changed, how it was tested, what to look at when playing. "
                     "`studio done` runs the cold gates on your HEAD; if it refuses, fix the problem and run "
@@ -1105,7 +1105,7 @@ class Agentd:
 
     def job_of(self, caller):
         if not caller.job:
-            raise PermissionError("`studio done` is for jobs; in a pair session, commit and push yourself")
+            raise PermissionError("`studio done` and `studio commit` are for jobs; in a pair session, commit and push yourself")
         try:
             return Job(caller.job)
         except (OSError, ValueError):
@@ -1113,6 +1113,32 @@ class Agentd:
 
     def v_done(self, caller, args, out):
         return self.done(self.job_of(caller), args, out)
+
+    def v_commit(self, caller, args, out):
+        """`studio commit -m <message>`, in a job: everything in the job's worktree, committed.
+        Codex runs a job in a sandbox of its own that keeps the worktree's .git read-only, so
+        its `git commit` can't write; this is the same commit, made out here as agent (never as
+        root: the worktree's git settings are the job's to write), with no hooks."""
+        job = self.job_of(caller)
+        if len(args) != 2 or args[0] != "-m" or not args[1].strip():
+            raise ValueError('usage: studio commit -m "<message>"')
+        wt, agent = job["worktree"], self.cfg["agent_user"]
+        g = ["git", "-C", wt, "-c", "core.hooksPath=/dev/null"]
+
+        def git(*a):
+            r = common.run_as(agent, g + list(a), timeout=300)
+            if r.returncode != 0:
+                raise RuntimeError(f"git {a[0]}: {(r.stderr or r.stdout).strip()[-600:]}")
+            return r.stdout
+
+        git("add", "-A")
+        staged = [l for l in git("diff", "--cached", "--name-only").splitlines() if l.strip()]
+        if not staged:
+            return {"committed": None, "note": "nothing to commit: the worktree matches HEAD"}
+        git("commit", "--quiet", "-m", args[1].strip()[:5000])
+        head = git("rev-parse", "HEAD").strip()
+        log(f"{job.id}: committed {head[:10]} for the job ({len(staged)} file(s))")
+        return {"committed": head, "files": len(staged)}
 
     def v_watch(self, caller, args, out):
         """`studio watch`: the recorded play sessions of this cell's builds of the caller's game.
