@@ -97,7 +97,7 @@ def fetch(hub, s, group, out=None):
     """The session's files from the depot into WATCH_ROOT/<game>/<id>/, once each (a file is
     kept under its object's name, so a finished download is never fetched again). Root owns
     them; the work group reads them. `out` hears once if anything has to be downloaded.
-    Returns {"recording": path, "log": path, "timeline": path}."""
+    Returns {"recording": path, "log": path, "timeline": path, "voice": path}."""
     d = os.path.join(WATCH_ROOT, s["game"], s["id"])
     os.makedirs(d, mode=0o750, exist_ok=True)
     for p in (WATCH_ROOT, os.path.dirname(d), d):
@@ -158,6 +158,11 @@ def read_text(s, paths):
         with open(paths["log"], "rb") as f:
             out["log_moments"] = log_moments(f.read(hubmod.MAX_LOG_BYTES), start)
         out["log"] = paths["log"]
+    if paths.get("voice"):
+        # The player's microphone alone (it's in the recording too). Its clock against the recording's:
+        out["voice"] = paths["voice"]
+        if s.get("voice_start") is not None and start is not None:
+            out["voice_begins"] = round(s["voice_start"] - start, 2)
     if paths.get("recording"):
         out["look"] = (f"studio watch {s['id']} --from M:SS --to M:SS  (a filmstrip of that stretch; --frames N, "
                        f"8 by default)   studio watch {s['id']} --at M:SS  (one frame, full size)")
