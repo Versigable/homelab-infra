@@ -1060,10 +1060,8 @@ class Agentd:
         s = next((x for x in sessions if x["id"] == sid), None)
         if not s:
             raise ValueError(f"no session {sid} of this cell's builds of {wt.game} (`studio watch` lists them)")
-        if any(s.get(k) for k in ("recording", "log", "timeline")):
-            out("fetching the session's files from the depot")
         watch.trim()
-        paths = watch.fetch(self.hub, s, grp.getgrnam(self.cfg["work_group"]).gr_gid)
+        paths = watch.fetch(self.hub, s, grp.getgrnam(self.cfg["work_group"]).gr_gid, out)
         return watch.read_text(s, paths)
 
     def v_jobs(self, caller, args, out):
