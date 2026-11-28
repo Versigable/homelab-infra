@@ -22,7 +22,20 @@ pipe in the session's own tmpfs, and this daemon reads the pipe from outside and
 the Forge's disk, up to a size cap. The container gets no writable path on the host. When the
 session ends, the recording is remuxed to MP4 in a throwaway container with no network, and it,
 the player log and the Studio Kit's timeline ($STUDIO_OUT/timeline.jsonl) go to the depot; the
-hub hears of them at the next sync. No microphone, no camera: what the game shows and plays.
+hub hears of them at the next sync. No camera.
+
+The player's voice (vault notes/step-3c-watch-plan, "Voice"): a session lets the browser send a
+microphone, off until the player turns it on in the stream's side menu. Selkies plays it into
+the session's `input` sink, apart from the game's sound. The recorder's script adds a sink of
+its own to the session's PulseAudio, fed by the game's sound and by the microphone's, and
+wf-recorder records that: the voice is in the recording, in step with the picture. A second
+recorder (ffmpeg, Opus) writes the microphone's sink alone to its own pipe, for a transcript
+later; that file is kept only if it has sound in it (the microphone was on).
+
+Clocks: a recorder notes when it's launched, and its file begins about 0.3 s later (measured
+on the Forge with a tone, for both). A recording that was stopped by this daemon, and not cut
+at its size cap, takes its start from the stop time minus its length instead, which agrees to
+0.1 s. The voice file doesn't: stopped, it comes up about a second short of its real span.
 
 Viewers are the established connections to the container's web port (Selkies' nginx, 3000)
 from outside the container, read from the container's own /proc/<pid>/net/tcp.
@@ -50,11 +63,18 @@ WEB_PORT = 3000
 STUDIO_OUT = "/config/studio"     # in the session's tmpfs home: where the Studio Kit writes tweaks.json
 REC_FIFO = "/config/.studio-rec.fifo"
 REC_LOG, REC_START = "/config/.studio-rec.log", "/config/.studio-rec.start"
+VOICE_FIFO, VOICE_LOG, VOICE_START = "/config/.studio-voice.fifo", "/config/.studio-voice.log", "/config/.studio-voice.start"
+VOLUME_RE = re.compile(r"max_volume:\s*(-?\d+(?:\.\d+)?) dB")
+MIX_SINK = "studio_rec"                # the recording's own sink: the game's sound plus the microphone's
+REC_LAG, VOICE_LAG = 0.3, 0.3          # a recorder's launch to its file's first sample
 # The session's desktop user in the play image, and labwc's socket (wayland-1 is the stream's
 # own compositor socket, which refuses screen capture).
 REC_USER, REC_ENV = "abc", {"XDG_RUNTIME_DIR": "/config/.XDG", "WAYLAND_DISPLAY": "wayland-0", "HOME": "/config"}
 REC_DEFAULTS = {"enabled": True, "fps": 30, "cq": 30, "max_bytes": 3 << 30, "audio": "output.monitor",
-                "uid": 1000, "gid": 1000}
+                "uid": 1000, "gid": 1000,
+                # The player's microphone: recorded from this source, to at most this many bytes;
+                # a voice file whose loudest moment is under the floor counts as silence.
+                "voice": True, "voice_source": "input.monitor", "voice_max_bytes": 200 << 20, "voice_floor_db": -50.0}
 
 
 def log(msg):
@@ -208,6 +228,9 @@ class Playd:
                "SUBFOLDER": f"/play/s{slot}/", "NVIDIA_DRIVER_CAPABILITIES": "all", "PIXELFLUX_WAYLAND": "true",
                "HARDEN_DESKTOP": "true", "RESTART_APP": "true", "SELKIES_MANUAL_WIDTH": str(c["width"]),
                "SELKIES_MANUAL_HEIGHT": str(c["height"]), "SELKIES_SCALING_DPI": "96", "SELKIES_FRAMERATE": "60-60"}
+        if self.rec["enabled"] and self.rec["voice"]:
+            # The stream's side menu gets a microphone switch, off until the player turns it on.
+            env["SELKIES_MICROPHONE_ENABLED"] = "true"
         for k, v in env.items():
             argv += ["-e", f"{k}={v}"]
         docker(*argv, c["image"])
@@ -230,14 +253,43 @@ class Playd:
         r = self.rec
         rec = ["wf-recorder", "-y", "-c", "h264_nvenc", "-x", "yuv420p", "-p", "preset=p4", "-p", "rc=vbr",
                "-p", f"cq={int(r['cq'])}", "-p", f"g={int(r['fps']) * 2}", "-r", str(int(r["fps"])),
-               f"--audio={r['audio']}", "-m", "matroska", "-f", REC_FIFO]
+               '--audio="$A"', "-m", "matroska", "-f", REC_FIFO]
+        game, mic = shlex.quote(r["audio"]), shlex.quote(r["voice_source"])
+        # With the voice on: one more sink, fed by the game's sound and the microphone's, which
+        # only the recorder listens to. The game's sound and the stream are left as they are. If
+        # PulseAudio refuses any of it, the recording has the game's sound alone.
+        mix = (f"A={game}; if pactl list short sinks 2>/dev/null | grep -q -w {MIX_SINK} || "
+               f"{{ pactl load-module module-null-sink sink_name={MIX_SINK} "
+               f"sink_properties=device.description={MIX_SINK} rate=48000 >/dev/null 2>&1 "
+               f"&& pactl load-module module-loopback source={game} sink={MIX_SINK} latency_msec=20 "
+               "source_dont_move=true sink_dont_move=true >/dev/null 2>&1 "
+               f"&& pactl load-module module-loopback source={mic} sink={MIX_SINK} latency_msec=20 "
+               "source_dont_move=true sink_dont_move=true >/dev/null 2>&1; }; "
+               f"then A={MIX_SINK}.monitor; fi; ") if r["voice"] else f"A={game}; "
         script = (f"rm -f {REC_FIFO} {REC_START}; : >{REC_LOG}; mkfifo {REC_FIFO} || exit 1; "
                   f"( exec 3>{REC_FIFO}; i=0; while [ $i -lt 90 ]; do i=$((i+1)); "
                   'if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then '
-                  f"s=$(date +%s); date +%s.%N >{REC_START}; "
-                  f"{' '.join(shlex.quote(a) for a in rec)} >>{REC_LOG} 2>&1; rc=$?; "
+                  f"{mix}s=$(date +%s); date +%s.%N >{REC_START}; "
+                  f"{' '.join(a if a.startswith('--audio=') else shlex.quote(a) for a in rec)} >>{REC_LOG} 2>&1; rc=$?; "
                   '[ $rc -eq 0 ] && break; [ $(( $(date +%s) - s )) -ge 5 ] && break; fi; '
                   f"sleep 1; done ) & exec cat {REC_FIFO}")
+        argv = ["docker", "exec", "-u", REC_USER]
+        for k, v in REC_ENV.items():
+            argv += ["-e", f"{k}={v}"]
+        return argv + [name, "sh", "-c", script]
+
+    def voice_argv(self, name):
+        """docker exec: ffmpeg writes the session's microphone sink as Ogg Opus into its own named
+        pipe, read out the same way as the recording. It waits for PulseAudio to have the source."""
+        src = shlex.quote(self.rec["voice_source"])
+        script = (f"rm -f {VOICE_FIFO} {VOICE_START}; : >{VOICE_LOG}; mkfifo {VOICE_FIFO} || exit 1; "
+                  f"( exec 3>{VOICE_FIFO}; i=0; while [ $i -lt 90 ]; do i=$((i+1)); "
+                  f"if pactl list short sources 2>/dev/null | grep -q -F {src}; then "
+                  f"s=$(date +%s); date +%s.%N >{VOICE_START}; "
+                  f"ffmpeg -nostdin -v error -y -f pulse -i {src} -ac 1 -c:a libopus -b:a 32k -f ogg {VOICE_FIFO} "
+                  f">>{VOICE_LOG} 2>&1; rc=$?; "
+                  '[ $rc -eq 0 ] && break; [ $(( $(date +%s) - s )) -ge 5 ] && break; fi; '
+                  f"sleep 1; done ) & exec cat {VOICE_FIFO}")
         argv = ["docker", "exec", "-u", REC_USER]
         for k, v in REC_ENV.items():
             argv += ["-e", f"{k}={v}"]
@@ -260,8 +312,17 @@ class Playd:
             cap = subprocess.Popen(["head", "-c", str(int(self.rec["max_bytes"]))], stdin=src.stdout, stdout=out,
                                    stderr=subprocess.DEVNULL)
             src.stdout.close()
-        self.recorders[sid] = (src, cap)
-        log(f"{sid}: recording")
+        procs = [src, cap]
+        if self.rec["voice"]:
+            with open(os.path.join(d, "voice.ogg"), "wb") as out:
+                vsrc = subprocess.Popen(self.voice_argv(name), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        stdin=subprocess.DEVNULL)
+                vcap = subprocess.Popen(["head", "-c", str(int(self.rec["voice_max_bytes"]))], stdin=vsrc.stdout,
+                                        stdout=out, stderr=subprocess.DEVNULL)
+                vsrc.stdout.close()
+            procs += [vsrc, vcap]
+        self.recorders[sid] = tuple(procs)
+        log(f"{sid}: recording" + (" (and the microphone's sink)" if self.rec["voice"] else ""))
 
     def recording_capped(self, sid, name):
         """A recording that reached its size cap (or whose reader ended any other way while the
@@ -277,10 +338,20 @@ class Playd:
     def stop_recording(self, sid, name, running):
         """Ask the recorder to finish its file, then wait for the reader to see the end."""
         procs = self.recorders.pop(sid, None)
+        capped = sid in self.capped
         self.capped.discard(sid)
         if running:
-            subprocess.run(["docker", "exec", name, "pkill", "-INT", "-x", "wf-recorder"],
-                           capture_output=True, check=False, timeout=20)
+            # When the recorder is told to stop: with the recording's length, its real start.
+            # Not for one that ended earlier, at its cap.
+            if procs and not capped and procs[1].poll() is None:
+                try:
+                    with open(os.path.join(self.rec_dir(sid), "rec.stop"), "w", encoding="ascii") as f:
+                        f.write(repr(time.time()))
+                except OSError:
+                    pass
+            for prog in ("wf-recorder", "ffmpeg"):
+                subprocess.run(["docker", "exec", name, "pkill", "-INT", "-x", prog],
+                               capture_output=True, check=False, timeout=20)
         for p in procs or ():
             try:
                 p.wait(timeout=20)
@@ -305,16 +376,18 @@ class Playd:
         os.makedirs(d, mode=0o700, exist_ok=True)
         for src, dest, limit in (("/config/player.log", "player.log", hubmod.MAX_LOG_BYTES),
                                  (f"{STUDIO_OUT}/timeline.jsonl", "timeline.jsonl", hubmod.MAX_TIMELINE_BYTES),
-                                 (REC_START, "rec.start", 64), (REC_LOG, "rec.log", 64 << 10)):
+                                 (REC_START, "rec.start", 64), (REC_LOG, "rec.log", 64 << 10),
+                                 (VOICE_START, "voice.start", 64)):
             raw = self.read_out(name, src, limit)
             if raw:
                 with open(os.path.join(d, dest), "wb") as f:
                     f.write(raw)
 
     def remux(self, d):
-        """rec.mkv -> out/rec.mp4 (no re-encode, index first so a browser can seek), in a
-        container from the play image with no network, no capabilities and the recording
-        read-only. Returns (path, seconds), or (None, why)."""
+        """rec.mkv -> out/rec.mp4 (nothing re-encoded, index first so a browser can seek), in a
+        container from the play image with no network, no capabilities and the session's files
+        read-only. The voice file is listened to there too: voiced is its length in seconds if
+        it has sound in it, else None. Returns (path, seconds, voiced), or (None, why, None)."""
         r = self.rec
         out = os.path.join(d, "out")
         os.makedirs(out, mode=0o700, exist_ok=True)
@@ -323,12 +396,29 @@ class Playd:
         base = ["docker", "run", "--rm", "--network", "none", "--cap-drop", "ALL",
                 "--security-opt", "no-new-privileges", "--memory", "1g", "--cpus", "2",
                 "--user", f"{r['uid']}:{r['gid']}", "-v", f"{d}/rec.mkv:/in/rec.mkv:ro", "-v", f"{out}:/out"]
+        voice = os.path.join(d, "voice.ogg")
+        voiced = None
+        if os.path.isfile(voice) and os.path.getsize(voice):
+            os.chmod(voice, 0o644)
+            base += ["-v", f"{voice}:/in/voice.ogg:ro"]
+            v = subprocess.run(base + ["--entrypoint", "ffmpeg", self.cfg["image"], "-nostdin", "-v", "info", "-i",
+                                       "/in/voice.ogg", "-af", "volumedetect", "-f", "null", "-"],
+                               capture_output=True, text=True, timeout=600, check=False)
+            m = VOLUME_RE.search(v.stderr or "")
+            if m and float(m.group(1)) > float(r["voice_floor_db"]):
+                vp = subprocess.run(base + ["--entrypoint", "ffprobe", self.cfg["image"], "-v", "error", "-show_entries",
+                                            "format=duration", "-of", "csv=p=0", "/in/voice.ogg"],
+                                    capture_output=True, text=True, timeout=120, check=False)
+                try:
+                    voiced = round(float(vp.stdout.strip()), 1)
+                except ValueError:
+                    voiced = 0.0
+        mp4 = os.path.join(out, "rec.mp4")
         x = subprocess.run(base + ["--entrypoint", "ffmpeg", self.cfg["image"], "-v", "error", "-y", "-i",
                                    "/in/rec.mkv", "-c", "copy", "-movflags", "+faststart", "/out/rec.mp4"],
                            capture_output=True, text=True, timeout=900, check=False)
-        mp4 = os.path.join(out, "rec.mp4")
         if x.returncode != 0 or not os.path.isfile(mp4) or not os.path.getsize(mp4):
-            return None, (x.stderr.strip() or "no output")[-300:]
+            return None, (x.stderr.strip() or "no output")[-300:], None
         p = subprocess.run(base + ["--entrypoint", "ffprobe", self.cfg["image"], "-v", "error", "-show_entries",
                                    "format=duration", "-of", "csv=p=0", "/out/rec.mp4"],
                            capture_output=True, text=True, timeout=120, check=False)
@@ -336,7 +426,7 @@ class Playd:
             seconds = round(float(p.stdout.strip()), 1)
         except ValueError:
             seconds = None
-        return mp4, seconds
+        return mp4, seconds, voiced
 
     @staticmethod
     def sha256(path):
@@ -355,13 +445,19 @@ class Playd:
         try:
             mkv = os.path.join(d, "rec.mkv")
             if os.path.isfile(mkv) and os.path.getsize(mkv):
-                mp4, seconds = self.remux(d)
+                mp4, seconds, voiced = self.remux(d)
                 if mp4:
                     sha = self.sha256(mp4)
                     self.hub.put(mp4, sha)
-                    start = self.recording_start(d)
+                    start = self.recording_start(d, seconds)
                     files.update(recording=sha, recording_seconds=seconds, recording_start=start)
-                    log(f"{sid}: recording {sha[:12]} in the depot ({os.path.getsize(mp4) / 1e6:.1f} MB, {seconds} s)")
+                    log(f"{sid}: recording {sha[:12]} in the depot ({os.path.getsize(mp4) / 1e6:.1f} MB, {seconds} s"
+                        + (", with the player's voice)" if voiced is not None else ")"))
+                    if voiced is not None:
+                        voice = os.path.join(d, "voice.ogg")
+                        vsha = self.sha256(voice)
+                        self.hub.put(voice, vsha)
+                        files.update(voice=vsha, voice_start=self.voice_start(d))
                 else:
                     files["note"] = f"the recording couldn't be read: {seconds}"[:200]
                     log(f"{sid}: {files['note']}")
@@ -383,19 +479,40 @@ class Playd:
         shutil.rmtree(d, ignore_errors=True)
 
     @staticmethod
-    def recording_start(d):
-        """When the recording began (epoch seconds): the recorder's own note of its start, kept
-        from the session; failing that (a container that died), when this daemon started it,
-        which is a few seconds early."""
+    def stopped_at(d):
+        try:
+            with open(os.path.join(d, "rec.stop"), encoding="ascii") as f:
+                return float(f.read().strip())
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def recording_start(d, seconds=None):
+        """When the recording began (epoch seconds). Best: when it was stopped, minus its length.
+        Else the recorder's own note of its launch plus its usual lag; failing that (a container
+        that died early), when this daemon asked for it, which is a few seconds early."""
+        stop = Playd.stopped_at(d)
+        if stop and seconds:
+            return stop - seconds
         try:
             with open(os.path.join(d, "rec.start"), encoding="ascii") as f:
-                return float(f.read().strip())
+                return float(f.read().strip()) + REC_LAG
         except (OSError, ValueError):
             pass
         try:
             with open(os.path.join(d, "meta.json"), encoding="utf-8") as f:
                 return float(json.load(f)["start"])
         except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    @staticmethod
+    def voice_start(d):
+        """When the voice file began (epoch seconds): its recorder's note of its launch plus its
+        usual lag, or None."""
+        try:
+            with open(os.path.join(d, "voice.start"), encoding="ascii") as f:
+                return float(f.read().strip()) + VOICE_LAG
+        except (OSError, ValueError):
             return None
 
     @staticmethod

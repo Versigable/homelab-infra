@@ -92,8 +92,11 @@ COLUMNS = {"builds": [("catalog", "TEXT")],
            "sessions": [("open_target", "TEXT"), ("tweaks", "TEXT"), ("collected", "INTEGER NOT NULL DEFAULT 0"),
                         ("recording", "TEXT"), ("log", "TEXT"), ("timeline", "TEXT"),
                         ("recording_seconds", "REAL"), ("recording_start", "REAL"),
-                        ("files_at", "TEXT"), ("files_note", "TEXT")]}
-SESSION_FILES = ("recording", "log", "timeline")
+                        ("files_at", "TEXT"), ("files_note", "TEXT"),
+                        # the player's voice, when they turned their microphone on: its own file
+                        # (Ogg Opus), and when it began (epoch); the recording's sound has it mixed in
+                        ("voice", "TEXT"), ("voice_start", "REAL")]}
+SESSION_FILES = ("recording", "log", "timeline", "voice")
 ACTIVE = ("requested", "starting", "live")
 COLLECT_WAIT = dt.timedelta(seconds=120)   # a play is reported without its tweaks after this
 
@@ -252,8 +255,8 @@ class Depot:
         with self.db() as db:
             gone = db.execute("DELETE FROM builds WHERE expires IS NOT NULL AND expires < ?", (iso(t),)).rowcount
             old = db.execute(
-                "UPDATE sessions SET recording=NULL, log=NULL, timeline=NULL WHERE ended_at < ? "
-                "AND (recording IS NOT NULL OR log IS NOT NULL OR timeline IS NOT NULL)",
+                "UPDATE sessions SET recording=NULL, log=NULL, timeline=NULL, voice=NULL WHERE ended_at < ? "
+                "AND (recording IS NOT NULL OR log IS NOT NULL OR timeline IS NOT NULL OR voice IS NOT NULL)",
                 (iso(t - dt.timedelta(days=self.session_days)),)).rowcount
             if old:
                 log(f"gc: {old} session(s) past {self.session_days} days let go of their files")
@@ -407,9 +410,10 @@ class Broker:
                         log(f"broker: {sid}: its {k} {f[k][:12]} isn't in the depot; dropped")
                         f[k] = None
                 db.execute("UPDATE sessions SET recording=?, log=?, timeline=?, recording_seconds=?, "
-                           "recording_start=?, files_note=?, files_at=? WHERE id=?",
+                           "recording_start=?, files_note=?, files_at=?, voice=?, voice_start=? WHERE id=?",
                            (f["recording"], f["log"], f["timeline"], f["recording_seconds"] if f["recording"] else None,
-                            f["recording_start"] if f["recording"] else None, f["note"], iso(t), str(sid)))
+                            f["recording_start"] if f["recording"] else None, f["note"], iso(t),
+                            f["voice"], f["voice_start"] if f["voice"] else None, str(sid)))
                 log(f"broker: {sid} files: " + (", ".join(k for k in SESSION_FILES if f[k]) or "none")
                     + (f" ({f['note']})" if f["note"] else ""))
             for sid, st in running.items():
@@ -471,7 +475,7 @@ class Broker:
         for s in rows:
             p = {k: s[k] for k in ("id", "game", "revision", "project_id", "mr_iid", "person", "viewer_seconds", "at",
                                    "ended_at", "end_reason", "recording", "recording_seconds", "recording_start",
-                                   "log", "timeline")}
+                                   "log", "timeline", "voice", "voice_start")}
             p["open"] = s["open_target"] or "game"
             p["tweaks"] = json.loads(s["tweaks"]) if s["tweaks"] else None
             p["note"] = s["files_note"]
@@ -481,8 +485,8 @@ class Broker:
     def session_file_of(self, cell, sha):
         """Is this object a file of a session of one of the cell's builds?"""
         with self.depot.db() as db:
-            return bool(db.execute("SELECT 1 FROM sessions WHERE cell=? AND (recording=? OR log=? OR timeline=?) LIMIT 1",
-                                   (cell, sha, sha, sha)).fetchone())
+            return bool(db.execute("SELECT 1 FROM sessions WHERE cell=? AND (recording=? OR log=? OR timeline=? OR voice=?) "
+                                   "LIMIT 1", (cell, sha, sha, sha, sha)).fetchone())
 
     def reported(self, sid, cell):
         with self.depot.db() as db:
@@ -774,7 +778,7 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             m = re.fullmatch(r"/s/([0-9a-f]{16})", path)
             if m:
                 return self.session_page(m.group(1))
-            m = re.fullmatch(r"/s/([0-9a-f]{16})/(recording\.mp4|player\.log)", path)
+            m = re.fullmatch(r"/s/([0-9a-f]{16})/(recording\.mp4|player\.log|voice\.ogg)", path)
             if m:
                 return self.session_file(m.group(1), m.group(2))
             self.page("Not found", "<h1>Not found</h1>", 404)
@@ -788,7 +792,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         """An ended session's recording or player log, for anyone on the portal. The recording
         answers byte ranges, which is how a browser seeks."""
         s = self.server.broker.session(sid)
-        col, ctype = ("recording", "video/mp4") if name == "recording.mp4" else ("log", "text/plain; charset=utf-8")
+        col, ctype = {"recording.mp4": ("recording", "video/mp4"), "voice.ogg": ("voice", "audio/ogg"),
+                      "player.log": ("log", "text/plain; charset=utf-8")}[name]
         sha = s[col] if s and s["state"] not in ACTIVE else None
         if not sha or not self.server.depot.has(sha):
             return self.page("Not found", "<h1>No such file</h1>", 404)
@@ -975,8 +980,10 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             except ValueError:
                 t = 0
             src = f"/s/{sid}/recording.mp4" + (f"#t={t}" if t else "")
+            voice = (f' and {e(s["person"])}&#39;s voice (their microphone was on; '
+                     f'<a href="/s/{sid}/voice.ogg">the voice alone</a>)' if s["voice"] else "")
             parts.append(f'<video controls preload="metadata"{" autoplay" if t else ""} src="{src}"></video>'
-                         f'<p class=dim>{clock(s["recording_seconds"])} of the game&#39;s screen and sound. '
+                         f'<p class=dim>{clock(s["recording_seconds"])} of the game&#39;s screen and sound{voice}. '
                          f"Kept {self.server.depot.session_days} days from the session.</p>")
         elif not s["files_at"] and s["ended_at"] and \
                 (now() - dt.datetime.fromisoformat(s["ended_at"])).total_seconds() < 600:

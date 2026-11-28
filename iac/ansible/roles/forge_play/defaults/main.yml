@@ -61,6 +61,10 @@ forge_play_record: true
 forge_play_record_fps: 30
 forge_play_record_cq: 30
 forge_play_record_max_bytes: 3000000000
+# The player's voice: a session lets the browser send a microphone (off until the player turns
+# it on in the stream's side menu), and forge-playd records it apart from the game's sound. A
+# session where it stayed off keeps no voice file.
+forge_play_record_voice: true
 # Unity player flags for every session (as the standing session's). -timestamps puts the time
 # on each line of the player log, which places its lines on the session's recording.
 forge_play_sessions_player_args: -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -force-glcore -timestamps

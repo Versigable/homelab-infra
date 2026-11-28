@@ -128,12 +128,13 @@ def check_files(f):
     if not isinstance(f, dict):
         return None
     out = {}
-    for k in ("recording", "log", "timeline"):
+    for k in ("recording", "log", "timeline", "voice"):
         v = f.get(k)
         if v is not None and (not isinstance(v, str) or not SHA_RE.match(v)):
             return None
         out[k] = v
     secs, start, note = f.get("recording_seconds"), f.get("recording_start"), f.get("note")
+    out["voice_start"] = float(f["voice_start"]) if _number(f.get("voice_start"), 1, 1e11) else None
     out["recording_seconds"] = float(secs) if _number(secs, 0, 1e6) else None
     out["recording_start"] = float(start) if _number(start, 1, 1e11) else None
     out["note"] = note[:200] if isinstance(note, str) and note else None
