@@ -26,6 +26,14 @@ ends, uploads the recording, the player log and the Studio Kit's timeline, then 
 its sync. An ended session's page plays the recording to anyone on the portal, with the
 timeline's events as links into it. Session files are kept session_days, then removed.
 
+Prototypes (vault notes/prototype-lane-plan): a cell's `prototype` job publishes a mechanic as
+one HTML file with everything inside it. The file is an object in the depot; POST
+/v1/prototypes names it (game, issue, revision, a note) and it becomes that issue's next
+version. The portal lists prototypes and shows one in a frame. The file is code an agent wrote
+from an issue's text, so the browser is told to treat it as a stranger: it is served only into
+that frame, with a Content-Security-Policy that sandboxes it without the portal's origin and
+lets it load and call nothing. Kept prototype_days from an issue's newest version.
+
 State on the depot disk (/srv/depot): objects/<ab>/<sha256>, tmp/, and depot.db (SQLite).
 MR builds expire after build_days; an object goes once no build and no session refers to it.
 """
@@ -79,6 +87,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   viewer_seconds INTEGER NOT NULL DEFAULT 0, last_viewer_at TEXT,
   reported INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS sessions_state ON sessions (state);
+-- A prototype: one version of a mechanic's web sketch for an issue, a single HTML file.
+CREATE TABLE IF NOT EXISTS prototypes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game TEXT NOT NULL, issue INTEGER NOT NULL, version INTEGER NOT NULL,
+  title TEXT NOT NULL, note TEXT, revision TEXT NOT NULL,
+  object TEXT NOT NULL REFERENCES objects(sha256), bytes INTEGER NOT NULL,
+  owner TEXT NOT NULL, cell TEXT NOT NULL, job TEXT, issue_url TEXT, at TEXT NOT NULL,
+  UNIQUE (game, issue, version));
 """
 # Columns added after the first schema, added in place to a depot.db that predates them.
 #   builds.catalog         the build's Stage catalogue (JSON), from its manifest
@@ -133,6 +149,8 @@ class Depot:
         self.max_bytes = int(cfg.get("max_object_bytes", 4 << 30))
         self.session_days = int(cfg.get("session_days", 30))
         self.max_session_bytes = int(cfg.get("max_session_file_bytes", 3 << 30))
+        self.prototype_days = int(cfg.get("prototype_days", 90))
+        self.max_prototype_bytes = int(cfg.get("max_prototype_bytes", 15 << 20))
         for d in ("objects", "tmp"):
             os.makedirs(os.path.join(self.root, d), mode=0o750, exist_ok=True)
         self.db_path = os.path.join(self.root, "depot.db")
@@ -238,6 +256,44 @@ class Depot:
                              (m["game"], m["revision"], m["target"], cell)).fetchone()
         return row["id"]
 
+    def add_prototype(self, m, cell, owner):
+        """A prototype's manifest from a cell: the next version for its issue. The owner and
+        cell come from the certificate. Posting the same file for the same revision again
+        gives the version it already has."""
+        for k in ("game", "issue", "revision", "object", "title"):
+            if k not in m:
+                raise BadRequest(f"manifest needs {k}")
+        if not NAME_RE.match(str(m["game"])) or not REV_RE.match(str(m["revision"])):
+            raise BadRequest("bad game or revision")
+        issue = m["issue"]
+        if not isinstance(issue, int) or isinstance(issue, bool) or not 0 < issue < 10 ** 9:
+            raise BadRequest("issue is the issue's number")
+        if not SHA_RE.match(str(m["object"])):
+            raise BadRequest("bad object")
+        if not self.has(m["object"]):
+            raise BadRequest("upload the object first")
+        size = os.path.getsize(self.path(m["object"]))
+        if size > self.max_prototype_bytes:
+            raise BadRequest(f"a prototype is one file of at most {self.max_prototype_bytes} bytes")
+        title, note, url = m["title"], m.get("note"), m.get("issue_url")
+        if not isinstance(title, str) or not title.strip():
+            raise BadRequest("title is text")
+        title = " ".join("".join(c if c.isprintable() else " " for c in title).split())[:200]
+        note = note[:4000] if isinstance(note, str) and note.strip() else None
+        url = url if isinstance(url, str) and re.fullmatch(r"https://[^\s\"'<>]{1,300}", url) else None
+        with self.db() as db:
+            same = db.execute("SELECT version FROM prototypes WHERE game=? AND issue=? AND revision=? AND object=?",
+                              (m["game"], issue, m["revision"], m["object"])).fetchone()
+            if same:
+                return same["version"]
+            v = db.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM prototypes WHERE game=? AND issue=?",
+                           (m["game"], issue)).fetchone()["v"]
+            db.execute("INSERT INTO prototypes (game, issue, version, title, note, revision, object, bytes, owner, "
+                       "cell, job, issue_url, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (m["game"], issue, v, title, note, m["revision"], m["object"], size, owner, cell,
+                        str(m["job"])[:80] if m.get("job") else None, url, iso(now())))
+        return v
+
     def mr_state(self, m, cell):
         """A cell reports an MR's state (opened, merged, closed) for the builds it uploaded."""
         if not NAME_RE.match(str(m.get("game", ""))) or not isinstance(m.get("iid"), int):
@@ -264,8 +320,16 @@ class Depot:
                 (iso(t - dt.timedelta(days=self.session_days)),)).rowcount
             if old:
                 log(f"gc: {old} session(s) past {self.session_days} days let go of their files")
+            # A prototype goes, every version of it, once its newest is older than prototype_days.
+            protos = db.execute(
+                "DELETE FROM prototypes WHERE (game, issue) IN "
+                "(SELECT game, issue FROM prototypes GROUP BY game, issue HAVING MAX(at) < ?)",
+                (iso(t - dt.timedelta(days=self.prototype_days)),)).rowcount
+            if protos:
+                log(f"gc: {protos} prototype version(s) past {self.prototype_days} days removed")
             orphans = [r["sha256"] for r in db.execute(
                 "SELECT sha256 FROM objects WHERE at < ? AND sha256 NOT IN (SELECT object FROM builds) "
+                "AND sha256 NOT IN (SELECT object FROM prototypes) "
                 + "".join(f"AND sha256 NOT IN (SELECT {c} FROM sessions WHERE {c} IS NOT NULL) " for c in SESSION_FILES),
                 (iso(t - dt.timedelta(hours=1)),))]
             for sha in orphans:
@@ -649,6 +713,11 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 url = f"{self.server.cfg['portal_url']}/g/{m['game']}/r/{m['revision']}"
                 log(f"depot: build {bid} {m['game']}@{m['revision'][:10]} {m['target']} from {cn} ({c['owner']})")
                 return self.reply(201, {"id": bid, "url": url})
+            if self.path == "/v1/prototypes":
+                v = depot.add_prototype(data, cn, c["owner"])
+                url = f"{self.server.cfg['portal_url']}/p/{data['game']}/{data['issue']}"
+                log(f"depot: prototype {data['game']}#{data['issue']} v{v} from {cn} ({c['owner']})")
+                return self.reply(201, {"version": v, "url": url})
             if self.path == "/v1/mr-state":
                 return self.reply(200, {"builds": depot.mr_state(data, cn)})
             raise BadRequest("no such path")
@@ -689,7 +758,21 @@ form{{display:inline;margin:0}} button{{font:inherit;padding:2px 14px;border-rad
 background:#1f4f7a;color:#fff;cursor:pointer}} button.end{{background:#5a2a2a;border-color:#8a3a3a}}
 button.stage{{background:#26323d;border-color:#4a5a6a;margin:2px 4px 2px 0}} .new{{color:#ffd166;font-size:12px}}
 td.stage{{padding-top:0;color:#9aa4ae}} video{{width:100%;max-height:70vh;background:#000;border-radius:6px}}
+iframe.proto{{width:100%;height:70vh;border:1px solid #2a323c;border-radius:6px;background:#000}}
+pre.note{{white-space:pre-wrap;font:14px/1.5 system-ui,sans-serif;background:#1a2028;padding:10px 14px;border-radius:6px}}
 </style>{head}</head><body><header><a href="/">Studio</a><span>{who}</span></header><main>{body}</main></body></html>"""
+
+
+# A prototype's file is code an agent wrote, so it gets the tightest answer a browser will
+# honour. "sandbox" without allow-same-origin gives the page an origin of its own that matches
+# nothing: no portal cookies, pages or storage; no forms, pop-ups or leaving the frame. The rest
+# lets it run its own inline script and use what's inside the file, and load or call nothing.
+PROTOTYPE_CSP = ("sandbox allow-scripts allow-pointer-lock; default-src 'none'; script-src 'unsafe-inline'; "
+                 "style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; "
+                 "connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'")
+# The page that frames it: as strict as every other page, plus a frame of the portal's own
+# address. A prototype that sends its frame elsewhere is stopped here.
+FRAME_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-src 'self'"
 
 
 def e(s):
@@ -739,7 +822,7 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             return
         super().log_request(code, size)
 
-    def send(self, code, body, ctype="text/html; charset=utf-8"):
+    def send(self, code, body, ctype="text/html; charset=utf-8", csp=None):
         raw = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -747,12 +830,12 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy",
-                         "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'")
+                         csp or "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'")
         self.end_headers()
         self.wfile.write(raw)
 
-    def page(self, title, body, code=200, head=""):
-        self.send(code, PAGE.format(title=e(title), who=e(self.person), body=body, head=head))
+    def page(self, title, body, code=200, head="", csp=None):
+        self.send(code, PAGE.format(title=e(title), who=e(self.person), body=body, head=head), csp=csp)
 
     def redirect(self, where):
         self.send_response(303)
@@ -792,6 +875,11 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             m = re.fullmatch(r"/s/([0-9a-f]{16})", path)
             if m:
                 return self.session_page(m.group(1))
+            m = re.fullmatch(r"/p/([a-z0-9-]+)/(\d{1,9})(/v(\d{1,6})/frame)?", path)
+            if m and m.group(3):
+                return self.prototype_file(m.group(1), int(m.group(2)), int(m.group(4)))
+            if m:
+                return self.prototype_page(m.group(1), int(m.group(2)))
             m = re.fullmatch(r"/s/([0-9a-f]{16})/(recording\.mp4|player\.log|voice\.ogg)", path)
             if m:
                 return self.session_file(m.group(1), m.group(2))
@@ -1065,6 +1153,67 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
                              f"{mic}<p>{end}</p>", head='<meta http-equiv="refresh" content="2">')
         return self.ended_page(s, sid, what)
 
+    def prototype_file(self, game, issue, version):
+        """The prototype itself, for the frame on its page and nothing else. A browser says what
+        a request is for (Sec-Fetch-Dest); anything but a frame is sent to the page, so the
+        file never runs as a window of its own, where nothing would stop it going elsewhere."""
+        p = self.rows("SELECT * FROM prototypes WHERE game=? AND issue=? AND version=?", (game, issue, version))
+        if not p or not self.server.depot.has(p[0]["object"]):
+            return self.page("Not found", "<h1>No such prototype</h1>", 404)
+        if self.headers.get("Sec-Fetch-Dest") != "iframe":
+            return self.redirect(f"/p/{game}/{issue}?v={version}")
+        path = self.server.depot.path(p[0]["object"])
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(os.path.getsize(path)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy", PROTOTYPE_CSP)
+        self.end_headers()
+        with open(path, "rb") as f:
+            shutil.copyfileobj(f, self.wfile)
+        return None
+
+    def prototype_page(self, game, issue):
+        vs = self.rows("SELECT * FROM prototypes WHERE game=? AND issue=? ORDER BY version DESC", (game, issue))
+        if not vs:
+            return self.page("Not found", f"<h1>{e(game)} #{issue}</h1><p class=dim>No prototype for this issue "
+                             "(yet, or it was removed after its time).</p>", 404)
+        try:
+            want = int(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("v", ["0"])[0])
+        except ValueError:
+            want = 0
+        p = next((x for x in vs if x["version"] == want), vs[0])
+        where = f'<a href="{e(p["issue_url"])}">issue #{issue}</a>' if p["issue_url"] else f"issue #{issue}"
+        older = " · ".join(
+            (f"<b>v{x['version']}</b>" if x["version"] == p["version"]
+             else f'<a href="/p/{e(game)}/{issue}?v={x["version"]}">v{x["version"]}</a>') + f' <span class="dim">{age(x["at"])}</span>'
+            for x in vs)
+        note = f'<pre class="note">{e(p["note"])}</pre>' if p["note"] else ""
+        body = (f'<h1>{e(game)} prototype: {e(p["title"])}</h1>'
+                f'<p>{where} · from cell-{e(p["owner"])} · <code>{e(p["revision"][:10])}</code> · {size(p["bytes"])}</p>'
+                f'<iframe class="proto" sandbox="allow-scripts allow-pointer-lock" allowfullscreen '
+                f'referrerpolicy="no-referrer" src="/p/{e(game)}/{issue}/v{p["version"]}/frame" '
+                f'title="{e(p["title"])}"></iframe>'
+                '<p class=dim>Click inside it to play. A sketch of one mechanic, written by an agent to try an idea: '
+                'it is not the game, and it is shut in its frame, where it can reach nothing. '
+                f"Kept {self.server.depot.prototype_days} days from its newest version.</p>"
+                f"<p>Versions: {older}</p>{note}")
+        return self.page(f"{game} prototype #{issue}", body, csp=FRAME_PAGE_CSP)
+
+    def prototypes_table(self):
+        rows = self.rows("SELECT * FROM prototypes p WHERE version = (SELECT MAX(version) FROM prototypes q "
+                         "WHERE q.game=p.game AND q.issue=p.issue) ORDER BY at DESC LIMIT 100")
+        if not rows:
+            return ""
+        out = ["<h1>Prototypes</h1><table><tr><th>Game</th><th>Prototype</th><th>Version</th><th>From</th><th>Made</th></tr>"]
+        for p in rows:
+            out.append(f'<tr><td>{e(p["game"])}</td><td><a href="/p/{e(p["game"])}/{p["issue"]}">#{p["issue"]} '
+                       f'{e(p["title"])}</a></td><td>v{p["version"]}</td><td>cell-{e(p["owner"])}</td><td>{age(p["at"])}</td></tr>')
+        out.append("</table>")
+        return "".join(out)
+
     def home(self):
         builds = self.rows("SELECT * FROM builds ORDER BY at DESC")
         games = {}
@@ -1093,6 +1242,7 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
                            f'<td><a href="/g/{e(game)}/r/{e(b["revision"])}"><code>{e(b["revision"][:10])}</code></a></td>'
                            f'<td>{gates_cell(b["gates"])}</td><td>{size(b["bytes"])}</td><td>{age(b["at"])}</td></tr>')
             out.append("</table>")
+        out.append(self.prototypes_table())
         self.page("Studio", "".join(out))
 
     @staticmethod
