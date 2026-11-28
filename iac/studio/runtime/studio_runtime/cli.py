@@ -47,6 +47,8 @@ In a job (studio-agentd):
   studio done --summary <file>      finish: the cold gates on your committed HEAD, then the
                                     daemon pushes your branch and opens the MR with the file
                                     as its description; it refuses if the gates fail
+  studio commit -m "<message>"      commit everything in the worktree, when your own sandbox
+                                    keeps .git read-only and `git commit` can't write
   studio done --blocked <file>      stop: you can't complete the task; the file says why
   studio done --review <file>       a review job's notes, posted on the MR
   studio done --prototype <file>    a prototype job's finish: builds the page from your
@@ -168,7 +170,7 @@ def main(argv=None):
         # Local: the bundler runs here, as the caller, in the worktree.
         from . import proto
         return proto.main(args)
-    if verb in ("done", "jobs", "attach", "detach", "vendor"):
+    if verb in ("done", "commit", "jobs", "attach", "detach", "vendor"):
         if verb == "done" and len(args) == 2:
             # Read here, inside the job: its /tmp is private to its unit, so the daemon couldn't.
             try:
