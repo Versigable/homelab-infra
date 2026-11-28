@@ -33,6 +33,8 @@
     owner: root
     group: root
     creates: "/opt/codex/{{ studio_cell_codex_version }}/{{ item.asset }}-x86_64-unknown-linux-musl"
+  # On a first check-mode run of a new version, the directory above isn't there yet.
+  ignore_errors: "{{ ansible_check_mode }}"
   loop: "{{ studio_cell_codex_archives }}"
   loop_control:
     label: "{{ item.asset }}"
