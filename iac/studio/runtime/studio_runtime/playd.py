@@ -32,6 +32,12 @@ wf-recorder records that: the voice is in the recording, in step with the pictur
 recorder (ffmpeg, Opus) writes the microphone's sink alone to its own pipe, for a transcript
 later; that file is kept only if it has sound in it (the microphone was on).
 
+The transcript ("Voice", V2): once a session's files are in the depot, a voice file is written
+down by whisper.cpp in a container of its own image, with no network and no capabilities, on
+the CPU (the GPU is the sessions'). The model is a file the control node put on the Forge. One
+at a time, and under the sessions in CPU weight. The lines go to the depot as JSON and the hub
+hears of them in a later sync.
+
 Clocks: a recorder notes when it's launched, and its file begins about 0.3 s later (measured
 on the Forge with a tone, for both). A recording that was stopped by this daemon, and not cut
 at its size cap, takes its start from the stop time minus its length instead, which agrees to
@@ -74,7 +80,12 @@ REC_DEFAULTS = {"enabled": True, "fps": 30, "cq": 30, "max_bytes": 3 << 30, "aud
                 "uid": 1000, "gid": 1000,
                 # The player's microphone: recorded from this source, to at most this many bytes;
                 # a voice file whose loudest moment is under the floor counts as silence.
-                "voice": True, "voice_source": "input.monitor", "voice_max_bytes": 200 << 20, "voice_floor_db": -50.0}
+                "voice": True, "voice_source": "input.monitor", "voice_max_bytes": 200 << 20, "voice_floor_db": -50.0,
+                "transcribe": False, "transcribe_image": "", "transcribe_model": "", "transcribe_cpus": 6,
+                "transcribe_language": "en", "transcribe_max_seconds": 7200}
+# What whisper.cpp writes for sound that isn't speech: [BLANK_AUDIO], (music), *sigh*.
+NOT_WORDS = re.compile(r"^(?:\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|[\s.,!?-])*$")
+MAX_WHISPER_BYTES = 16 << 20
 
 
 def log(msg):
@@ -102,6 +113,8 @@ class Playd:
         self.recorders = {}       # session id -> the processes reading its recording out of the container
         self.capped = set()       # sessions whose recording ended early (the size cap)
         self.files = {}           # session id -> its files in the depot, until a sync takes them
+        self.transcripts = {}     # session id -> its transcript in the depot, until a sync takes it
+        self.transcribe_lock = threading.Lock()   # one transcription at a time
         self.files_lock = threading.Lock()
         self.rec = {**REC_DEFAULTS, **(cfg.get("record") or {})}
         self.rec_root = os.path.join(self.state, "rec")
@@ -441,7 +454,7 @@ class Playd:
         and the timeline go to the depot, and the next sync tells the hub. The session's
         directory goes once the depot has them; a failure leaves it for the daemon's next start."""
         d = self.rec_dir(sid)
-        files = {}
+        files, voiced = {}, None
         try:
             mkv = os.path.join(d, "rec.mkv")
             if os.path.isfile(mkv) and os.path.getsize(mkv):
@@ -476,7 +489,72 @@ class Playd:
         if files:
             with self.files_lock:
                 self.files[sid] = files
+        # The recording is on the session's page by now. The transcript follows when it's written.
+        if files.get("voice"):
+            try:
+                t0 = time.time()
+                path, lines = self.transcribe(sid, d, voiced)
+                if path:
+                    sha = self.sha256(path)
+                    self.hub.put(path, sha)
+                    with self.files_lock:
+                        self.transcripts[sid] = sha
+                    log(f"{sid}: transcript {sha[:12]} in the depot ({lines} lines, written in {time.time() - t0:.0f} s)")
+            except Exception as e:  # noqa: BLE001 - the session keeps its voice; only the transcript is missing
+                log(f"{sid}: no transcript: {e}")
         shutil.rmtree(d, ignore_errors=True)
+
+    def transcribe(self, sid, d, voiced):
+        """voice.ogg -> transcript.json: {"version": 1, "model": name, "lines": [{"from", "to",
+        "text"}]}, seconds on the voice file's clock. Returns (path, lines), or (None, 0) when
+        the transcriber is off or heard no words."""
+        r = self.rec
+        model, image, lang = r["transcribe_model"], r["transcribe_image"], str(r["transcribe_language"])
+        if not (r["transcribe"] and image and model and os.path.isfile(model)):
+            return None, 0
+        if not re.fullmatch(r"[a-z]{2,3}|auto", lang):
+            raise ValueError(f"transcribe_language {lang!r} isn't a language code")
+        cpus, out = max(int(r["transcribe_cpus"]), 1), os.path.join(d, "out")
+        limit = int(r["transcribe_max_seconds"])
+        name = f"transcribe-{sid}"
+        script = (f"ffmpeg -nostdin -v error -y -i /in/voice.ogg -t {limit} -ar 16000 -ac 1 -c:a pcm_s16le /out/voice.wav "
+                  f"&& whisper-cli -m /model.bin -f /out/voice.wav -t {cpus} -l {lang} -oj -of /out/whisper -np >/dev/null")
+        argv = ["docker", "run", "--rm", "--name", name, "--network", "none", "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges", "--memory", "4g", "--cpus", str(cpus), "--cpu-shares", "128",
+                "--user", f"{r['uid']}:{r['gid']}", "-v", f"{d}/voice.ogg:/in/voice.ogg:ro", "-v", f"{model}:/model.bin:ro",
+                "-v", f"{out}:/out", "--entrypoint", "sh", image, "-c", script]
+        with self.transcribe_lock:
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60, check=False)
+            try:
+                # Around half the voice's length on six cores; four times it is a stuck run.
+                x = subprocess.run(argv, capture_output=True, text=True, check=False,
+                                   timeout=600 + 4 * min(int(voiced or 0), limit))
+            except subprocess.TimeoutExpired:
+                subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60, check=False)
+                raise
+        raw = os.path.join(out, "whisper.json")
+        if x.returncode != 0 or not os.path.isfile(raw):
+            raise RuntimeError((x.stderr.strip() or f"the transcriber exited with {x.returncode}")[-300:])
+        if os.path.getsize(raw) > MAX_WHISPER_BYTES:
+            raise RuntimeError("the transcriber's output is too large to be a transcript")
+        with open(raw, encoding="utf-8", errors="replace") as f:
+            doc = json.load(f)
+        lines = []
+        for seg in doc.get("transcription") or []:
+            off, text = seg.get("offsets") or {}, " ".join(str(seg.get("text") or "").split())
+            if not text or NOT_WORDS.match(text) or len(lines) >= hubmod.MAX_LINES:
+                continue
+            try:
+                a, b = float(off["from"]) / 1000, float(off["to"]) / 1000
+            except (KeyError, TypeError, ValueError):
+                continue
+            lines.append({"from": round(a, 2), "to": round(b, 2), "text": text[:hubmod.MAX_LINE_TEXT]})
+        if not lines:
+            return None, 0
+        path = os.path.join(d, "transcript.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "model": os.path.basename(model), "lines": lines}, f, ensure_ascii=False)
+        return path, len(lines)
 
     @staticmethod
     def stopped_at(d):
@@ -612,7 +690,10 @@ class Playd:
                 self.failed[sid] = f"the play container exited ({info['exit']})\n{self.tail(sid)}"
         collected = dict(self.collected)
         with self.files_lock:
-            files = dict(self.files)
+            files = {k: dict(v) for k, v in self.files.items()}
+            said = dict(self.transcripts)
+        for k, sha in said.items():              # with its session's files, or after them
+            files.setdefault(k, {})["transcript"] = sha
         report = {"running": running, "failed": self.failed, "collected": collected, "files": files}
         want = self.hub.call("POST", "/v1/forge/sync", report, timeout=15)["sessions"]
         self.dead |= set(self.failed)
@@ -622,6 +703,8 @@ class Playd:
         with self.files_lock:
             for sid in files:
                 self.files.pop(sid, None)
+            for sid in said:
+                self.transcripts.pop(sid, None)
         self.want = want
         wanted = {s["id"] for s in want}
         for sid, info in have.items():

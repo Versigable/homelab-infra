@@ -49,7 +49,7 @@ import traceback
 import urllib.parse
 
 from . import VERSION
-from .hub import SHA_RE, catalog_ids, check_catalog, check_files, check_open, check_tweaks, read_timeline
+from .hub import SHA_RE, catalog_ids, check_catalog, check_files, check_open, check_tweaks, read_timeline, read_transcript
 
 CONFIG_FILE = os.environ.get("STUDIO_HUB_CONFIG", "/etc/studio-hub/hub.json")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -95,8 +95,11 @@ COLUMNS = {"builds": [("catalog", "TEXT")],
                         ("files_at", "TEXT"), ("files_note", "TEXT"),
                         # the player's voice, when they turned their microphone on: its own file
                         # (Ogg Opus), and when it began (epoch); the recording's sound has it mixed in
-                        ("voice", "TEXT"), ("voice_start", "REAL")]}
-SESSION_FILES = ("recording", "log", "timeline", "voice")
+                        ("voice", "TEXT"), ("voice_start", "REAL"),
+                        # what the voice says, written on the Forge by a local speech model (JSON
+                        # lines on the voice file's clock); it arrives after the other files
+                        ("transcript", "TEXT")]}
+SESSION_FILES = ("recording", "log", "timeline", "voice", "transcript")
 ACTIVE = ("requested", "starting", "live")
 COLLECT_WAIT = dt.timedelta(seconds=120)   # a play is reported without its tweaks after this
 
@@ -255,8 +258,9 @@ class Depot:
         with self.db() as db:
             gone = db.execute("DELETE FROM builds WHERE expires IS NOT NULL AND expires < ?", (iso(t),)).rowcount
             old = db.execute(
-                "UPDATE sessions SET recording=NULL, log=NULL, timeline=NULL, voice=NULL WHERE ended_at < ? "
-                "AND (recording IS NOT NULL OR log IS NOT NULL OR timeline IS NOT NULL OR voice IS NOT NULL)",
+                "UPDATE sessions SET recording=NULL, log=NULL, timeline=NULL, voice=NULL, transcript=NULL WHERE ended_at < ? "
+                "AND (recording IS NOT NULL OR log IS NOT NULL OR timeline IS NOT NULL OR voice IS NOT NULL "
+                "OR transcript IS NOT NULL)",
                 (iso(t - dt.timedelta(days=self.session_days)),)).rowcount
             if old:
                 log(f"gc: {old} session(s) past {self.session_days} days let go of their files")
@@ -398,22 +402,32 @@ class Broker:
             # the timeline, each an object the Forge has already uploaded. One that isn't in the
             # depot is dropped from the record, never trusted.
             for sid, raw in files.items():
-                s = db.execute("SELECT state, files_at FROM sessions WHERE id=?", (str(sid),)).fetchone()
-                if not s or s["state"] in ACTIVE or s["files_at"]:
+                s = db.execute("SELECT state, files_at, voice, transcript FROM sessions WHERE id=?",
+                               (str(sid),)).fetchone()
+                if not s or s["state"] in ACTIVE:
                     continue
                 f = check_files(raw)
                 if f is None:
                     log(f"broker: {sid}: the Forge's files for it aren't a files report; dropped")
+                    continue
+                if s["files_at"]:
+                    # The one thing that may follow: the voice's transcript, which takes the
+                    # Forge a while to write. Once, and only for a session that has a voice.
+                    if f["transcript"] and s["voice"] and not s["transcript"] and self.depot.has(f["transcript"]):
+                        db.execute("UPDATE sessions SET transcript=? WHERE id=?", (f["transcript"], str(sid)))
+                        log(f"broker: {sid} files: transcript")
                     continue
                 for k in SESSION_FILES:
                     if f[k] and not self.depot.has(f[k]):
                         log(f"broker: {sid}: its {k} {f[k][:12]} isn't in the depot; dropped")
                         f[k] = None
                 db.execute("UPDATE sessions SET recording=?, log=?, timeline=?, recording_seconds=?, "
-                           "recording_start=?, files_note=?, files_at=?, voice=?, voice_start=? WHERE id=?",
+                           "recording_start=?, files_note=?, files_at=?, voice=?, voice_start=?, transcript=? "
+                           "WHERE id=?",
                            (f["recording"], f["log"], f["timeline"], f["recording_seconds"] if f["recording"] else None,
                             f["recording_start"] if f["recording"] else None, f["note"], iso(t),
-                            f["voice"], f["voice_start"] if f["voice"] else None, str(sid)))
+                            f["voice"], f["voice_start"] if f["voice"] else None,
+                            f["transcript"] if f["voice"] else None, str(sid)))
                 log(f"broker: {sid} files: " + (", ".join(k for k in SESSION_FILES if f[k]) or "none")
                     + (f" ({f['note']})" if f["note"] else ""))
             for sid, st in running.items():
@@ -475,7 +489,7 @@ class Broker:
         for s in rows:
             p = {k: s[k] for k in ("id", "game", "revision", "project_id", "mr_iid", "person", "viewer_seconds", "at",
                                    "ended_at", "end_reason", "recording", "recording_seconds", "recording_start",
-                                   "log", "timeline", "voice", "voice_start")}
+                                   "log", "timeline", "voice", "voice_start", "transcript")}
             p["open"] = s["open_target"] or "game"
             p["tweaks"] = json.loads(s["tweaks"]) if s["tweaks"] else None
             p["note"] = s["files_note"]
@@ -485,8 +499,8 @@ class Broker:
     def session_file_of(self, cell, sha):
         """Is this object a file of a session of one of the cell's builds?"""
         with self.depot.db() as db:
-            return bool(db.execute("SELECT 1 FROM sessions WHERE cell=? AND (recording=? OR log=? OR timeline=? OR voice=?) "
-                                   "LIMIT 1", (cell, sha, sha, sha, sha)).fetchone())
+            return bool(db.execute("SELECT 1 FROM sessions WHERE cell=? AND (recording=? OR log=? OR timeline=? OR voice=? "
+                                   "OR transcript=?) LIMIT 1", (cell, sha, sha, sha, sha, sha)).fetchone())
 
     def reported(self, sid, cell):
         with self.depot.db() as db:
@@ -968,6 +982,35 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             out.append(f'<p class=dim>The first 1000 of {len(tl["events"])} events.</p>')
         return "".join(out)
 
+    def transcript_table(self, s, sid):
+        """What the player said, each line a link to its moment in the recording. The words
+        came from a speech model on the Forge, so they're shown as text and nothing more."""
+        if not s["voice"]:
+            return ""
+        if not s["transcript"] or not self.server.depot.has(s["transcript"]):
+            fresh = s["files_at"] and (now() - dt.datetime.fromisoformat(s["files_at"])).total_seconds() < 3 * 3600
+            return ('<p class=dim>The Forge is writing down what was said. It takes about half as long as '
+                    'the talking did; reload to see it.</p>') if fresh else ""
+        with open(self.server.depot.path(s["transcript"]), "rb") as f:
+            tr = read_transcript(f.read())
+        if not tr["lines"]:
+            return ""
+        shift = s["voice_start"] - s["recording_start"] if s["voice_start"] and s["recording_start"] else None
+        out = [f'<h2>What {e(s["person"])} said</h2>'
+               '<p class=dim>Written by a speech model on the Forge, so expect some misheard words. '
+               'A time jumps to that moment.</p><table><tr><th>When</th><th>Said</th></tr>']
+        for ln in tr["lines"][:2000]:
+            at = ln["from"] + shift if shift is not None else None
+            if at is not None and -2 <= at <= (s["recording_seconds"] or 0) and s["recording"]:
+                when = f'<a href="/s/{sid}?t={max(int(at), 0)}">{clock(max(at, 0))}</a>'
+            else:
+                when = f'<span class="dim">{clock(ln["from"])}</span>'
+            out.append(f'<tr><td>{when}</td><td>{e(ln["text"])}</td></tr>')
+        out.append("</table>")
+        if len(tr["lines"]) > 2000:
+            out.append(f'<p class=dim>The first 2000 of {len(tr["lines"])} lines.</p>')
+        return "".join(out)
+
     def ended_page(self, s, sid, what):
         mine = s["person"] == self.person
         err = f'<pre class=dim>{e(s["error"])}</pre>' if s["error"] and mine else ""
@@ -991,6 +1034,7 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             head = '<meta http-equiv="refresh" content="5">'
         else:
             parts.append(f'<p class=dim>No recording{": " + e(s["files_note"]) if s["files_note"] else "."}</p>')
+        parts.append(self.transcript_table(s, sid))
         parts.append(self.timeline_table(s, sid))
         if s["log"]:
             parts.append(f'<p><a href="/s/{sid}/player.log">The player log</a></p>')

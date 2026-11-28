@@ -213,6 +213,12 @@
   loop_control:
     label: "{{ item.id }}"
 
+# --- The transcriber (forge-playd runs it on a session's voice) -----------------------------
+
+- name: The transcriber
+  ansible.builtin.import_tasks: transcribe.yml
+  when: forge_play_transcribe | bool
+
 # --- Sessions on demand (forge-playd, step 2b-1b) -------------------------------------------
 
 - name: Play sessions from the hub's broker
