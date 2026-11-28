@@ -19,6 +19,11 @@ daemon's own, as the agent account, after the job:
 The vendors are the person's (vendors.py, `studio vendor`): Claude and Codex once agent is
 signed in to them, and any agent CLI they add as a command. A `vendor:<name>` label picks one.
 
+An item can list the studio-brain notes its work depends on, under "Read first". The list is
+checked against the cell's copy of the brain at the claim (readfirst.py): an issue naming a
+note that isn't there isn't started. The writer and the reviewer are given the same notes,
+and the result's ledger says when each was last edited and whether it changed under the job.
+
 `studio done` (a job's last verb) asks the broker for the cold gates on the job's committed
 HEAD; the job counts as done only with a passing gate for that exact revision (the ledger).
 Publishing puts that revision's Linux build in the hub's depot, and the MR links it on the
@@ -42,7 +47,7 @@ import threading
 import time
 import traceback
 
-from . import admin, common, proto, vendors, watch
+from . import admin, common, proto, readfirst, vendors, watch
 from . import hub as hubmod
 from .gitlab import GitLab, GitLabError
 
@@ -54,6 +59,9 @@ REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
 # On an issue, beside agent-request: try the idea as a web prototype instead of building it.
 PROTOTYPE = "prototype"
+# How long after an approval a "Read first" note that isn't in the brain copy is waited for,
+# before the item is refused: the copy follows the people's edits within a minute.
+READ_FIRST_GRACE = 120
 # The ledger's line in an MR's description names the job's vendor, model and effort.
 LEDGER_AUTHOR_RE = re.compile(r"(?m)^(\*\*Ledger for `[^`\n]{1,60}`\*\* \(job `[^`\n]{1,80}`), [^\n]*$")
 # Lines a vendor's tool adds to its commits and descriptions to sign them.
@@ -266,6 +274,9 @@ class Agentd:
             log(f"{ref}: void ({void})")
             self.event("void", self.ev_item(kind, item), text=void)
             return
+        reading = self.reading(kind, item, text, approval)
+        if reading is None:
+            return
         ok, why = self.preflight(vendor, unity=jkind != "prototype")
         if not ok:
             log(f"{ref}: waiting ({why})")
@@ -280,19 +291,48 @@ class Agentd:
             "item": {"kind": kind, "project_id": item["project_id"], "iid": item["iid"], "ref": ref,
                      "title": item["title"], "web_url": item["web_url"],
                      "source_branch": item.get("source_branch"), "target_branch": item.get("target_branch")},
-            "approval": approval, "claimed_at": now().isoformat()})
+            "approval": approval, "claimed_at": now().isoformat(),
+            "read_first": reading["notes"], "read_first_missing": reading["missing"]})
         job.save()
         with open(os.path.join(job.dir, "snapshot.md"), "w", encoding="utf-8") as f:
             f.write(text)
         self.gl.relabel(kind, item["project_id"], item["iid"], add=[RUNNING], remove=[REQUEST])
+        listed = (" Its \"Read first\" notes are in the brain: " + ", ".join(readfirst.name(n) for n in reading["notes"]) + "."
+                  if reading["notes"] and kind == "issue" else "")
         self.gl.note(kind, item["project_id"], item["iid"],
                      f"Claimed by `cell-{self.cfg['owner']}`: job `{jid}` ({jkind}, {vendor}). "
                      f"Approved by @{approval['by']}{self.desk_text(approval)} at {approval['at']}; the job sees "
-                     "this item as it stood then.")
+                     "this item as it stood then." + listed)
         log(f"{ref}: claimed as {jid} ({jkind}, {vendor})")
         self.event("claimed", job["item"], job=job,
                    text=f"{jkind}, approved by {approval['by']}{self.desk_text(approval)}")
         self.start(job)
+
+    def reading(self, kind, item, text, approval):
+        """The item's "Read first" list against this cell's copy of the brain (readfirst):
+        {"notes": the notes found, "missing": what else was named}, or None when the item
+        isn't to be started now. An issue whose list can't be followed isn't started, and its
+        person is told what's wrong with it. A review runs whatever it finds; its reviewer is
+        told what was named and isn't there. The cell's own comments never add to a list."""
+        ref = item["references"]["full"]
+        d = (self.cfg.get("brain") or {}).get("dir")
+        try:
+            got = readfirst.check(d, readfirst.people_text(text, skip=(self.cfg.get("gitlab_agent"),)))
+        except Exception:  # noqa: BLE001 - a list that can't be checked never holds the queue up
+            log(f"{ref}: its \"Read first\" list wasn't checked:\n" + traceback.format_exc())
+            return {"notes": [], "missing": []}
+        if not got["problems"] or kind != "issue":
+            return {"notes": got["notes"], "missing": [p["ref"] for p in got["problems"] if p.get("ref")]}
+        # The copy can be a moment behind an edit made just before the approval: wait for it.
+        if all(p.get("wait") for p in got["problems"]) and (now() - ts(approval["at"])).total_seconds() < READ_FIRST_GRACE:
+            log(f"{ref}: waiting (a \"Read first\" note isn't in the brain copy yet)")
+            return None
+        why = "its \"Read first\" list can't be followed: " + "; ".join(readfirst.problem(p) for p in got["problems"][:4])
+        self.gl.relabel(kind, item["project_id"], item["iid"], add=[BLOCKED], remove=[REQUEST])
+        self.gl.note(kind, item["project_id"], item["iid"], readfirst.refusal(got["problems"]))
+        log(f"{ref}: refused ({why})")
+        self.event("refused", self.ev_item(kind, item), text=why)
+        return None
 
     # --- events for studio-slackd -------------------------------------------------------------
 
@@ -633,13 +673,32 @@ class Agentd:
     @staticmethod
     def read_first(job, d):
         """What a job is told about an item's "Read first" section (the brain notes its person
-        says this work depends on; vault notes/prototype-lane-plan, P3). The writer reads them
-        and names the ones it used, which puts them on the MR; the reviewer reads those."""
+        says this work depends on; vault notes/prototype-lane-plan, P3). The cell checked the
+        list when it claimed the item (reading), so a job with one is given the notes by their
+        files, and its review the same ones. A job without one is told the convention."""
+        notes, missing = job.get("read_first") or [], job.get("read_first_missing") or []
+        if job.get("kind") == "review" and (notes or missing):
+            said = []
+            if notes:
+                said.append("The work under review named these notes in the studio brain as required reading, and "
+                            "its writer was told to read them: " + ", ".join(readfirst.place(d, n) for n in notes)
+                            + ". Read them, and check the change against what they say.")
+            for c in job.get("read_first_changed") or []:
+                said.append(f"{readfirst.name(c)} was " + ("removed" if c.get("now") == "gone" else "edited")
+                            + " while the change was being written, so its writer may have read an earlier version.")
+            if missing:
+                said.append("Named as well, and not in the brain now: " + ", ".join(readfirst.name({"ref": m}) for m in missing) + ".")
+            return " ".join(said)
         if job.get("kind") == "review":
             return (f"If the MR's description names notes in the studio brain that the change relied on, or has a "
                     f"\"Read first\" list, those are paths under `{d}` (`#Heading` is one section of a note): read "
                     "them, and check the change against what they say.")
         where = "note for the person" if job.get("kind") == "prototype" else "summary"
+        if notes:
+            return ("The item's \"Read first\" list is required reading, and this cell has checked that each note is "
+                    "there: " + ", ".join(readfirst.place(d, n) for n in notes) + ". Read them before anything else, "
+                    f"as well as the general reading, and name the ones you relied on in your {where}, so the "
+                    "reviewer can check your work against them.")
         return (f"If the item has a \"Read first\" section, the notes it lists are required reading: each is a "
                 f"path under `{d}` (`#Heading` is one section of a note). Read them before anything else, as well "
                 f"as the general reading, and name the ones you relied on in your {where}, so the reviewer reads "
@@ -910,7 +969,8 @@ class Agentd:
                          for s in steps)
         body = (f"{res['text']}\n\n---\n\n**Ledger for `{head[:10]}`** (job `{job.id}`, {self.ran_text(job)})\n\n"
                 f"| Gate (cold) | Result | Tests |\n|---|---|---|\n{rows}\n\n"
-                f"Play evidence: {ledger['play']}.{stage}\n\nCloses {item['ref']}. Approved by @{job['approval']['by']}.")
+                f"Play evidence: {ledger['play']}.{stage}\n\n{self.read_ledger(job)}"
+                f"Closes {item['ref']}. Approved by @{job['approval']['by']}.")
         mr = self.gl.mr_for_branch(pid, job["branch"])
         if mr:
             self.gl.update_mr(pid, mr["iid"], description=body)
@@ -921,7 +981,8 @@ class Agentd:
         self.gl.status(pid, head, "success", "studio/gates", "cold gates passed on cell-" + self.cfg["owner"],
                        target_url=dep.get("url"))
         self.gl.relabel("issue", pid, item["iid"], add=[REVIEW], remove=[RUNNING])
-        self.gl.note("issue", pid, item["iid"], f"Done: {mr['web_url']} (gates passed on `{head[:10]}`).")
+        self.gl.note("issue", pid, item["iid"],
+                     f"Done: {mr['web_url']} (gates passed on `{head[:10]}`), by {self.ran_text(job)}.")
         job.set(state="done", mr=mr["iid"], mr_url=mr["web_url"], finished_at=now().isoformat())
         log(f"{job.id}: published {mr['web_url']}")
         self.event("done", item, job=job, mr=self.mr_ref(mr, job["game"]), play_url=dep.get("url"),
@@ -935,6 +996,19 @@ class Agentd:
                 log(f"{job.id}: manifest not taken yet ({e}); the next poll retries")
         if self.a.get("review_after_implement", True):
             self.queue_review(job, mr)
+
+    def read_ledger(self, job):
+        """A result's record of its job's required reading: each note the item named and when
+        it was last edited, as the cell found it at the claim, and any that changed since."""
+        notes = job.get("read_first") or []
+        try:
+            moved = readfirst.changed((self.cfg.get("brain") or {}).get("dir"), notes)
+            if moved:
+                job.set(read_first_changed=moved)
+            return readfirst.ledger(notes, moved)
+        except Exception:  # noqa: BLE001 - the work is published whatever happens to this record
+            log(f"{job.id}: the \"Read first\" record wasn't written:\n" + traceback.format_exc())
+            return ""
 
     def publish_prototype(self, job, res):
         """The branch to GitLab, the built page to the depot as the issue's next version, and
@@ -956,7 +1030,7 @@ class Agentd:
         url, v = got["url"], got["version"]
         self.gl.relabel("issue", pid, item["iid"], add=[REVIEW], remove=[RUNNING])
         self.gl.note("issue", pid, item["iid"],
-                     f"**Prototype v{v}: {url}**\n\n{res['text']}\n\n---\n\n"
+                     f"**Prototype v{v}: {url}**\n\n{res['text']}\n\n---\n\n{self.read_ledger(job)}"
                      f"Play it in your browser; the sliders change its numbers as you play, and the line of text "
                      f"under them is the tuning, to paste here. To change it, comment and add `{REQUEST}` again. "
                      f"Its code is on branch `{job['branch']}` (`{head[:10]}`, job `{job.id}`, {self.ran_text(job)}); "
@@ -1141,7 +1215,9 @@ class Agentd:
                        "item": {"kind": "mr", "project_id": mr["project_id"], "iid": mr["iid"],
                                 "ref": mr["references"]["full"], "title": mr["title"], "web_url": mr["web_url"],
                                 "source_branch": mr["source_branch"], "target_branch": mr["target_branch"]},
-                       "approval": job["approval"], "claimed_at": now().isoformat(), "after": job.id})
+                       "approval": job["approval"], "claimed_at": now().isoformat(), "after": job.id,
+                       "read_first": job.get("read_first") or [], "read_first_missing": [],
+                       "read_first_changed": job.get("read_first_changed") or []})
         rj.save()
         with open(os.path.join(rj.dir, "snapshot.md"), "w", encoding="utf-8") as f:
             # The description was written a moment ago by publish(), ledger and all: the
