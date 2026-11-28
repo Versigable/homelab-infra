@@ -22,6 +22,7 @@ portal; each poll then hands the hub any manifest it hasn't taken and the state 
 """
 
 import datetime as dt
+import grp
 import json
 import os
 import pwd
@@ -37,7 +38,7 @@ import threading
 import time
 import traceback
 
-from . import admin, common, vendors
+from . import admin, common, vendors, watch
 from . import hub as hubmod
 from .gitlab import GitLab, GitLabError
 
@@ -501,6 +502,9 @@ class Agentd:
                     f"approved by @{job['approval']['by']}. The item, as it stood when approved:\n\n{snap}\n\n"
                     f"You are in a git worktree of the game on branch `{branch}`. Read AGENTS.md first and "
                     "follow it. Use `studio` for everything Unity (compile, test, capture, gate, docs). "
+                    "People's play sessions of this game's builds are recorded: `studio watch` lists them, and "
+                    "when the item or a comment points at a session or a moment in one, `studio watch <id>` "
+                    "shows you what happened and lets you look at that moment. "
                     "Commit your work on this branch as you go; don't push (the daemon does). When the work "
                     "is complete and committed, run `studio done --summary <file>`, where the file holds a "
                     "short MR description: what changed, how it was tested, what to look at when playing. "
@@ -934,6 +938,8 @@ class Agentd:
             where = f" on the Stage: **{md_text(name)}** (`{o[6:]}`)" if name else f" on the Stage: `{o[6:]}`"
         text = (f"**Played** by {p['person']} for {mins} min{where} on `{p['revision'][:10]}` "
                 f"(session `{p['id']}` on the Forge, ended: {p['end_reason']}). [The build]({url})")
+        if getattr(self, "hub", None):
+            text += f" · [The recording]({self.hub.portal}/s/{p['id']}) (agents: `studio watch {p['id']}`)"
         tweaks = (hubmod.check_tweaks(p.get("tweaks")) or {}).get("assets") or []
         if not tweaks:
             return text
@@ -1028,6 +1034,37 @@ class Agentd:
 
     def v_done(self, caller, args, out):
         return self.done(self.job_of(caller), args, out)
+
+    def v_watch(self, caller, args, out):
+        """`studio watch`: the recorded play sessions of this cell's builds of the caller's game.
+        No argument (or --mr N) lists them; a session id fetches its files where jobs can read
+        them and answers with what happened, as text. Pictures are cut by the CLI, as the caller."""
+        wt = common.worktree_of(caller)
+        if not self.hub:
+            raise ValueError("this cell has no hub certificate yet")
+        sid, mr, it = None, None, iter(args)
+        for a in it:
+            if a == "--mr":
+                mr = next(it, "")
+                if not mr.isdigit():
+                    raise ValueError("--mr takes the MR's number")
+            elif watch.SID_RE.match(a) and sid is None:
+                sid = a
+            else:
+                raise ValueError("usage: studio watch [--mr N] | studio watch <session> [--from T --to T | --at T]")
+        path = f"/v1/sessions?game={wt.game}" + (f"&mr={mr}" if mr and not sid else "")
+        sessions = self.hub.call("GET", path, timeout=30) or []
+        if not sid:
+            return {"game": wt.game, "sessions": [watch.summary(s) for s in sessions],
+                    "next": "studio watch <id>: what happened in that session, and how to see moments of it"}
+        s = next((x for x in sessions if x["id"] == sid), None)
+        if not s:
+            raise ValueError(f"no session {sid} of this cell's builds of {wt.game} (`studio watch` lists them)")
+        if any(s.get(k) for k in ("recording", "log", "timeline")):
+            out("fetching the session's files from the depot")
+        watch.trim()
+        paths = watch.fetch(self.hub, s, grp.getgrnam(self.cfg["work_group"]).gr_gid)
+        return watch.read_text(s, paths)
 
     def v_jobs(self, caller, args, out):
         return [{"id": j.id, "kind": j["kind"], "vendor": j["vendor"], "state": j["state"],
