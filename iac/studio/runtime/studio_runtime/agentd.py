@@ -10,7 +10,8 @@ daemon's own, as the agent account, after the job:
 
   implement   issue -> branch agent/<iid>, MR, gate status, ledger, then a review job
   review      MR -> review notes from the next vendor in the person's order, or, on a cell
-              with one vendor, from a fresh session of the same one
+              with one vendor, from a fresh session of the same one. A reviewer isn't shown
+              who or what wrote the change (blind_text, blind_history)
   prototype   issue labelled `prototype` -> branch proto/<iid>, a small web page of the one
               mechanic (proto.py), on the portal; no Unity, no gates, no MR. The issue gets
               the link, and the person's comments and another approval make the next version
@@ -53,6 +54,10 @@ REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
 # On an issue, beside agent-request: try the idea as a web prototype instead of building it.
 PROTOTYPE = "prototype"
+# The ledger's line in an MR's description names the job's vendor, model and effort.
+LEDGER_AUTHOR_RE = re.compile(r"(?m)^(\*\*Ledger for `[^`\n]{1,60}`\*\* \(job `[^`\n]{1,80}`), [^\n]*$")
+# Lines a vendor's tool adds to its commits and descriptions to sign them.
+SIGNATURE_RE = re.compile(r"(?mi)^[ \t>]*(co-authored-by:.*|(?:\U0001F916\s*)?generated (?:with|by) \[?(?:claude|codex|openai|chatgpt|gpt|gemini|copilot|cursor)\b.*)$\n?")
 PROTOTYPE_COLOR = "#1F75CB"
 # An added vendor's command, for its job's process to read (root:agent 0640, one per job).
 VENDOR_RUN_DIR = os.path.join(os.path.dirname(common.RUN_DIR), "studio-jobs")
@@ -76,6 +81,13 @@ def ts(s):
 
 def log(msg):
     print(msg, flush=True)
+
+
+def blind_text(text):
+    """An MR's text as a reviewer is shown it: without the ledger's note of which vendor, model
+    and effort did the work, and without the lines a vendor's tool signs its work with. A
+    reviewer should judge the change, not its author."""
+    return SIGNATURE_RE.sub("", LEDGER_AUTHOR_RE.sub(r"\1)", text or ""))
 
 
 def md_text(s):
@@ -232,7 +244,8 @@ class Agentd:
         lines = [f"# {item['title']}", "", item.get("description") or "(no description)", ""]
         for n in notes:
             lines += [f"--- comment by {n['author']['username']} at {n['created_at']}", n["body"], ""]
-        return "\n".join(lines), void
+        text = "\n".join(lines)
+        return (blind_text(text) if kind == "mr" else text), void
 
     def claim(self, kind, item, approval):
         ref = item["references"]["full"]
@@ -453,6 +466,8 @@ class Agentd:
             # Where the branch stood on GitLab as the job began ("" = it didn't exist): the push's
             # lease. Kept in the journal, which the job can't touch.
             job.set(lease=self.remote_head(wt, branch))
+            if job["kind"] == "review":
+                self.blind_history(job, wt, branch)
             with open(os.path.join(job.dir, "prompt.md"), "w", encoding="utf-8") as f:
                 f.write(self.prompt(job, branch))
         home = pwd.getpwnam(self.cfg["agent_user"]).pw_dir
@@ -507,6 +522,38 @@ class Agentd:
         subprocess.run(argv, check=True)
         job.set(state="running", branch=branch, worktree=wt, started_at=now().isoformat(), resume=False)
         log(f"{job.id}: started ({job['vendor']} {job['kind']} on {branch})")
+
+    def blind_history(self, job, wt, branch):
+        """A review job's worktree shows the change as one commit with no author to read: the
+        branch's own commits carry their writer's name (Claude signs each with a
+        Co-Authored-By line). The files are untouched and `git diff origin/<target>...HEAD` is
+        the same change; only this clone's history is folded, as agent. The real branch on
+        GitLab keeps every commit and line, and a review job never pushes (push). If the
+        folding can't be done the review still runs, on the branch as it is."""
+        agent, target = self.cfg["agent_user"], job["item"].get("target_branch")
+        g = ["git", "-C", wt, "-c", "core.hooksPath=/dev/null"]
+        who = {"GIT_AUTHOR_NAME": "studio", "GIT_AUTHOR_EMAIL": "studio@studio.invalid",
+               "GIT_COMMITTER_NAME": "studio", "GIT_COMMITTER_EMAIL": "studio@studio.invalid"}
+
+        def git(*a):
+            r = common.run_as(agent, g + list(a), env=who, timeout=120)
+            if r.returncode != 0:
+                raise RuntimeError(f"git {a[0]}: {(r.stderr or r.stdout).strip()[-300:]}")
+            return r.stdout.strip()
+
+        try:
+            if not target:
+                raise RuntimeError("the MR names no target branch")
+            base = git("merge-base", "HEAD", f"refs/remotes/origin/{target}")
+            folded = git("commit-tree", "HEAD^{tree}", "-p", base, "-m",
+                         "The change under review (its history is left out of a review's worktree)")
+            git("update-ref", f"refs/heads/{branch}", folded)
+            git("update-ref", "-d", f"refs/remotes/origin/{branch}")
+            git("reflog", "expire", "--expire=now", "--all")
+            job.set(blind=True)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            log(f"{job.id}: the review's worktree keeps the branch's history ({e})")
+            job.set(blind=False)
 
     def prompt(self, job, branch):
         with open(os.path.join(job.dir, "snapshot.md"), encoding="utf-8") as f:
@@ -564,7 +611,9 @@ class Agentd:
                 "and run `studio done --review <file>`. Open it with a sentence or two giving your verdict. "
                 "Give each finding a line of its own that starts with its severity in brackets, `[P1]` for "
                 "what must be fixed down to `[P3]` for what's minor, then a short title, with the details "
-                "under it: the people's chat shows the verdict and those titles." + brain)
+                "under it: the people's chat shows the verdict and those titles. Who or what wrote this "
+                "change is left out on purpose: its description has no author, and the branch is one commit "
+                "here. Judge the change itself, and point at files and lines rather than commits." + brain)
 
     def brain_note(self, job):
         """Where the studio brain's read-only copy is (studio-brain-sync), if this cell has one."""
@@ -782,6 +831,8 @@ class Agentd:
         approval on the same issue) moves on from its MR's head, but nobody else's push in the
         meantime is ever overwritten. A bare --force-with-lease can't do this: pushing to a
         URL, git has no remote-tracking ref to compare, and refuses any branch that exists."""
+        if job["kind"] == "review":
+            return None                       # a review changes nothing; its worktree's history is folded
         wt = job["worktree"]
         ahead = subprocess.run(["git", "-C", wt, "rev-list", "--count", "origin/HEAD..HEAD"],
                                capture_output=True, text=True).stdout.strip()
@@ -808,7 +859,7 @@ class Agentd:
     def unpushed(self, job):
         """A failed job whose commits never reached GitLab: its worktree is kept, for republish."""
         wt = job.get("worktree")
-        if job.get("state") != "failed" or not wt or not os.path.isdir(wt):
+        if job.get("state") != "failed" or job.get("kind") == "review" or not wt or not os.path.isdir(wt):
             return False
         head = subprocess.run(["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         if not head or head == job.get("pushed"):
@@ -1078,7 +1129,9 @@ class Agentd:
                        "approval": job["approval"], "claimed_at": now().isoformat(), "after": job.id})
         rj.save()
         with open(os.path.join(rj.dir, "snapshot.md"), "w", encoding="utf-8") as f:
-            f.write(f"# {mr['title']}\n\n{mr.get('description') or ''}\n")
+            # The description was written a moment ago by publish(), ledger and all: the
+            # reviewer gets it without who did the work.
+            f.write(blind_text(f"# {mr['title']}\n\n{mr.get('description') or ''}\n"))
         self.gl.relabel("mr", mr["project_id"], mr["iid"], add=[RUNNING])
         log(f"{jid}: review queued ({vendor})")
 
