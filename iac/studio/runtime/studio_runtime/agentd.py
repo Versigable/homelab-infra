@@ -494,6 +494,13 @@ class Agentd:
                  "--property=KillMode=control-group", "--property=TimeoutStopSec=30",
                  f"--property=StandardOutput=file:{job.dir}/stream.jsonl",
                  f"--property=StandardError=file:{job.dir}/stderr.log"]
+        # The model and effort the person set for this vendor (`studio vendor set`), if any.
+        asked = self.vendors.settings(job["vendor"]) if job["vendor"] in vendors.BUILTIN else {}
+        if asked.get("model"):
+            env["STUDIO_MODEL"] = asked["model"]
+        if asked.get("effort"):
+            env["STUDIO_EFFORT"] = asked["effort"]
+        job.set(asked=asked)
         argv += [f"--setenv={k}={v}" for k, v in env.items()]
         argv += ["--", JOB_RUN, job["vendor"], job["kind"]]
         subprocess.run(["systemctl", "reset-failed", job.unit], capture_output=True, check=False)
@@ -608,7 +615,7 @@ class Agentd:
     def scan_stream(self, job):
         """Session id and the vendor's usage from the job's event stream."""
         path = os.path.join(job.dir, "stream.jsonl")
-        sid, rli, final, plain = None, None, None, []
+        sid, rli, final, plain, model = None, None, None, [], None
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 for line in f:
@@ -620,6 +627,8 @@ class Agentd:
                     if not isinstance(e, dict):
                         continue
                     sid = e.get("session_id") or e.get("thread_id") or sid
+                    if e.get("type") == "system" and e.get("subtype") == "init" and isinstance(e.get("model"), str):
+                        model = e["model"][:80]             # Claude says which model it runs
                     if e.get("type") == "rate_limit_event":
                         rli = e.get("rate_limit_info") or rli
                     if e.get("type") == "result":
@@ -631,7 +640,18 @@ class Agentd:
             pass
         if final is None and plain:
             final = "".join(plain)
-        job.set(session_id=sid, rate_limit_info=rli, final_message=(final or "")[-20000:])
+        job.set(session_id=sid, rate_limit_info=rli, final_message=(final or "")[-20000:],
+                ran=self.vendors.ran(job["vendor"], model, sid) if job.get("vendor") else None)
+
+    @staticmethod
+    def ran_text(job):
+        """Who did a job's work, for its result: "claude (claude-opus-5-5, effort xhigh)". The
+        effort says where it came from unless the person set it for the cell."""
+        ran = job.get("ran") or {}
+        parts = [ran["model"]] if ran.get("model") else []
+        if ran.get("effort"):
+            parts.append(f"effort {ran['effort']}" + (f", {ran['effort_from']}" if ran.get("effort_from") not in (None, "set") else ""))
+        return job["vendor"] + (f" ({', '.join(parts)})" if parts else "")
 
     # --- studio done -----------------------------------------------------------------------------
 
@@ -712,13 +732,13 @@ class Agentd:
                 self.push(job)
                 self.gl.relabel(item["kind"], item["project_id"], item["iid"], add=[BLOCKED], remove=[RUNNING])
                 self.gl.note(item["kind"], item["project_id"], item["iid"],
-                             f"Blocked (job `{job.id}`):\n\n{res['text']}")
+                             f"Blocked (job `{job.id}`, {self.ran_text(job)}):\n\n{res['text']}")
                 job.set(state="blocked", finished_at=now().isoformat())
                 self.event("blocked", item, job=job, text=res["text"])
             elif job["kind"] == "review" and res.get("kind") == "review":
                 fresh = "; a fresh session, not the one that wrote the change" if job.get("same_vendor") else ""
                 note = self.gl.note("mr", item["project_id"], item["iid"],
-                                    f"**Review by {job['vendor']}** (job `{job.id}`{fresh})\n\n{res['text']}")
+                                    f"**Review by {self.ran_text(job)}** (job `{job.id}`{fresh})\n\n{res['text']}")
                 self.gl.relabel("mr", item["project_id"], item["iid"], add=[REVIEW], remove=[RUNNING])
                 job.set(state="done", finished_at=now().isoformat())
                 # The builds channel shows the review's opening words and its findings' titles,
@@ -822,7 +842,7 @@ class Agentd:
         rows = "\n".join(f"| {s['step']} | {'passed' if s.get('passed') else 'FAILED'} | "
                          f"{(s.get('tests') or {}).get('passed', '')}/{(s.get('tests') or {}).get('total', '')} |"
                          for s in steps)
-        body = (f"{res['text']}\n\n---\n\n**Ledger for `{head[:10]}`** (job `{job.id}`, {job['vendor']})\n\n"
+        body = (f"{res['text']}\n\n---\n\n**Ledger for `{head[:10]}`** (job `{job.id}`, {self.ran_text(job)})\n\n"
                 f"| Gate (cold) | Result | Tests |\n|---|---|---|\n{rows}\n\n"
                 f"Play evidence: {ledger['play']}.{stage}\n\nCloses {item['ref']}. Approved by @{job['approval']['by']}.")
         mr = self.gl.mr_for_branch(pid, job["branch"])
@@ -865,14 +885,15 @@ class Agentd:
         self.hub.put(page, sha)
         got = self.hub.call("POST", "/v1/prototypes", {
             "game": job["game"], "issue": item["iid"], "revision": head, "object": sha, "title": item["title"],
-            "note": res["text"][:4000], "issue_url": item.get("web_url"), "job": job.id})
+            "note": res["text"][:4000], "issue_url": item.get("web_url"), "job": job.id,
+            "made_with": self.ran_text(job)})
         url, v = got["url"], got["version"]
         self.gl.relabel("issue", pid, item["iid"], add=[REVIEW], remove=[RUNNING])
         self.gl.note("issue", pid, item["iid"],
                      f"**Prototype v{v}: {url}**\n\n{res['text']}\n\n---\n\n"
                      f"Play it in your browser; the sliders change its numbers as you play, and the line of text "
                      f"under them is the tuning, to paste here. To change it, comment and add `{REQUEST}` again. "
-                     f"Its code is on branch `{job['branch']}` (`{head[:10]}`, job `{job.id}`, {job['vendor']}); "
+                     f"Its code is on branch `{job['branch']}` (`{head[:10]}`, job `{job.id}`, {self.ran_text(job)}); "
                      "it isn't the game's code and nothing merges it.")
         job.set(state="done", prototype={"version": v, "url": url, "object": sha}, finished_at=now().isoformat())
         log(f"{job.id}: prototype v{v} published {url}")
@@ -1171,7 +1192,8 @@ class Agentd:
 
     def v_jobs(self, caller, args, out):
         return [{"id": j.id, "kind": j["kind"], "vendor": j["vendor"], "state": j["state"],
-                 "item": j["item"]["ref"], "mr": j.get("mr_url"), "session": j.get("session_id")}
+                 "item": j["item"]["ref"], "mr": j.get("mr_url"), "session": j.get("session_id"),
+                 "ran": j.get("ran")}
                 for j in Job.all()[-20:]]
 
     def v_attach(self, caller, args, out):
@@ -1202,7 +1224,8 @@ class Agentd:
 
     def v_vendor(self, caller, args, out):
         """studio vendor [list] | add <name> [-- <command...>] | resume <name> -- <command...> |
-        remove <name> | order <name>...: the AI vendors this cell's jobs may run. Changes are the
+        remove <name> | order <name>... | set <name> [--model M] [--effort E]: the AI vendors this
+        cell's jobs may run, and the model and effort of the built-in ones. Changes are the
         person's: in their own shell, or as agent outside a job; never a job's."""
         sub, rest = (args[0], args[1:]) if args else ("list", [])
         if sub == "list":
@@ -1228,9 +1251,16 @@ class Agentd:
             self.vendors.remove(name)
         elif sub == "order":
             self.vendors.reorder(rest)
+        elif sub == "set":
+            opts = dict(zip(rest[1::2], rest[2::2]))
+            if len(rest) not in (3, 5) or not set(opts) <= {"--model", "--effort"}:
+                raise ValueError("usage: studio vendor set <claude|codex> [--model <name>|default] [--effort <level>|default]")
+            self.vendors.set(name, opts.get("--model"), opts.get("--effort"))
+            note.append("new jobs use it; a job that's running keeps what it started with")
         else:
             raise ValueError("usage: studio vendor [list] | add <name> [-- <command...>] | "
-                             "resume <name> -- <command...> | remove <name> | order <name>...")
+                             "resume <name> -- <command...> | remove <name> | order <name>... | "
+                             "set <name> [--model M] [--effort E]")
         log(f"vendors: {caller.user} {sub} {' '.join(rest)[:200]}")
         return {"vendors": self.vendors.describe(fresh=False), **({"note": note} if note else {})}
 

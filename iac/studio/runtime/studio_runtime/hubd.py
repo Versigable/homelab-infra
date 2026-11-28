@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS prototypes (
 #   sessions.recording_seconds, .recording_start   the recording's length, and when it began (epoch)
 #   sessions.files_at      when the Forge named the files; .files_note: why there's no recording
 COLUMNS = {"builds": [("catalog", "TEXT")],
+           # which vendor, model and effort wrote a prototype's version, as its cell says
+           "prototypes": [("made_with", "TEXT")],
            "sessions": [("open_target", "TEXT"), ("tweaks", "TEXT"), ("collected", "INTEGER NOT NULL DEFAULT 0"),
                         ("recording", "TEXT"), ("log", "TEXT"), ("timeline", "TEXT"),
                         ("recording_seconds", "REAL"), ("recording_start", "REAL"),
@@ -280,6 +282,8 @@ class Depot:
             raise BadRequest("title is text")
         title = " ".join("".join(c if c.isprintable() else " " for c in title).split())[:200]
         note = note[:4000] if isinstance(note, str) and note.strip() else None
+        made = m.get("made_with")
+        made = " ".join("".join(c if c.isprintable() else " " for c in made).split())[:120] if isinstance(made, str) else None
         url = url if isinstance(url, str) and re.fullmatch(r"https://[^\s\"'<>]{1,300}", url) else None
         with self.db() as db:
             same = db.execute("SELECT version FROM prototypes WHERE game=? AND issue=? AND revision=? AND object=?",
@@ -289,9 +293,9 @@ class Depot:
             v = db.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM prototypes WHERE game=? AND issue=?",
                            (m["game"], issue)).fetchone()["v"]
             db.execute("INSERT INTO prototypes (game, issue, version, title, note, revision, object, bytes, owner, "
-                       "cell, job, issue_url, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       "cell, job, issue_url, at, made_with) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (m["game"], issue, v, title, note, m["revision"], m["object"], size, owner, cell,
-                        str(m["job"])[:80] if m.get("job") else None, url, iso(now())))
+                        str(m["job"])[:80] if m.get("job") else None, url, iso(now()), made or None))
         return v
 
     def mr_state(self, m, cell):
@@ -1202,7 +1206,8 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
             for x in vs)
         note = f'<pre class="note">{e(p["note"])}</pre>' if p["note"] else ""
         body = (f'<h1>{e(game)} prototype: {e(p["title"])}</h1>'
-                f'<p>{where} · from cell-{e(p["owner"])} · <code>{e(p["revision"][:10])}</code> · {size(p["bytes"])}</p>'
+                f'<p>{where} · from cell-{e(p["owner"])}{" · written by " + e(p["made_with"]) if p["made_with"] else ""} · '
+                f'<code>{e(p["revision"][:10])}</code> · {size(p["bytes"])}</p>'
                 f'<iframe class="proto" sandbox="allow-scripts allow-pointer-lock" allowfullscreen '
                 f'referrerpolicy="no-referrer" src="/p/{e(game)}/{issue}/v{p["version"]}/frame{"#" + tune if tune else ""}" '
                 f'title="{e(p["title"])}"></iframe>'
