@@ -89,6 +89,7 @@ def summary(s):
     return {"id": s["id"], "person": s["person"], "played": s["at"], "minutes": (s.get("viewer_seconds") or 0) // 60,
             "revision": (s.get("revision") or "")[:10], "mr": s.get("mr_iid"), "opened": s.get("open") or "game",
             "recording": clock(s["recording_seconds"]) if s.get("recording") else None,
+            "voice": bool(s.get("voice")),
             **({"note": s["note"]} if s.get("note") else {})}
 
 
@@ -103,7 +104,8 @@ def fetch(hub, s, group, out=None):
         os.chown(p, 0, group)
         os.chmod(p, 0o750)
     paths = {}
-    for key, name in (("recording", "recording.mp4"), ("log", "player.log"), ("timeline", "timeline.jsonl")):
+    for key, name in (("recording", "recording.mp4"), ("log", "player.log"), ("timeline", "timeline.jsonl"),
+                      ("voice", "voice.ogg")):
         sha = s.get(key)
         if not sha or not hubmod.SHA_RE.match(sha):
             continue
