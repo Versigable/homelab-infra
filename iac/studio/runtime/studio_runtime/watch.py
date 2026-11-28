@@ -26,7 +26,8 @@ SID_RE = re.compile(r"^[0-9a-f]{16}$")
 KEEP_DAYS = 7
 # A player log line with -timestamps: 2026-11-27T23:10:02.108Z|0x7fa5a1b7d7c0|text
 LOG_LINE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)Z\|[^|]*\|(.*)$")
-NOTEWORTHY = re.compile(r"error|exception|warning|failed|assert|crash|nullreference|out of memory", re.I)
+# Whole words: Unity lists its GL extensions on one line, GL_KHR_no_error among them.
+NOTEWORTHY = re.compile(r"\b(errors?|\w*exception|warnings?|failed|assert\w*|crash\w*|out of memory)\b", re.I)
 MAX_MOMENTS, MAX_LINE = 200, 300
 FONTS = ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 MAX_FRAMES, STRIP_COLUMNS = 16, 4
@@ -91,10 +92,11 @@ def summary(s):
             **({"note": s["note"]} if s.get("note") else {})}
 
 
-def fetch(hub, s, group):
+def fetch(hub, s, group, out=None):
     """The session's files from the depot into WATCH_ROOT/<game>/<id>/, once each (a file is
     kept under its object's name, so a finished download is never fetched again). Root owns
-    them; the work group reads them. Returns {"recording": path, "log": path, "timeline": path}."""
+    them; the work group reads them. `out` hears once if anything has to be downloaded.
+    Returns {"recording": path, "log": path, "timeline": path}."""
     d = os.path.join(WATCH_ROOT, s["game"], s["id"])
     os.makedirs(d, mode=0o750, exist_ok=True)
     for p in (WATCH_ROOT, os.path.dirname(d), d):
@@ -107,6 +109,9 @@ def fetch(hub, s, group):
             continue
         dest, mark = os.path.join(d, name), os.path.join(d, f".{name}.{sha[:16]}")
         if not (os.path.isfile(dest) and os.path.isfile(mark)):
+            if out:
+                out("fetching the session's files from the depot")
+                out = None
             hub.get(sha, dest)
             open(mark, "w").close()  # noqa: SIM115
         os.chown(dest, 0, group)
