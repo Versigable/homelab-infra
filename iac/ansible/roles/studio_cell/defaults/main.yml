@@ -84,6 +84,28 @@ studio_cell_gitlab_token: >-
 # Where the control node keeps the Codex archive it checks before copying it to cells.
 studio_cell_codex_cache: "{{ lookup('ansible.builtin.env', 'HOME') }}/.cache/homelab-iac/studio-cell"
 
+# The web kit for prototypes (tasks/web.yml): npm packages, pinned by version and checksum,
+# downloaded by the control node into the same cache. esbuild bundles a prototype into one
+# page; three.js is there for a prototype to import. dest is where each is used from, under
+# /opt/studio-web.
+studio_cell_esbuild_version: 0.28.2
+studio_cell_three_version: 0.187.0
+studio_cell_web_kit:
+  - name: esbuild-linux-x64
+    version: "{{ studio_cell_esbuild_version }}"
+    url: "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-{{ studio_cell_esbuild_version }}.tgz"
+    sha256: 9573bb2233aab0f9ea7647d5cca9726113cc1768de61d66b17267f4db84488f6
+    dir: "/opt/studio-web/esbuild-{{ studio_cell_esbuild_version }}"
+    src: /bin/esbuild
+    dest: bin/esbuild
+  - name: three
+    version: "{{ studio_cell_three_version }}"
+    url: "https://registry.npmjs.org/three/-/three-{{ studio_cell_three_version }}.tgz"
+    sha256: ff540832ded0cfe919764d24a3d88f3e2a05f23303f876423e4f893841e90728
+    dir: "/opt/studio-web/three-{{ studio_cell_three_version }}"
+    src: ""
+    dest: node_modules/three
+
 # The studio brain, read-only, as files for the cell's agents (tasks/brain.yml; vault decision
 # 2026-11-15). The cell's CouchDB account is studio-cell-<owner>: lock-studio-brain.py on
 # ServiceHub makes it with the brain's reader role (it reads; the database refuses its writes)

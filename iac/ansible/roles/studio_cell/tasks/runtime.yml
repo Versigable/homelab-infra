@@ -30,6 +30,7 @@
   loop:
     - {src: studio_runtime/, mode: "u=rwX,go=rX"}
     - {src: bin/, mode: "0755"}
+    - {src: web/, mode: "u=rwX,go=rX"}
     - {src: README.md, mode: "0644"}
   notify:
     - Restart studio-unityd

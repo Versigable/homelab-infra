@@ -11,6 +11,9 @@ daemon's own, as the agent account, after the job:
   implement   issue -> branch agent/<iid>, MR, gate status, ledger, then a review job
   review      MR -> review notes from the next vendor in the person's order, or, on a cell
               with one vendor, from a fresh session of the same one
+  prototype   issue labelled `prototype` -> branch proto/<iid>, a small web page of the one
+              mechanic (proto.py), on the portal; no Unity, no gates, no MR. The issue gets
+              the link, and the person's comments and another approval make the next version
 
 The vendors are the person's (vendors.py, `studio vendor`): Claude and Codex once agent is
 signed in to them, and any agent CLI they add as a command. A `vendor:<name>` label picks one.
@@ -38,7 +41,7 @@ import threading
 import time
 import traceback
 
-from . import admin, common, vendors, watch
+from . import admin, common, proto, vendors, watch
 from . import hub as hubmod
 from .gitlab import GitLab, GitLabError
 
@@ -48,6 +51,9 @@ AGENTD_SOCKET = common.AGENTD_SOCKET
 JOBS_DIR = os.path.join(common.STATE_DIR, "jobs")
 REQUEST, RUNNING, REVIEW = "agent-request", "agent-running", "agent-review"
 BLOCKED, FAILED, STOP = "agent-blocked", "agent-failed", "agent-stop"
+# On an issue, beside agent-request: try the idea as a web prototype instead of building it.
+PROTOTYPE = "prototype"
+PROTOTYPE_COLOR = "#1F75CB"
 # An added vendor's command, for its job's process to read (root:agent 0640, one per job).
 VENDOR_RUN_DIR = os.path.join(os.path.dirname(common.RUN_DIR), "studio-jobs")
 # For studio-slackd, the person's desk in Slack (vault decision 2026-11-15): what happens to
@@ -231,7 +237,7 @@ class Agentd:
     def claim(self, kind, item, approval):
         ref = item["references"]["full"]
         game = ref.split("/")[1].split("#")[0].split("!")[0]
-        jkind = "implement" if kind == "issue" else "review"
+        jkind = "review" if kind != "issue" else "prototype" if PROTOTYPE in item.get("labels", []) else "implement"
         vendor, why = self.pick_vendor(jkind, item.get("labels", []))
         if not vendor:
             self.gl.relabel(kind, item["project_id"], item["iid"], add=[BLOCKED], remove=[REQUEST])
@@ -247,7 +253,7 @@ class Agentd:
             log(f"{ref}: void ({void})")
             self.event("void", self.ev_item(kind, item), text=void)
             return
-        ok, why = self.preflight(vendor)
+        ok, why = self.preflight(vendor, unity=jkind != "prototype")
         if not ok:
             log(f"{ref}: waiting ({why})")
             if ref not in self.waiting_refs():
@@ -352,7 +358,7 @@ class Agentd:
         if not have:
             return None, (f"{cell} has no AI vendor yet: sign agent in to Claude or Codex, or add one "
                           "(`studio vendor list`), then approve it again (`agent-request`).")
-        if jkind == "implement":
+        if jkind in ("implement", "prototype"):
             return have[0], None
         return (have[1] if len(have) > 1 else have[0]), None
 
@@ -362,8 +368,9 @@ class Agentd:
 
     # --- preflight ------------------------------------------------------------------------------
 
-    def preflight(self, vendor):
-        """The vendor's last known usage is under this person's ceilings, and Unity is licensed."""
+    def preflight(self, vendor, unity=True):
+        """The vendor's last known usage is under this person's ceilings, and Unity is licensed
+        (a prototype job uses no Unity)."""
         lim = self.limits(vendor)
         ceil = self.a["ceilings"]
         for window, used in lim.get("windows", {}).items():
@@ -371,6 +378,8 @@ class Agentd:
                 return False, f"{vendor} {window} window at {used:.0%}"
         if lim.get("overage"):
             return False, f"{vendor} is drawing on extra usage or credits"
+        if not unity:
+            return True, ""
         r = common.run_as(self.cfg["unity_user"], ["unity", "license", "status", "--format", "json"],
                           env=self.cfg["unity_env"], timeout=60)
         try:
@@ -433,7 +442,7 @@ class Agentd:
 
     def start(self, job):
         item = job["item"]
-        branch = f"agent/{item['iid']}" if job["kind"] == "implement" else item["source_branch"]
+        branch = {"implement": f"agent/{item['iid']}", "prototype": f"proto/{item['iid']}"}.get(job["kind"]) or item["source_branch"]
         wt = job.get("worktree")
         if not (job.get("resume") and wt and os.path.isdir(wt)):
             try:
@@ -497,6 +506,35 @@ class Agentd:
             snap = f.read()
         item = job["item"]
         brain = self.brain_note(job)
+        if job["kind"] == "prototype":
+            return (f"You are this person's agent in a studio cell, working unattended on {item['ref']}, "
+                    f"approved by @{job['approval']['by']}. The item, as it stood when approved:\n\n{snap}\n\n"
+                    "This is a PROTOTYPE job. The person wants to feel one mechanic in their browser in minutes, "
+                    "to decide whether it's worth building. You are not changing the game: don't touch the Unity "
+                    "project, and don't run `studio compile`, `test` or `gate`.\n\n"
+                    f"You are in a git worktree of the game on branch `{branch}`. The prototype is a directory "
+                    f"`prototypes/{item['iid']}-<slug>/` whose entry is `main.js`. If the branch already has one, "
+                    "the person has played it and the comments say what to change: change that one. Otherwise "
+                    "`studio proto new <slug>` makes it, with a starter `main.js` that shows the pattern.\n\n"
+                    "What it is: plain JavaScript modules for a page with one full-window `<canvas id=\"game\">`. "
+                    "Use the 2D canvas, or three.js for 3D (`import * as THREE from 'three'`, and "
+                    "`three/addons/...`); both are on the cell and are bundled in. Images, sounds and shaders "
+                    "are imported from JavaScript (`import img from './hero.png'` gives an address to load). "
+                    "The built page is one file that runs shut in a frame: it can fetch nothing, store nothing "
+                    "and open nothing, so no network calls, no localStorage, no other pages.\n\n"
+                    "How to do it well: build the mechanic the issue asks about and nothing else. Grey boxes and "
+                    "simple shapes; no menus, no title screen, no art. It must be playable the moment it opens, "
+                    "with the controls shown on screen in a line of text. Put EVERY number that changes how it "
+                    "feels (speeds, forces, timings, sizes, counts) on a knob: `import { knobs } from "
+                    "'studio-knobs'`, `const k = knobs({ speed: [6, 0, 20], gravity: 25 })`, then read `k.speed` "
+                    "each frame. The person tunes those sliders while playing, and the numbers they settle on are "
+                    "what this job is for. Keep the rules in plain functions you can check with `node` before you "
+                    "finish (`node --test` works here).\n\n"
+                    "`studio proto build` bundles it and tells you what's wrong if it doesn't bundle. Commit your "
+                    "work on this branch as you go; don't push (the daemon does). When it works and is committed, "
+                    "run `studio done --prototype <file>`, where the file is a short note for the person: what "
+                    "you built, the controls, each knob and what it does, and what to try. If you can't make it, "
+                    "write why to a file and run `studio done --blocked <file>`." + brain)
         if job["kind"] == "implement":
             return (f"You are this person's agent in a studio cell, working unattended on {item['ref']}, "
                     f"approved by @{job['approval']['by']}. The item, as it stood when approved:\n\n{snap}\n\n"
@@ -602,8 +640,11 @@ class Agentd:
         wt = job["worktree"]
         # The CLI sends the file's text (read inside the job, whose /tmp is its own) and path.
         mode, path, text = (args + [None, None, None])[:3]
-        if mode not in ("--summary", "--blocked", "--review") or text is None:
-            raise ValueError("usage: studio done --summary <file> | --blocked <file> | --review <file>")
+        if mode not in ("--summary", "--blocked", "--review", "--prototype") or text is None:
+            raise ValueError("usage: studio done --summary <file> | --blocked <file> | --review <file> | --prototype <file>")
+        if (mode == "--prototype") != (job["kind"] == "prototype") and mode != "--blocked":
+            raise ValueError("a prototype job finishes with `studio done --prototype <file>`" if job["kind"] == "prototype"
+                             else "`--prototype` is for a prototype job (an issue labelled `prototype`)")
         if not text.strip():
             raise ValueError(f"{path} is empty")
         text = text[:20000]
@@ -625,6 +666,14 @@ class Agentd:
         base = subprocess.run(g + ["rev-parse", "origin/HEAD"], capture_output=True, text=True).stdout.strip()
         if head == base:
             raise ValueError("no commits on the branch yet")
+        if mode == "--prototype":
+            # The CLI built the page a moment ago, as the job. It is copied out of the worktree
+            # now, to the job's directory, which the job can't touch: the worktree goes when the
+            # job ends, and what is published is what stood here at this commit.
+            name, size = proto.take(wt, job["item"]["iid"], os.path.join(job.dir, "prototype.html"),
+                                    int(self.a.get("prototype_max_bytes", proto.MAX_BYTES)))
+            job.set(result={"kind": "prototype", "text": text, "revision": head, "dir": name, "bytes": size})
+            return {"done": True, "revision": head, "prototype": name, "bytes": size}
         out(f"running the cold gates (full) on {head[:10]}")
         res = self.broker(["gate", "--worktree", f"{job['game']}/{job.id}", "full"], out)
         if res.get("rc") != 0:
@@ -657,7 +706,9 @@ class Agentd:
                 self.fail(job, job["stop_reason"], label=None)
             elif job["kind"] == "implement" and res.get("kind") == "summary":
                 self.publish(job, res)
-            elif job["kind"] == "implement" and res.get("kind") == "blocked":
+            elif job["kind"] == "prototype" and res.get("kind") == "prototype":
+                self.publish_prototype(job, res)
+            elif job["kind"] in ("implement", "prototype") and res.get("kind") == "blocked":
                 self.push(job)
                 self.gl.relabel(item["kind"], item["project_id"], item["iid"], add=[BLOCKED], remove=[RUNNING])
                 self.gl.note(item["kind"], item["project_id"], item["iid"],
@@ -681,7 +732,7 @@ class Agentd:
             else:
                 self.push(job)
                 self.fail(job, "the job ended without `studio done`")
-        except (GitLabError, RuntimeError, subprocess.SubprocessError) as e:
+        except (GitLabError, RuntimeError, subprocess.SubprocessError, hubmod.HubError, OSError, ssl.SSLError) as e:
             log(f"{job.id}: write-back failed: {e}")
             self.fail(job, f"write-back failed: {e}")
         self.cleanup(job)
@@ -798,6 +849,34 @@ class Agentd:
                 log(f"{job.id}: manifest not taken yet ({e}); the next poll retries")
         if self.a.get("review_after_implement", True):
             self.queue_review(job, mr)
+
+    def publish_prototype(self, job, res):
+        """The branch to GitLab, the built page to the depot as the issue's next version, and
+        the link on the issue. No MR: nothing here is meant to merge."""
+        item, pid = job["item"], job["item"]["project_id"]
+        if not self.hub:
+            raise RuntimeError("this cell has no hub settings, so the prototype has nowhere to go")
+        head = self.push(job)
+        if head != res["revision"]:
+            raise RuntimeError(f"HEAD {head} isn't the revision of the built page ({res['revision']}): "
+                               "the job committed after `studio done`")
+        page = os.path.join(job.dir, "prototype.html")
+        sha = hubmod.sha256_file(page)
+        self.hub.put(page, sha)
+        got = self.hub.call("POST", "/v1/prototypes", {
+            "game": job["game"], "issue": item["iid"], "revision": head, "object": sha, "title": item["title"],
+            "note": res["text"][:4000], "issue_url": item.get("web_url"), "job": job.id})
+        url, v = got["url"], got["version"]
+        self.gl.relabel("issue", pid, item["iid"], add=[REVIEW], remove=[RUNNING])
+        self.gl.note("issue", pid, item["iid"],
+                     f"**Prototype v{v}: {url}**\n\n{res['text']}\n\n---\n\n"
+                     f"Play it in your browser; the sliders change its numbers as you play, and the line of text "
+                     f"under them is the tuning, to paste here. To change it, comment and add `{REQUEST}` again. "
+                     f"Its code is on branch `{job['branch']}` (`{head[:10]}`, job `{job.id}`, {job['vendor']}); "
+                     "it isn't the game's code and nothing merges it.")
+        job.set(state="done", prototype={"version": v, "url": url, "object": sha}, finished_at=now().isoformat())
+        log(f"{job.id}: prototype v{v} published {url}")
+        self.event("done", item, job=job, play_url=url, prototype=v, text=res["text"])
 
     # --- the hub's depot and portal ----------------------------------------------------------------
 
@@ -1164,6 +1243,15 @@ class Agentd:
                     except GitLabError as e:
                         if e.status != 409:
                             log(f"labels: couldn't add {vendors.label(n)} to {p['path_with_namespace']}: {e}")
+                if PROTOTYPE not in {lb["name"] for lb in self.gl.labels(p["id"], PROTOTYPE)}:
+                    try:
+                        self.gl.new_label(p["id"], PROTOTYPE, PROTOTYPE_COLOR,
+                                          "With agent-request on an issue: try the idea as a small web prototype "
+                                          "on the portal first (minutes, no Unity), instead of building it.")
+                        log(f"labels: {PROTOTYPE} added to {p['path_with_namespace']}")
+                    except GitLabError as e:
+                        if e.status != 409:
+                            log(f"labels: couldn't add {PROTOTYPE} to {p['path_with_namespace']}: {e}")
         except (GitLabError, OSError) as e:
             log(f"labels: {e}; the next hour retries")
 
