@@ -1,0 +1,81 @@
+# What a player said, written down (vault notes/step-3c-watch-plan, "Voice", V2): whisper.cpp
+# in an image of its own, and its model as a file. Both come through the control node, which
+# downloads and checks them; the Forge itself reaches only Debian's packages.
+
+- name: Tag of the transcribe image (hash of its Dockerfile, the play image and whisper.cpp's source)
+  ansible.builtin.set_fact:
+    forge_play_transcribe_tag: >-
+      {{ (lookup('ansible.builtin.file', 'transcribe-image/Dockerfile') ~ forge_play_image_tag
+          ~ forge_play_whisper_sha256) | hash('sha256') | truncate(12, true, '') }}
+
+- name: Transcriber's downloads, on the control node
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ forge_play_cache }}/{{ item.name }}"
+    checksum: "sha256:{{ item.sha256 }}"
+    mode: "0600"
+  loop:
+    - name: "whisper.cpp-{{ forge_play_whisper_version }}.tar.gz"
+      url: "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/{{ forge_play_whisper_version }}.tar.gz"
+      sha256: "{{ forge_play_whisper_sha256 }}"
+    - name: "{{ forge_play_transcribe_model }}"
+      url: "{{ forge_play_transcribe_model_url }}"
+      sha256: "{{ forge_play_transcribe_model_sha256 }}"
+  loop_control:
+    label: "{{ item.name }}"
+  delegate_to: localhost
+  become: false
+  # Fetching to the control node's cache changes nothing on a host; check mode needs the files.
+  check_mode: false
+  run_once: true
+
+- name: Transcriber's directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ forge_play_root }}/transcribe-image"
+    - "{{ forge_play_transcribe_dir }}"
+
+- name: Transcribe image build context
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ forge_play_root }}/transcribe-image/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - {src: transcribe-image/Dockerfile, dest: Dockerfile}
+    - {src: "{{ forge_play_cache }}/whisper.cpp-{{ forge_play_whisper_version }}.tar.gz", dest: whisper.cpp.tar.gz}
+  loop_control:
+    label: "{{ item.dest }}"
+
+# Read by the transcriber as the sessions' user through a read-only mount.
+- name: The speech model
+  ansible.builtin.copy:
+    src: "{{ forge_play_cache }}/{{ forge_play_transcribe_model }}"
+    dest: "{{ forge_play_transcribe_dir }}/{{ forge_play_transcribe_model }}"
+    mode: "0644"
+
+- name: Is the transcribe image built?
+  ansible.builtin.command: "docker image inspect studio/transcribe:{{ forge_play_transcribe_tag }}"
+  register: forge_play_transcribe_present
+  changed_when: false
+  failed_when: false
+
+- name: Build the transcribe image
+  ansible.builtin.command:
+    argv:
+      - docker
+      - build
+      - --build-arg
+      - "BASE=studio/play:{{ forge_play_image_tag }}"
+      # apt inside the build reaches Debian through Squid (Docker's predefined proxy args).
+      - --build-arg
+      - "http_proxy={{ studio_proxy_url }}"
+      - --build-arg
+      - "https_proxy={{ studio_proxy_url }}"
+      - -t
+      - "studio/transcribe:{{ forge_play_transcribe_tag }}"
+      - "{{ forge_play_root }}/transcribe-image"
+  when: forge_play_transcribe_present.rc != 0
+  changed_when: true

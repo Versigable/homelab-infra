@@ -77,6 +77,12 @@
         cq: "{{ forge_play_record_cq | int }}"
         max_bytes: "{{ forge_play_record_max_bytes | int }}"
         voice: "{{ forge_play_record_voice | bool }}"
+        transcribe: "{{ forge_play_transcribe | bool }}"
+        transcribe_image: "{{ 'studio/transcribe:' ~ forge_play_transcribe_tag if forge_play_transcribe | bool else '' }}"
+        transcribe_model: "{{ forge_play_transcribe_dir }}/{{ forge_play_transcribe_model }}"
+        transcribe_language: "{{ forge_play_transcribe_language }}"
+        transcribe_cpus: "{{ forge_play_transcribe_cpus | int }}"
+        transcribe_max_seconds: "{{ forge_play_transcribe_max_seconds | int }}"
       poll_seconds: 2
   notify: Restart forge-playd
 

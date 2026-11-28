@@ -128,7 +128,7 @@ def check_files(f):
     if not isinstance(f, dict):
         return None
     out = {}
-    for k in ("recording", "log", "timeline", "voice"):
+    for k in ("recording", "log", "timeline", "voice", "transcript"):
         v = f.get(k)
         if v is not None and (not isinstance(v, str) or not SHA_RE.match(v)):
             return None
@@ -139,6 +139,35 @@ def check_files(f):
     out["recording_start"] = float(start) if _number(start, 1, 1e11) else None
     out["note"] = note[:200] if isinstance(note, str) and note else None
     return out
+
+
+MAX_TRANSCRIPT_BYTES, MAX_LINES, MAX_LINE_TEXT = 1 << 20, 5000, 500
+
+
+def read_transcript(raw):
+    """A voice's transcript from its file's bytes: {"model": name or None, "lines": [{"from",
+    "to", "text"}]}, times in seconds on the voice file's clock. The words are whatever a
+    speech model heard a player say, so they're data: short lines of printable text, at most
+    5000 of them, anything else dropped. A file that isn't a transcript gives no lines."""
+    try:
+        doc = json.loads(raw[:MAX_TRANSCRIPT_BYTES].decode("utf-8", errors="replace"))
+    except (ValueError, RecursionError):
+        return {"model": None, "lines": []}
+    if not isinstance(doc, dict) or not isinstance(doc.get("lines"), list):
+        return {"model": None, "lines": []}
+    model, lines = doc.get("model"), []
+    for ln in doc["lines"]:
+        if len(lines) >= MAX_LINES:
+            break
+        if not isinstance(ln, dict) or not _number(ln.get("from"), 0, 1e6) or not _number(ln.get("to"), 0, 1e6):
+            continue
+        text = ln.get("text")
+        if not isinstance(text, str):
+            continue
+        text = " ".join("".join(c if c.isprintable() else " " for c in text).split())[:MAX_LINE_TEXT]
+        if text:
+            lines.append({"from": float(ln["from"]), "to": float(ln["to"]), "text": text})
+    return {"model": model[:80] if isinstance(model, str) and model.isprintable() else None, "lines": lines}
 
 
 def _wall(v):

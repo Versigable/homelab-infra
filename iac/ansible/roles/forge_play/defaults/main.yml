@@ -65,6 +65,22 @@ forge_play_record_max_bytes: 3000000000
 # it on in the stream's side menu), and forge-playd records it apart from the game's sound. A
 # session where it stayed off keeps no voice file.
 forge_play_record_voice: true
+# What the voice says, written down after the session by whisper.cpp on the Forge's CPU, in a
+# container with no network (tasks/transcribe.yml). The control node downloads the source and
+# the model and checks them against these sums. The model is the medium English one, quantised:
+# on a real session it got the words and their times right where the smaller ones didn't, and
+# it takes about half the voice's length on six cores. One transcription runs at a time, under
+# the sessions in CPU weight; a voice longer than max_seconds is written down only that far.
+forge_play_transcribe: true
+forge_play_transcribe_dir: /srv/forge/whisper
+forge_play_whisper_version: v1.9.6
+forge_play_whisper_sha256: 7ab15dc88022d2425ad94dcffd8abbf1b6d7018089b4e48d6b40780738e0b445
+forge_play_transcribe_model: ggml-medium.en-q5_0.bin
+forge_play_transcribe_model_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{{ forge_play_transcribe_model }}"
+forge_play_transcribe_model_sha256: 76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0
+forge_play_transcribe_language: en
+forge_play_transcribe_cpus: 6
+forge_play_transcribe_max_seconds: 7200
 # Unity player flags for every session (as the standing session's). -timestamps puts the time
 # on each line of the player log, which places its lines on the session's recording.
 forge_play_sessions_player_args: -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -force-glcore -timestamps
