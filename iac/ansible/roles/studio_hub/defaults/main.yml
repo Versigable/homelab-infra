@@ -17,6 +17,10 @@ studio_hub_max_object_bytes: 4294967296
 # kept this many days from the session. The Forge may upload nothing larger than this.
 studio_hub_session_days: 30
 studio_hub_max_session_file_bytes: 3221225472
+# A prototype (a cell's `prototype` job: one HTML file, served sandboxed by the portal) is kept
+# this many days from its issue's newest version, and may be no larger than this.
+studio_hub_prototype_days: 90
+studio_hub_max_prototype_bytes: 15728640
 
 # The hub's clients, from the inventory: every cell (with its person, studio_cell_owner) and
 # the Forge. A client is its certificate's name plus this address; a host that leaves the
