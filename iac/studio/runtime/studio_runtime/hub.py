@@ -412,6 +412,14 @@ def gate_summary(gate):
     return {"kind": gate.get("kind"), "passed": bool(gate.get("passed")), "steps": rows}
 
 
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def manifest(game, gate, dep, job=None, mr=None):
     """The build manifest the hub takes (POST /v1/builds). mr is GitLab's MR object."""
     m = {"game": game, "revision": gate["revision"], "target": dep["target"], "object": dep["object"],

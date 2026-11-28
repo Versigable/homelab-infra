@@ -35,6 +35,10 @@ USAGE = """usage: studio <verb> [args]
                                     a filmstrip of that stretch (a PNG path): N frames,
                                     evenly spaced, each stamped with its time
   studio watch <session> --at 4:10  one frame, full size (a PNG path)
+  studio proto new <slug>           start a web prototype of one mechanic: prototypes/<issue>-<slug>/
+                                    with a starter main.js (canvas, keys, knobs)
+  studio proto build [<name>]       bundle it into one page (dist/index.html): your modules,
+                                    three.js if you import it, images and sounds, all inside
   studio docs [--manual] <name>     Unity's docs for the pinned Editor, offline, as text
                                     (studio docs Mathf.Sin; studio docs --manual Prefabs);
                                     a partial name lists the matching pages
@@ -45,6 +49,9 @@ In a job (studio-agentd):
                                     as its description; it refuses if the gates fail
   studio done --blocked <file>      stop: you can't complete the task; the file says why
   studio done --review <file>       a review job's notes, posted on the MR
+  studio done --prototype <file>    a prototype job's finish: builds the page from your
+                                    committed work; the daemon puts it on the portal and
+                                    links it on the issue with the file as its note
 
 For the person (from your own shell):
   studio jobs                       the cell's recent jobs
@@ -157,6 +164,10 @@ def main(argv=None):
         return docs.main(args)
     if verb == "watch":
         return watch_main(args)
+    if verb == "proto":
+        # Local: the bundler runs here, as the caller, in the worktree.
+        from . import proto
+        return proto.main(args)
     if verb in ("done", "jobs", "attach", "detach", "vendor"):
         if verb == "done" and len(args) == 2:
             # Read here, inside the job: its /tmp is private to its unit, so the daemon couldn't.
@@ -166,6 +177,16 @@ def main(argv=None):
             except OSError as e:
                 print(f"studio done: {e}", file=sys.stderr)
                 return 2
+            if args[0] == "--prototype":
+                # The page is built here, as the job, from what's in the worktree; the daemon
+                # then checks the work is committed and takes the built file.
+                from . import proto
+                try:
+                    built = proto.build(proto.toplevel())
+                except (ValueError, RuntimeError, OSError) as e:
+                    print(json.dumps({"error": f"the prototype doesn't build: {e}"}, indent=2))
+                    return 1
+                print(f"studio: built {built['file']} ({built['bytes']} bytes)", file=sys.stderr, flush=True)
             args = [args[0], os.path.abspath(args[1]), text]
         return call(common.AGENTD_SOCKET, verb, args)
     return call(common.UNITYD_SOCKET, verb, args)

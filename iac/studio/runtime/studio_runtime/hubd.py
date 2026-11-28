@@ -759,6 +759,8 @@ background:#1f4f7a;color:#fff;cursor:pointer}} button.end{{background:#5a2a2a;bo
 button.stage{{background:#26323d;border-color:#4a5a6a;margin:2px 4px 2px 0}} .new{{color:#ffd166;font-size:12px}}
 td.stage{{padding-top:0;color:#9aa4ae}} video{{width:100%;max-height:70vh;background:#000;border-radius:6px}}
 iframe.proto{{width:100%;height:70vh;border:1px solid #2a323c;border-radius:6px;background:#000}}
+form.tune{{display:block;margin:8px 0}} form.tune input{{font:13px ui-monospace,monospace;padding:3px 6px;
+background:#0b0e11;color:#e6e6e6;border:1px solid #2a323c;border-radius:4px}}
 pre.note{{white-space:pre-wrap;font:14px/1.5 system-ui,sans-serif;background:#1a2028;padding:10px 14px;border-radius:6px}}
 </style>{head}</head><body><header><a href="/">Studio</a><span>{who}</span></header><main>{body}</main></body></html>"""
 
@@ -772,7 +774,8 @@ PROTOTYPE_CSP = ("sandbox allow-scripts allow-pointer-lock; default-src 'none'; 
                  "connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'")
 # The page that frames it: as strict as every other page, plus a frame of the portal's own
 # address. A prototype that sends its frame elsewhere is stopped here.
-FRAME_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-src 'self'"
+FRAME_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-src 'self'; "
+                  "form-action 'self'")
 
 
 def e(s):
@@ -1185,6 +1188,13 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             want = 0
         p = next((x for x in vs if x["version"] == want), vs[0])
+        # A tuning (the knobs' line of text, speed=7&jump=9.5), pasted into the box below or
+        # carried in a link: it rides after # in the frame's address, where the knobs read it.
+        # Names and numbers only; anything else is dropped whole.
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+        tune = (q.get("k") or [""])[0].strip().replace("&", ",")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,40}=-?[0-9.]{1,20}(,[A-Za-z_][A-Za-z0-9_]{0,40}=-?[0-9.]{1,20}){0,60}", tune):
+            tune = ""
         where = f'<a href="{e(p["issue_url"])}">issue #{issue}</a>' if p["issue_url"] else f"issue #{issue}"
         older = " · ".join(
             (f"<b>v{x['version']}</b>" if x["version"] == p["version"]
@@ -1194,8 +1204,11 @@ class PortalHandler(http.server.BaseHTTPRequestHandler):
         body = (f'<h1>{e(game)} prototype: {e(p["title"])}</h1>'
                 f'<p>{where} · from cell-{e(p["owner"])} · <code>{e(p["revision"][:10])}</code> · {size(p["bytes"])}</p>'
                 f'<iframe class="proto" sandbox="allow-scripts allow-pointer-lock" allowfullscreen '
-                f'referrerpolicy="no-referrer" src="/p/{e(game)}/{issue}/v{p["version"]}/frame" '
+                f'referrerpolicy="no-referrer" src="/p/{e(game)}/{issue}/v{p["version"]}/frame{"#" + tune if tune else ""}" '
                 f'title="{e(p["title"])}"></iframe>'
+                f'<form method="get" action="/p/{e(game)}/{issue}" class="tune"><input type="hidden" name="v" value="{p["version"]}">'
+                f'<input name="k" value="{e(tune)}" placeholder="a tuning, e.g. speed=7,jump=9.5" size="48"> '
+                '<button>Load this tuning</button> <span class="dim">The link then carries it.</span></form>'
                 '<p class=dim>Click inside it to play. A sketch of one mechanic, written by an agent to try an idea: '
                 'it is not the game, and it is shut in its frame, where it can reach nothing. '
                 f"Kept {self.server.depot.prototype_days} days from its newest version.</p>"

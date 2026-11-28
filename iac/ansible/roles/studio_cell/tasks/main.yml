@@ -50,6 +50,9 @@
 - name: Codex
   ansible.builtin.import_tasks: codex.yml
 
+- name: The web kit for prototypes
+  ansible.builtin.import_tasks: web.yml
+
 - name: Unity CLI and Editor
   ansible.builtin.import_tasks: unity.yml
 

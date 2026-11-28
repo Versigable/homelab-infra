@@ -1,0 +1,63 @@
+# The web kit for prototypes (vault notes/prototype-lane-plan; studio_runtime/proto.py): esbuild,
+# which bundles a prototype into one page, and three.js, which a prototype may import. Both are
+# npm packages, pinned; the control node downloads and checks them, so cells need no npm access
+# and nothing is fetched when a prototype is built or played.
+
+- name: Web kit archives, checked, on the control node
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ studio_cell_codex_cache }}/{{ item.name }}-{{ item.version }}.tgz"
+    checksum: "sha256:{{ item.sha256 }}"
+    mode: "0600"
+  loop: "{{ studio_cell_web_kit }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  # Fetching to the control node's cache changes nothing on a host; check mode needs the file.
+  check_mode: false
+
+- name: Web kit directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ ['/opt/studio-web', '/opt/studio-web/bin', '/opt/studio-web/node_modules']
+            + studio_cell_web_kit | map(attribute='dir') | list }}"
+
+# An npm archive holds one directory, package/.
+- name: Web kit unpacked
+  ansible.builtin.unarchive:
+    src: "{{ studio_cell_codex_cache }}/{{ item.name }}-{{ item.version }}.tgz"
+    dest: "{{ item.dir }}"
+    owner: root
+    group: root
+    extra_opts: [--strip-components=1]
+    creates: "{{ item.dir }}/package.json"
+  # On a first check-mode run the directory above isn't there yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  loop: "{{ studio_cell_web_kit }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+
+- name: Web kit in place (the bundler, and three where an import finds it)
+  ansible.builtin.file:
+    src: "{{ item.dir }}{{ item.src }}"
+    dest: "/opt/studio-web/{{ item.dest }}"
+    state: link
+    force: true
+  loop: "{{ studio_cell_web_kit }}"
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: The bundler runs
+  ansible.builtin.command: /opt/studio-web/bin/esbuild --version
+  become: true
+  become_user: agent
+  register: studio_cell_esbuild_check
+  changed_when: false
+  failed_when: studio_cell_esbuild_check.rc != 0
+  when: not ansible_check_mode

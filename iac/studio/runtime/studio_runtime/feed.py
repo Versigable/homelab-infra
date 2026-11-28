@@ -73,6 +73,10 @@ def apply(entry, e):
         entry["state"] = "ready"
         entry["gates"] = e.get("gates") or ""
         entry["play_url"] = e.get("play_url") or ""
+        if e.get("prototype"):
+            entry["prototype"] = int(e["prototype"])
+        else:
+            entry.pop("prototype", None)
         entry.pop("review", None)          # a new revision: the last review and plays were of the old one
         entry.pop("played", None)
     elif kind == "review":
@@ -111,6 +115,8 @@ def head(entry, owner_name):
         parts.append(f"{WORK[state]} on {esc(owner_name)}'s cell" + (f" ({esc(entry['vendor'])})" if entry.get("vendor") else ""))
     elif state == "reviewing":
         parts.append(WORK[state] + (f" ({esc(entry['vendor'])})" if entry.get("vendor") else ""))
+    elif state == "ready" and entry.get("prototype"):
+        parts.append(f":joystick: prototype v{entry['prototype']} ready to try")
     elif state == "ready":
         parts.append(f"{WORK[state]} {mr_mark(mr) if mr else 'MR'} ready"
                      + (" · gates passed" if (entry.get("gates") or "").startswith("passed") else ""))
@@ -127,7 +133,7 @@ def head(entry, owner_name):
     plays = entry.get("played") or {}
     if plays:
         parts.append(":video_game: played by " + ", ".join(f"{esc(p)} ({m} min)" for p, m in plays.items()))
-    elif state == "ready":
+    elif state == "ready" and not entry.get("prototype"):
         parts.append(":video_game: not played yet")
     text = title + ("\n" + " · ".join(parts) if parts else "")
     if entry.get("newer"):
@@ -135,7 +141,8 @@ def head(entry, owner_name):
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     buttons = []
     if entry.get("play_url") and state not in OVER and not entry.get("newer"):
-        b = {"type": "button", "text": {"type": "plain_text", "text": "Play it"}, "url": entry["play_url"],
+        b = {"type": "button", "text": {"type": "plain_text", "text": "Try it" if entry.get("prototype") else "Play it"},
+             "url": entry["play_url"],
              "action_id": "feed_play"}
         if state == "ready" and not plays:
             b["style"] = "primary"
@@ -160,6 +167,10 @@ def reply(e, owner_name, mrkdwn, ping=None):
     if kind == "claimed":
         what = "Review claimed" if item.get("kind") == "mr" else "Claimed"
         return f"{what} by {esc(owner_name)}'s cell ({esc(e.get('vendor') or '?')})"
+    if kind == "done" and e.get("prototype"):
+        return (f":joystick: Prototype v{int(e['prototype'])} ready"
+                + (f": <{e['play_url']}|try it in your browser>" if e.get("play_url") else "")
+                + (f" · <@{ping}>" if ping else ""))
     if kind == "done":
         return (f":package: MR ready: {mlink}" + (f" · gates {esc(e['gates'])}" if e.get("gates") else "")
                 + (f" · <{e['play_url']}|Play it>" if e.get("play_url") else "")
